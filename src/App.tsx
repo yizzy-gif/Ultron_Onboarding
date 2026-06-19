@@ -29,7 +29,7 @@ import type { MobileModuleGroup } from './components/AppShell/MobileShell';
 // icon is its own identity mark (the Circle AgentMark).
 
 const PRIMARY_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
-  { id: 'ultron',   label: 'Ultron',  icon: <AgentMark mark="circle" size={32} tone="light" state="idle" aria-label="Ultron" /> },
+  { id: 'ultron',   label: 'Ultron',  icon: <AgentMark mark="circle" size={32} tone="auto" state="idle" aria-label="Ultron" /> },
   { id: 'home',     label: 'Home',    icon: <HomeIcon /> },
   { id: 'engaged',  label: 'Engaged', icon: <MessageCircleIcon />, hasUnread: true },
   { id: 'inbox',    label: 'Inbox',   icon: <InboxIcon />, hasUnread: true },
@@ -54,16 +54,29 @@ const BOTTOM_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /** Ultron's identity (circle mark + title + live activity) pinned to the top of
- *  the Home secondary nav, above the case groups. */
-const UltronNavCard = styled.div`
+ *  the Home secondary nav, above the case groups. Clickable — returns to the
+ *  Live landing (Ultron's resting presence); highlights while it's the active
+ *  page. */
+const UltronNavCard = styled.button<{ $active: boolean }>`
+  display: block;
+  width: 100%;
   margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: ${p => (p.$active ? 'var(--color-bg-secondary, rgba(70, 108, 255, 0.06))' : 'transparent')};
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast, 120ms) var(--ease-out, ease);
+
+  &:hover { background: var(--color-bg-secondary, rgba(70, 108, 255, 0.06)); }
 `;
 
 // Group icons for the Ultron secondary-nav groups (Needs attention / Live
 // stream / Resolved), keyed by the store group id.
 const HOME_GROUP_ICON: Record<string, React.ReactNode> = {
   needs_attention: <AlertTriangleIcon size={16} />,
-  live:            <AgentMark mark="lines" size={32} tone="light" state="active" />,
+  live:            <AgentMark mark="lines" size={32} tone="auto" state="active" />,
   resolved:        <CheckCircleIcon size={16} />,
 };
 
@@ -99,10 +112,17 @@ export default function App() {
   // Shared Ultron store (threads + grouping + selection) — drives both the
   // sidebar and the main detail view.
   const ultron = useUltronStore();
+  // Live landing — the default page state: Ultron's resting presence (large
+  // Circle mark, no case open). The user lands here; opening any case in the
+  // sidebar leaves it, and clicking the identity returns to it.
+  const [onLive, setOnLive] = useState(true);
   // The feed section follows the selected case: it's derived from that case's
   // current status, so acting on a case (which shifts its status) carries the
-  // view — and the active sidebar group — along with it.
-  const homeSection: UltronSection = ultron.selectedThread
+  // view — and the active sidebar group — along with it. Until the user opens a
+  // case, the page rests on the Live landing.
+  const homeSection: UltronSection = onLive
+    ? 'live'
+    : ultron.selectedThread
     ? STATUS_SECTION[ultron.selectedThread.status]
     : 'new';
 
@@ -176,13 +196,13 @@ export default function App() {
               // mark (orange while unresolved, muted once settled).
               icon: childSection === 'new'
                 ? (t.status === 'analyzing'
-                    ? <AgentMark mark="orbit" size={32} tone="light" state="active" aria-label="Analyzing" />
-                    : <AgentMark mark="pulse" size={32} tone="light" state="active" color="var(--color-orange-content-tertiary)" aria-label="Needs attention" />)
+                    ? <AgentMark mark="orbit" size={32} tone="auto" state="active" aria-label="Analyzing" />
+                    : <AgentMark mark="pulse" size={32} tone="auto" state="active" color="var(--color-orange-content-tertiary)" aria-label="Needs attention" />)
                 : childSection === 'working'
-                ? <AgentMark mark="lines" size={32} tone="light" state={t.status === 'in_progress' ? 'active' : 'idle'} aria-label="Working" />
-                : <AgentMark mark="pulse" size={32} tone="light" state={t.status === 'unresolved' ? 'idle' : 'static'} color={t.status === 'unresolved' ? 'var(--color-orange-content-tertiary)' : ultron.viewedIds.includes(t.id) ? 'var(--color-slate-content-tertiary)' : 'var(--color-green-content-tertiary)'} aria-label="Done" />,
-              isActive: homeView === 'ultron' && homeSection === childSection && ultron.selectedId === t.id,
-              onClick: () => { setHomeView('ultron'); ultron.setSelectedId(t.id); },
+                ? <AgentMark mark="lines" size={32} tone="auto" state={t.status === 'in_progress' ? 'active' : 'idle'} aria-label="Working" />
+                : <AgentMark mark="pulse" size={32} tone="auto" state={t.status === 'unresolved' ? 'idle' : 'static'} color={t.status === 'unresolved' ? 'var(--color-orange-content-tertiary)' : ultron.viewedIds.includes(t.id) ? 'var(--color-slate-content-tertiary)' : 'var(--color-green-content-tertiary)'} aria-label="Done" />,
+              isActive: homeView === 'ultron' && !onLive && homeSection === childSection && ultron.selectedId === t.id,
+              onClick: () => { setHomeView('ultron'); setOnLive(false); ultron.setSelectedId(t.id); },
             })),
           },
         };
@@ -219,7 +239,16 @@ export default function App() {
       // Ultron's identity (circle mark + title + live activity) rides the top of
       // the Home secondary nav as a card, above the case groups.
       menuHeader={homeView === 'ultron'
-        ? <UltronNavCard><UltronIdentityCard /></UltronNavCard>
+        ? (
+            <UltronNavCard
+              $active={onLive}
+              onClick={() => { setHomeView('ultron'); setOnLive(true); }}
+              aria-label="Live — Ultron presence"
+              aria-current={onLive ? 'page' : undefined}
+            >
+              <UltronIdentityCard />
+            </UltronNavCard>
+          )
         : undefined}
       pageEntries={pageEntries}
       showSecondaryNav
@@ -258,6 +287,7 @@ export default function App() {
           onAction={ultron.commit}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
+          onClose={() => { setHomeView('ultron'); setOnLive(true); }}
         />
       )}
     </AppShell>

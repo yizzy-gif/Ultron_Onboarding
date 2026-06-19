@@ -26,7 +26,7 @@ export function MemoryPage() {
     <Page>
       <Column>
         <Header>
-          <AgentMark mark="circle" size={40} tone="light" state="active" aria-label="Ultron" />
+          <AgentMark mark="circle" size={40} tone="auto" state="active" aria-label="Ultron" />
           <HeaderText>
             <Title>Memory</Title>
             <Subtitle>What Ultron has learned and carries between sessions.</Subtitle>

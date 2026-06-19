@@ -30,7 +30,7 @@ export function UltronIdentityCard() {
   return (
     <Card>
       <Content>
-        <AgentMark mark="circle" size={48} tone="light" state="active" aria-label="Ultron" />
+        <AgentMark mark="circle" size={48} tone="auto" state="active" aria-label="Ultron" />
         <TextGroup>
           <Name>Ultron</Name>
           <Status role="status" aria-live="polite">

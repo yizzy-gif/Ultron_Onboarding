@@ -10,14 +10,15 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useRef, useState } from 'react';
-import styled from 'styled-components';
+import styled, { keyframes, css } from 'styled-components';
 import type { ThreadItem, ThreadStatus } from './types';
 import { SEVERITY_RANK, isPurpleRow } from './ultronShared';
 import { UltronCard, UltronActionCard, UltronAnalyzingCard, UltronActivityCards } from './UltronCard';
+import { LiveLanding } from './LiveLanding';
 
 /** Which lifecycle bucket the page is showing. Mirrors the sidebar groups.
- *  `new`  — needs-attention cases, paged one per page (the New group).
- *  `live` — needs-attention cases as a single scrolling feed (legacy). */
+ *  `live` — the default landing: Ultron's resting presence (large Circle mark).
+ *  `new`  — needs-attention cases, paged one per page (the New group). */
 export type UltronSection = 'new' | 'live' | 'working' | 'done';
 
 const SECTION_STATUSES: Record<UltronSection, ThreadStatus[]> = {
@@ -53,11 +54,25 @@ interface UltronPageProps {
   onAction: (threadId: string, label: string) => void;
   onRefinement: (label: string) => void;
   onSaveWorkflow: (thread: ThreadItem) => void;
+  /** Close the case detail and return to the Live landing. */
+  onClose: () => void;
 }
 
+/** How long the close animation plays before the page swaps to Live. Kept in
+ *  sync with the `pageOut` keyframe duration below. */
+const CLOSE_MS = 280;
+
 export function UltronPage({
-  threads, stageById, section, analyzedIds, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow,
+  threads, stageById, section, analyzedIds, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, onClose,
 }: UltronPageProps) {
+  // While true, the paged case detail plays its exit animation; once it finishes
+  // we hand off to the parent, which swaps the page to the Live landing.
+  const [closing, setClosing] = useState(false);
+  const handleClose = () => {
+    if (closing) return;
+    setClosing(true);
+    window.setTimeout(() => { setClosing(false); onClose(); }, CLOSE_MS);
+  };
   const bySeverity = (a: { t: ThreadItem; index: number }, b: { t: ThreadItem; index: number }) =>
     // Needs-attention cases float above still-analyzing ones, then severity, then recency.
     ((a.t.status === 'analyzing' ? 1 : 0) - (b.t.status === 'analyzing' ? 1 : 0)) ||
@@ -120,8 +135,18 @@ export function UltronPage({
   const eventExpanded = !(dockEligible && pagedThread &&
     ['needs_approval', 'recommended', 'unresolved'].includes(pagedThread.status));
 
+  // Live — the default landing: Ultron's resting presence, a large Circle
+  // identity mark centered in the page (no feed, no dock).
+  if (section === 'live') {
+    return (
+      <Page>
+        <LiveLanding threads={threads} />
+      </Page>
+    );
+  }
+
   return (
-    <Page>
+    <Page $closing={closing}>
       <Scroll>
       {/* The Ultron identity now lives at the top of the secondary nav (see
           App's menuHeader); the feed scrolls cases directly. */}
@@ -165,6 +190,7 @@ export function UltronPage({
                     detachAnalyzing={analyzing}
                     detachTrail={resolved}
                     onToggle={() => {}}
+                    onClose={handleClose}
                     onDecide={onDecide}
                     onAction={onAction}
                     onRefinement={onRefinement}
@@ -238,9 +264,16 @@ export function UltronPage({
 
 // ── Styled ───────────────────────────────────────────────────────────────────
 
+/* Close motion: the case detail eases down + fades out as it hands off to the
+   Live landing. Duration mirrors CLOSE_MS so the handoff lands as the fade ends. */
+const pageOut = keyframes`
+  from { opacity: 1; transform: translateY(0)            scale(1);    }
+  to   { opacity: 0; transform: translateY(var(--space-4)) scale(0.98); }
+`;
+
 /* Relative shell: a column holding the scroll area above the (optional) docked
    actionable card / bottom band. */
-const Page = styled.div`
+const Page = styled.div<{ $closing?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
@@ -254,6 +287,16 @@ const Page = styled.div`
   overflow: hidden;
   font-family: var(--font-sans);
   color: var(--color-content-primary);
+  transform-origin: 50% 30%;
+  will-change: opacity, transform;
+
+  ${p => p.$closing && css`
+    animation: ${pageOut} 280ms var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) forwards;
+  `}
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `;
 
 /* The actual scroller — the feed lives here. A thin always-styled scrollbar

@@ -6,16 +6,21 @@
    radial spark (lines), and more. Used for the loaders (orbit) and identity
    slots (circle) in place of the generic AILoader.
 
-   `tone="light"` is the default — it draws dark-slate cells directly (glow off)
-   on the transparent canvas (see pal('light')). No render-on-black + luminance-
-   key pass: drawCore lays down a soft non-glow aura so the mark still reads crisp
-   on any surface (matching the latest "Ultron Motion Identity" light style).
+   `tone="auto"` is the default — it follows the page theme: the light palette
+   (dark-slate cells, glow off — pal('light')) on light surfaces, and the dark
+   palette (glowing light cells — pal('dark')) on dark ones. The choice is made
+   at draw time by sampling the resolved --color-bg-primary luminance off the
+   canvas element, so it honours both the prefers-color-scheme media query and
+   any manual .light/.dark override. Pass an explicit tone to force a palette.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type AgentMarkKind = 'orbit' | 'circle' | 'lines' | 'magnetic' | 'pulse' | 'bands';
-export type AgentMarkTone = 'light' | 'dark' | 'onblack' | 'tint';
+/** `auto` (default) follows the page theme: the light palette (dark cells, no
+ *  glow) on light surfaces, the dark palette (glowing light cells) on dark
+ *  ones. The explicit tones force a fixed palette regardless of theme. */
+export type AgentMarkTone = 'auto' | 'light' | 'dark' | 'onblack' | 'tint';
 export type AgentMarkState = 'active' | 'idle' | 'static';
 
 interface AgentMarkProps {
@@ -72,6 +77,30 @@ function cssToRGB(ctx: CanvasRenderingContext2D, el: HTMLElement, color: string)
   return nums && nums.length >= 3 ? `${+nums[0]},${+nums[1]},${+nums[2]}` : '26,30,38';
 }
 
+// Watch the OS color-scheme preference so `auto` marks repaint when the theme
+// flips. The actual light/dark decision is made at draw time by sampling the
+// resolved surface token (which also honours manual .light/.dark overrides);
+// this just supplies a re-render trigger.
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState(() => {
+    try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia('(prefers-color-scheme: dark)'); } catch { return; }
+    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return dark;
+}
+
+// Relative luminance (0 dark → 1 light) of an "r,g,b" channel string.
+function luminance(rgb: string): number {
+  const [r, g, b] = rgb.split(',').map(Number);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
 function pal(tone: AgentMarkTone, accent: string): Pal {
   if (tone === 'light') return { dot: '26,30,38', core: '34,40,52', accent: '68,108,255', glow: false };
   if (tone === 'onblack') return { dot: '237,243,252', core: '255,255,255', accent, glow: true };
@@ -109,68 +138,154 @@ function drawCore(e: Ctx, T: number, P: Pal) {
   ctx.restore();
 }
 
+// Deterministic pseudo-random in [0,1) — gives every ring/cell a stable layout
+// across frames and mounts (no Math.random), so the orbit animates smoothly and
+// paints identically every frame / on every instance.
+function hash(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+type OrbitCell = { th0: number; sz: number; tw: number; ph: number };
+type OrbitRing = { u: number[]; v: number[]; R: number; spd: number; cells: OrbitCell[] };
+
+// Orbit — cells ride tilted orbital rings around a luminous core, each trailing
+// a comet tail, over faint ring guides and a dim background particle swarm.
+// Ported from the "Ultron Motion Identity" canvas study (#06 Orbit): density
+// scales with size so it reads as a lush hero when large and stays clean as a
+// small loader. Palette-driven (P), so it honours light/dark + color overrides.
 function drawOrbit(e: Ctx, T: number, P: Pal) {
-  const { ctx, w, h } = e, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.39;
+  const { ctx, w, h, dpr } = e, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.39;
   const active = e.state !== 'idle';
-  const ringDefs = [[1.35, 0.3], [1.05, 2.4]];
-  const yaw = T * (active ? 0.5 : 0.16);
-  const tilt = 0.42, ct = Math.cos(tilt), st = Math.sin(tilt);
-  const cy0 = Math.cos(yaw), sy0 = Math.sin(yaw);
-  const RR = R * 0.96;
-  const proj = (x: number, y: number, z: number) => {
-    const X = x * cy0 + z * sy0, Z = -x * sy0 + z * cy0, Y = y;
-    const Y2 = Y * ct - Z * st, Z2 = Y * st + Z * ct;
-    const d = (Z2 + 1) / 2, persp = 0.82 + 0.18 * d;
-    return { x: cx + X * RR * persp, y: cy + Y2 * RR * persp, d };
+  const sp = active ? 1 : 0.45;                                  // idle slows the whole system
+  const tilt = 0.42, ctl = Math.cos(tilt), stl = Math.sin(tilt);
+  const yaw = -T * 0.42 * sp, cyaw = Math.cos(yaw), syaw = Math.sin(yaw); // globe spins clockwise
+  const proj = (px: number, py: number, pz: number) => {
+    const X1 = px * cyaw + pz * syaw, Z1 = -px * syaw + pz * cyaw, Y1 = py;
+    const Y2 = Y1 * ctl - Z1 * stl, Z2 = Y1 * stl + Z1 * ctl;
+    const d = clamp((Z2 + 1) / 2, 0, 1), persp = 0.82 + 0.18 * d;
+    return { x: cx + X1 * R * persp, y: cy + Y2 * R * persp, d };
   };
-  const ringPt = (theta: number, inc: number, az: number) => {
-    const x = Math.cos(theta), y = Math.sin(theta) * Math.cos(inc), z = Math.sin(theta) * Math.sin(inc);
-    return [x * Math.cos(az) + z * Math.sin(az), y, -x * Math.sin(az) + z * Math.cos(az)];
-  };
+
   ctx.save();
   ctx.globalCompositeOperation = P.glow ? 'lighter' : 'source-over';
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const SEG = e.size >= 24 ? 64 : 40;
-  const cspd = active ? 0.9 : 0.3;
-  const NT = SEG, span = 6.2832;
-  const heads: { ptOf: (a: number) => { x: number; y: number; d: number }; head: number; dir: number; hp: { x: number; y: number; d: number } }[] = [];
-  for (let i = 0; i < ringDefs.length; i++) {
-    const inc = ringDefs[i][0], az = ringDefs[i][1];
-    const ptOf = (ang: number) => { const p3 = ringPt(ang, inc, az); return proj(p3[0], p3[1], p3[2]); };
-    const dir = i % 2 ? 1 : -1;
-    const head = i * 2.0 + dir * T * cspd;
-    heads.push({ ptOf, head, dir, hp: ptOf(head) });
+
+  // ── background particle swarm (dim dots), behind the rings — larger sizes only ──
+  const SW = e.size >= 120 ? 80 : e.size >= 48 ? 42 : e.size >= 24 ? 20 : 0;
+  if (SW) {
+    const dots: { x: number; y: number; r: number; a: number; d: number }[] = [];
+    for (let k = 0; k < SW; k++) {
+      const yy = 1 - (k + 0.5) / SW * 2, ringr = Math.sqrt(Math.max(0, 1 - yy * yy)), phi = k * 2.39996;
+      const ang = yaw * (0.9 + hash(k * 1.3 + 2) * 0.24), ca = Math.cos(ang), sa = Math.sin(ang);
+      const px = Math.cos(phi) * ringr, pz = Math.sin(phi) * ringr;
+      const X = px * ca + pz * sa, Zr = -px * sa + pz * ca;
+      const Y2 = yy * ctl - Zr * stl, Z2 = yy * stl + Zr * ctl;
+      const d = (Z2 + 1) / 2, persp = 0.8 + 0.2 * d;
+      const tw = 0.6 + 0.4 * Math.sin(T * (1.4 + hash(k) * 1.6) + hash(k * 2) * 6.28);
+      dots.push({
+        x: cx + X * R * 1.02 * persp, y: cy + Y2 * R * 1.02 * persp, d,
+        r: Math.max(0.4, (0.6 + hash(k * 3) * 1.0) * dpr * (0.5 + 0.7 * d)),
+        a: (0.16 + 0.5 * d) * (0.5 + 0.5 * tw) * 0.6,
+      });
+    }
+    dots.sort((a, b) => a.d - b.d);
+    for (const dt of dots) {
+      ctx.fillStyle = 'rgba(' + P.dot + ',' + dt.a + ')';
+      ctx.beginPath(); ctx.arc(dt.x, dt.y, dt.r, 0, 6.2832); ctx.fill();
+    }
   }
-  heads.sort((a, b) => a.hp.d - b.hp.d);
-  for (const hd of heads) {
-    const lw = Math.max(1.2, R * 0.05) * (0.75 + 0.35 * hd.hp.d);
-    const B = 9, sub = Math.ceil(NT / B);
-    ctx.lineCap = 'butt';
-    for (let b = 0; b < B; b++) {
-      const f0 = b / B, f1 = (b + 1) / B, fade = 1 - (f0 + f1) / 2;
-      const la = (0.66 * fade * fade) * (0.45 + 0.55 * hd.hp.d);
-      ctx.strokeStyle = 'rgba(' + P.dot + ',' + la + ')';
-      ctx.lineWidth = lw;
+
+  // ── tilted orbital rings (built deterministically each frame) ──
+  const nRings = e.size >= 120 ? 12 : e.size >= 48 ? 9 : e.size >= 24 ? 6 : 4;
+  const rings: OrbitRing[] = [];
+  for (let i = 0; i < nRings; i++) {
+    const inc = 0.25 + hash(i * 2 + 1) * (Math.PI - 0.5);  // inclination from vertical axis
+    const az = hash(i * 2 + 2) * 6.2832;                   // azimuth of the ring normal
+    const nx = Math.sin(inc) * Math.cos(az), ny = Math.cos(inc), nz = Math.sin(inc) * Math.sin(az);
+    const ux = -Math.sin(az), uy = 0, uz = Math.cos(az);   // in-plane basis ⟂ to the normal
+    const vx = ny * uz - nz * uy, vy = nz * ux - nx * uz, vz = nx * uy - ny * ux;
+    const ringR = 0.62 + hash(i * 5 + 3) * 0.37;
+    const ringSpd = (0.5 + hash(i * 5 + 4) * 0.45) * sp;
+    const nc = 2 + Math.floor(hash(i * 5 + 5) * 3);        // 2–4 cells per ring
+    const cells: OrbitCell[] = [];
+    for (let k = 0; k < nc; k++) {
+      cells.push({
+        th0: hash(i * 31 + k * 7 + 11) * 6.2832,
+        sz: 1.0 + hash(i * 31 + k * 7 + 12) * 1.4,
+        tw: 1.2 + hash(i * 31 + k * 7 + 13) * 1.8,
+        ph: hash(i * 31 + k * 7 + 14) * 6.2832,
+      });
+    }
+    rings.push({ u: [ux, uy, uz], v: [vx, vy, vz], R: ringR, spd: ringSpd, cells });
+  }
+
+  // faint ring guides so the globe reads as a sphere of orbits — large + glow only
+  if (e.size >= 48 && P.glow) {
+    ctx.lineWidth = Math.max(1, dpr * 0.7);
+    ctx.strokeStyle = 'rgba(' + P.accent + ',0.05)';
+    for (const rg of rings) {
       ctx.beginPath();
-      for (let s = 0; s <= sub; s++) {
-        const f = f0 + (f1 - f0) * (s / sub);
-        const p = hd.ptOf(hd.head - hd.dir * f * span);
-        if (s === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      for (let a = 0; a <= 48; a++) {
+        const ang = a / 48 * 6.2832, ca = Math.cos(ang) * rg.R, sa = Math.sin(ang) * rg.R;
+        const p = proj(ca * rg.u[0] + sa * rg.v[0], ca * rg.u[1] + sa * rg.v[1], ca * rg.u[2] + sa * rg.v[2]);
+        if (a === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
       }
       ctx.stroke();
     }
-    ctx.lineCap = 'round';
-    const r = Math.max(0.9, R * 0.062 * cellK(e.size) * (0.65 + 0.5 * hd.hp.d));
-    const al = 0.45 + 0.55 * hd.hp.d;
+  }
+
+  // gather every cell head, then paint far → near
+  const NT = e.size >= 48 ? 14 : 8, span = 0.85;             // comet-trail length (radians)
+  type Head = { c: OrbitCell; head: number; pt: (a: number) => { x: number; y: number; d: number }; hp: { x: number; y: number; d: number } };
+  const heads: Head[] = [];
+  for (const rg of rings) {
+    const pt = (ang: number) => {
+      const ca = Math.cos(ang) * rg.R, sa = Math.sin(ang) * rg.R;
+      return proj(ca * rg.u[0] + sa * rg.v[0], ca * rg.u[1] + sa * rg.v[1], ca * rg.u[2] + sa * rg.v[2]);
+    };
+    for (const c of rg.cells) {
+      const head = c.th0 - T * rg.spd;                       // decreasing angle = clockwise travel
+      heads.push({ c, head, pt, hp: pt(head) });
+    }
+  }
+  heads.sort((a, b) => a.hp.d - b.hp.d);
+  for (const hd of heads) {
+    // comet trail behind the head (where it came from)
+    let prev: { x: number; y: number; d: number } | null = null;
+    for (let k = 0; k <= NT; k++) {
+      const f = k / NT;
+      const p = hd.pt(hd.head + f * span);
+      if (prev) {
+        const fade = 1 - f;
+        const la = (0.06 + 0.4 * fade * fade) * (0.4 + 0.6 * hd.hp.d);
+        const lg = ctx.createLinearGradient(prev.x, prev.y, p.x, p.y);
+        lg.addColorStop(0, 'rgba(' + P.dot + ',' + (la * 0.95) + ')');
+        lg.addColorStop(1, 'rgba(' + P.dot + ',' + (la * 0.5) + ')');
+        ctx.strokeStyle = lg;
+        ctx.lineWidth = Math.max(1, R * 0.02 * (0.5 + 1.2 * fade) * (0.6 + 0.5 * hd.hp.d));
+        ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+      }
+      prev = p;
+    }
+    // glowing head cell
+    const tw = 0.55 + 0.45 * Math.sin(T * hd.c.tw + hd.c.ph);
+    const r = Math.max(0.9, R * 0.04 * cellK(e.size) * hd.c.sz * 0.5 * (0.8 + 0.2 * tw) * (0.62 + 0.5 * hd.hp.d));
+    const al = (0.5 + 0.5 * tw) * (0.4 + 0.6 * hd.hp.d);
     if (P.glow) {
-      const bg = ctx.createRadialGradient(hd.hp.x, hd.hp.y, 0, hd.hp.x, hd.hp.y, r * 4.5);
+      const bloomR = r * 5.5;
+      const bg = ctx.createRadialGradient(hd.hp.x, hd.hp.y, 0, hd.hp.x, hd.hp.y, bloomR);
       bg.addColorStop(0, 'rgba(' + P.accent + ',' + (0.3 * al) + ')');
       bg.addColorStop(1, 'rgba(' + P.accent + ',0)');
-      ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(hd.hp.x, hd.hp.y, r * 4.5, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(hd.hp.x, hd.hp.y, bloomR, 0, 6.2832); ctx.fill();
     }
     ctx.fillStyle = 'rgba(' + P.dot + ',' + Math.min(1, al + 0.1) + ')';
     ctx.beginPath(); ctx.arc(hd.hp.x, hd.hp.y, r, 0, 6.2832); ctx.fill();
+    // hot specular highlight on the head
+    ctx.fillStyle = 'rgba(' + P.core + ',' + Math.min(1, al * 1.1) + ')';
+    ctx.beginPath(); ctx.arc(hd.hp.x - r * 0.32, hd.hp.y - r * 0.32, r * 0.42, 0, 6.2832); ctx.fill();
   }
+
   drawCore(e, T, P);
   ctx.restore();
 }
@@ -349,10 +464,13 @@ const DRAW: Record<AgentMarkKind, (e: Ctx, T: number, P: Pal) => void> = {
 };
 
 export function AgentMark({
-  mark = 'orbit', size = 16, tone = 'light', state = 'active',
+  mark = 'orbit', size = 16, tone = 'auto', state = 'active',
   motionSpeed = 1, accent = '#96B9FF', color, coreHalo = true, className, 'aria-label': ariaLabel,
 }: AgentMarkProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
+  // Repaint trigger when the OS theme flips (the light/dark choice itself is
+  // resolved below by sampling the surface the mark actually sits on).
+  const prefersDark = usePrefersDark();
 
   useEffect(() => {
     const el = ref.current;
@@ -364,10 +482,17 @@ export function AgentMark({
     const W = Math.max(2, Math.round(size * dpr)), H = W;
     el.width = W; el.height = H;
     const e: Ctx = { ctx, w: W, h: H, dpr, size, state, coreHalo };
+    // `auto` follows the page theme: sample the resolved page surface token off
+    // this element (which honours both the prefers-color-scheme media query and
+    // any manual .light/.dark override) and pick the matching palette — light
+    // cells with glow on dark surfaces, dark cells without on light ones.
+    const effectiveTone: AgentMarkTone = tone === 'auto'
+      ? (luminance(cssToRGB(ctx, el, 'var(--color-bg-primary)')) < 0.5 ? 'dark' : 'light')
+      : tone;
     // Each tone paints directly with its palette. `light` resolves to dark-slate
     // cells with glow off (see pal()), so the mark draws crisp on the transparent
     // canvas — no render-on-black + luminance-key pass.
-    const P = pal(tone, hexRGB(accent));
+    const P = pal(effectiveTone, hexRGB(accent));
     // Optional explicit tint — recolors the cells/core (e.g. a settled case in
     // content-disabled) while keeping the tone's glow behaviour.
     if (color) { const rgb = cssToRGB(ctx, el, color); P.dot = rgb; P.core = rgb; }
@@ -390,7 +515,7 @@ export function AgentMark({
     const loop = (now: number) => { paint((now / 1000) * sp); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo]);
+  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo, prefersDark]);
 
   return (
     <canvas

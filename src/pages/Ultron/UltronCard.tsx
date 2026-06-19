@@ -32,6 +32,9 @@ interface UltronCardProps {
   expanded: boolean;
   /** Toggle this card open/closed — the feed collapses any other open card. */
   onToggle: () => void;
+  /** When set, the header button becomes a Close control: it dismisses the case
+   *  detail and returns to the Live landing (paged view only). */
+  onClose?: () => void;
   /** When true, the recommendation prompt + action buttons are NOT rendered here
    *  — they live in a separate <UltronActionCard> snapped to the page bottom.
    *  The event card keeps its header + context records. */
@@ -75,7 +78,7 @@ function deriveCase(thread: ThreadItem, stage: number) {
   return { needsDecision, actionable, onFollowUp, followUp, prompt, records, primaryLabel, secondaryLabels, purple };
 }
 
-export function UltronCard({ thread, stage, expanded, detachActionable, detachAnalyzing, detachTrail, onToggle, onDecide, onAction, onRefinement, onSaveWorkflow }: UltronCardProps) {
+export function UltronCard({ thread, stage, expanded, detachActionable, detachAnalyzing, detachTrail, onToggle, onClose, onDecide, onAction, onRefinement, onSaveWorkflow }: UltronCardProps) {
   const [savedWorkflow, setSavedWorkflow] = useState(false);
 
   const { needsDecision, actionable, prompt, records, primaryLabel, secondaryLabels, purple } = deriveCase(thread, stage);
@@ -141,11 +144,11 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
           variant="ghost"
           size="xs"
           iconOnly
-          aria-label={effectiveExpanded ? 'Collapse case' : 'Expand case'}
-          tabIndex={-1}
-          onClick={onToggle}
+          aria-label={onClose ? 'Close case and return to Live' : effectiveExpanded ? 'Collapse case' : 'Expand case'}
+          tabIndex={onClose ? undefined : -1}
+          onClick={onClose ?? onToggle}
         >
-          {effectiveExpanded ? <ChevronSelectorVerticalIcon size={16} /> : <MinusIcon size={16} />}
+          {onClose ? <MinusIcon size={16} /> : effectiveExpanded ? <ChevronSelectorVerticalIcon size={16} /> : <MinusIcon size={16} />}
         </Button>
       </CardHeader>
 
@@ -344,7 +347,7 @@ function AnalyzingStream({ steps, completed }: { steps: string[]; completed?: bo
           <StreamRow key={i}>
             <StreamMark $done={!inProgress} aria-hidden="true">
               {inProgress
-                ? <AgentMark mark="magnetic" size={32} tone="light" state="active" coreHalo={false} aria-label="In progress" />
+                ? <AgentMark mark="magnetic" size={32} tone="auto" state="active" coreHalo={false} aria-label="In progress" />
                 : <CheckIcon size={12} />}
             </StreamMark>
             <StreamText $done={!inProgress}>{step}</StreamText>
@@ -360,7 +363,7 @@ function AnalyzingBody({ thread, onDecide, analyzed }: { thread: ThreadItem; onD
     <>
       {/* Mark centers on the headline + assessment text (not the demo button). */}
       <AnalyzingRow>
-        <AgentMark mark="orbit" size={40} tone="light" state={analyzed ? 'idle' : 'active'} coreHalo={false} aria-hidden="true" />
+        <AgentMark mark="orbit" size={40} tone="auto" state={analyzed ? 'idle' : 'active'} coreHalo={false} aria-hidden="true" />
         <AnalyzingText>
           <AnalyzingHeadline>
             {analyzed ? (

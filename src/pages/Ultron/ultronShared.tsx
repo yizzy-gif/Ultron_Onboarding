@@ -209,7 +209,7 @@ const STATE_TO_STEP_TYPE: Record<string, AIActivityStepType> = {
 /** "Teambridge AI" identity label with the animated star, for AI messages. */
 export function UltronLabel() {
   return (
-    <AILabel avatar={<AgentMark mark="circle" size={16} tone="light" state="idle" aria-label="Ultron" />}>
+    <AILabel avatar={<AgentMark mark="circle" size={16} tone="auto" state="idle" aria-label="Ultron" />}>
       Ultron
     </AILabel>
   );
