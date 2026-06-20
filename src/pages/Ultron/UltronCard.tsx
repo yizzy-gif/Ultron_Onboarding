@@ -349,7 +349,7 @@ function AnalyzingStream({ steps, completed }: { steps: string[]; completed?: bo
           <StreamRow key={i}>
             <StreamMark $done={!inProgress} aria-hidden="true">
               {inProgress
-                ? <AgentMark mark="magnetic" size={32} tone="auto" state="active" coreHalo={false} aria-label="In progress" />
+                ? <WorkingMarkAbs><AgentMark mark="lines" size={36} tone="auto" state="active" motionSpeed={2} coreHalo={false} aria-label="In progress" /></WorkingMarkAbs>
                 : <CheckIcon size={12} />}
             </StreamMark>
             <StreamText $done={!inProgress}>{step}</StreamText>
@@ -792,13 +792,12 @@ const AnalyzingRow = styled.div`
 `;
 
 /* Detached analyzing surface — the in-card thinking block lifted into its own
-   card below the event card. Same radius as <Card>, a small drop shadow, no
-   border line. */
+   card below the event card. Flat white surface (no shadow, no border), matching
+   the activity-trail step cards and message bubbles it threads into below. */
 const AnalyzingCard = styled(Analyzing)`
   padding: var(--space-4);
   background: var(--color-bg-primary);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-below-md);
 `;
 
 const AnalyzingText = styled.div`
@@ -824,13 +823,13 @@ const AnalyzingDetail = styled.span`
   color: var(--color-content-tertiary);
 `;
 
-/* Accumulating thinking-stream — indented to align under the headline text
-   (past the 40px mark + space-3 gap). */
+/* Accumulating thinking-stream — its 32px mark column sits flush at the card's
+   content-left edge so the steps align with the activity-trail step cards below
+   (their leading icon rides the same rail). */
 const Stream = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-left: calc(40px + var(--space-3));
 `;
 
 /* Each step slides up + fades in as it arrives (so the card grows). */
@@ -849,6 +848,7 @@ const StreamRow = styled.div`
 `;
 
 const StreamMark = styled.span<{ $done?: boolean }>`
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -856,6 +856,18 @@ const StreamMark = styled.span<{ $done?: boolean }>`
   height: 32px;
   flex-shrink: 0;
   color: ${p => (p.$done ? 'var(--color-success-content)' : 'var(--color-content-tertiary)')};
+`;
+
+/* In-progress agent mark — overlaid (absolutely centered) on the 32px slot so the
+   larger mark can spill past it without growing the row or shifting the headline,
+   matching the activity trail's working step. */
+const WorkingMarkAbs = styled.span`
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  pointer-events: none;
 `;
 
 const StreamText = styled.span<{ $done?: boolean }>`
@@ -866,10 +878,9 @@ const StreamText = styled.span<{ $done?: boolean }>`
 `;
 
 /* DEMO ONLY — manual trigger to flip an analyzing case to Needs approval.
-   Indented to line up under the headline/assessment (past the 40px mark). */
+   Sits at the content-left edge, on the same rail as the thinking-stream marks. */
 const DemoTrigger = styled(Button)`
   align-self: flex-start;
-  margin-left: calc(40px + var(--space-3));
 `;
 
 /* Animated trailing ellipsis — three dots blink in sequence. */
