@@ -15,7 +15,7 @@ import {
 import type { ThreadItem } from './types';
 import {
   THREAD_SUBJECTS, threadAvatarUrl, THREAD_PROMPTS, threadDisplayTitle, threadMeta,
-  THREAD_FOLLOWUPS, THREAD_RECORDS, THREAD_RESOLVED_RECORDS, activityForThread, analyzingSteps,
+  THREAD_FOLLOWUPS, THREAD_RECORDS, activityForThread, analyzingSteps,
   WORKING_ACTIVITIES, THREAD_TASKS,
 } from './fixtures';
 import type { ActivityMilestone, WorkingMilestone, PlanTask, RecordRef, AnalyzingStep } from './fixtures';
@@ -200,7 +200,7 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
           tabIndex={onClose ? undefined : -1}
           onClick={onClose ?? onToggle}
         >
-          {onClose ? <MinusIcon size={16} /> : effectiveExpanded ? <ChevronSelectorVerticalIcon size={16} /> : <MinusIcon size={16} />}
+          {onClose ? <LinkExternal01Icon size={16} /> : effectiveExpanded ? <ChevronSelectorVerticalIcon size={16} /> : <MinusIcon size={16} />}
         </Button>
       </CardHeader>
 
@@ -242,11 +242,9 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
           </Analyzing>
         )}
 
-        {/* The resolved outcome line now renders above with a leading status
-            icon (see the ResultRow block); only the fulfilled record remains here. */}
-        {isResolved && THREAD_RESOLVED_RECORDS[thread.id] && (
-          <RecordCard record={THREAD_RESOLVED_RECORDS[thread.id]} />
-        )}
+        {/* The resolved outcome line renders above with a leading status icon
+            (see the ResultRow block). The fulfilled-record card is intentionally
+            omitted — the header already shows the same person. */}
 
         {showActions && (
           <Actions>
@@ -908,7 +906,7 @@ const CardHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) 0;
 `;
 
 /* The title region is the accordion toggle — a real button reset to look like

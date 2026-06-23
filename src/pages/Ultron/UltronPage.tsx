@@ -14,6 +14,7 @@ import styled, { keyframes, css } from 'styled-components';
 import type { ThreadItem, ThreadStatus } from './types';
 import { SEVERITY_RANK, isPurpleRow } from './ultronShared';
 import { UltronCard, UltronActionCard, UltronActivityCards, UltronAnalyzingTrigger } from './UltronCard';
+import { UltronComposer } from './UltronComposer';
 import { LiveLanding } from './LiveLanding';
 import type { IncomingEvent } from './fixtures';
 
@@ -58,6 +59,8 @@ interface UltronPageProps {
   onAction: (threadId: string, label: string) => void;
   onRefinement: (label: string) => void;
   onSaveWorkflow: (thread: ThreadItem) => void;
+  /** Send a free-text chat message to Ultron from the composer at the page foot. */
+  onSend: (threadId: string, text: string) => void;
   /** Close the case detail and return to the Live landing. */
   onClose: () => void;
   /** Fired when a risk signal surfaces on the Live landing — opens a New case. */
@@ -69,7 +72,7 @@ interface UltronPageProps {
 const CLOSE_MS = 280;
 
 export function UltronPage({
-  threads, stageById, section, analyzedIds, outboundByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, onClose, onDetectRisk,
+  threads, stageById, section, analyzedIds, outboundByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, onSend, onClose, onDetectRisk,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
   // we hand off to the parent, which swaps the page to the Live landing.
@@ -309,31 +312,34 @@ export function UltronPage({
         </Feed>
       )}
       </Scroll>
-      {dockThread && (
-        /* Detached decision surface, snapped to the foot of the page. The
-           bottom dissolve is handled by the Scroll mask above (so it applies
-           whether or not this dock is present). */
+      {/* The page foot: the (optional) decision surface or demo analyzing trigger
+          stacked above the always-present chat composer, so every event page is a
+          complete chat interface — free-text replies alongside the action pills.
+          The bottom dissolve is handled by the Scroll mask above. */}
+      {paged && pagedCurrentId && pagedThread && (
         <ActionDock>
           <ActionDockInner>
-            <UltronActionCard
-              key={dockThread.id}
-              thread={dockThread}
-              stage={stageById[dockThread.id] ?? 0}
-              onAction={onAction}
-              onRefinement={onRefinement}
-              onSaveWorkflow={onSaveWorkflow}
-              onDismiss={id => setDismissedDockIds(prev => prev.includes(id) ? prev : [...prev, id])}
+            {dockThread && (
+              <UltronActionCard
+                key={dockThread.id}
+                thread={dockThread}
+                stage={stageById[dockThread.id] ?? 0}
+                onAction={onAction}
+                onRefinement={onRefinement}
+                onSaveWorkflow={onSaveWorkflow}
+                onDismiss={id => setDismissedDockIds(prev => prev.includes(id) ? prev : [...prev, id])}
+              />
+            )}
+            {/* DEMO ONLY — while a case is analyzing, its "Trigger Needs approval"
+                control docks here (mirrors the decision dock) instead of sitting
+                inside the scrolling analyzing card. */}
+            {pagedThread.status === 'analyzing' && !analyzedIds.includes(pagedThread.id) && (
+              <UltronAnalyzingTrigger thread={pagedThread} onDecide={onDecide} />
+            )}
+            <UltronComposer
+              key={pagedCurrentId}
+              onSend={text => onSend(pagedCurrentId, text)}
             />
-          </ActionDockInner>
-        </ActionDock>
-      )}
-      {/* DEMO ONLY — while a case is analyzing, its "Trigger Needs approval"
-          control docks at the page bottom (mirrors the decision dock) instead of
-          sitting inside the scrolling analyzing card. */}
-      {pagedThread?.status === 'analyzing' && !analyzedIds.includes(pagedThread.id) && (
-        <ActionDock>
-          <ActionDockInner>
-            <UltronAnalyzingTrigger thread={pagedThread} onDecide={onDecide} />
           </ActionDockInner>
         </ActionDock>
       )}
@@ -430,6 +436,9 @@ const ActionDock = styled.div`
 `;
 
 const ActionDockInner = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   max-width: 720px;
   margin: 0 auto;
 `;

@@ -925,15 +925,6 @@ export const THREAD_TASKS: Record<string, PlanTask[]> = {
   ],
 };
 
-/** The record a resolved thread fulfilled — the assigned/approved/hired person,
- *  shown on the resolved card so the final outcome has a concrete subject. */
-export const THREAD_RESOLVED_RECORDS: Record<string, RecordRef> = {
-  shift_release_jenny:  { eyebrow: 'Caregiver · Assigned',  title: 'Renee Wallace', meta: ['Coverage restored', 'Sat 8:00 AM', 'Lakeside'], avatarSeed: 'renee_wallace' },
-  birthday_tomas:       { eyebrow: 'Employee',              title: 'Tomas Greco',   meta: ['Birthday note sent', 'In-app chat'],            avatarSeed: 'birthday_tomas' },
-  fill_confirmed_maria: { eyebrow: 'RN · Replacement',      title: 'Sarah Quinn',   meta: ['Shift covered', 'Riverside Clinic'],            avatarSeed: 'fill_confirmed_maria' },
-  cred_expired_nadia:   { eyebrow: 'CPR · Renewal started', title: 'Nadia Haddad',  meta: ['Renewal task assigned', '3 shifts backfilled'], avatarSeed: 'cred_expired_nadia' },
-};
-
 /** Past-activity breakdown shown (expandable) on a resolved card. A block is a
  *  paragraph, and/or a labeled bullet list, a labeled check list, and/or a list
  *  of referenced records (people/shifts) rendered as record cards. */

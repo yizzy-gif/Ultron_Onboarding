@@ -112,6 +112,10 @@ export interface UltronStore {
   /** DEMO ONLY — advance an analyzing case to Needs approval (reveals the prompt). */
   decide: (threadId: string) => void;
   commit: (threadId: string, label: string) => void;
+  /** Send a free-text chat message to Ultron — appends it as a sent bubble in the
+   *  thread (the composer at the foot of the event page) without advancing the
+   *  case's status the way an approved action (commit) does. */
+  sendMessage: (threadId: string, text: string) => void;
   refine: (label: string) => void;
   saveWorkflow: (thread: ThreadItem) => void;
 }
@@ -223,9 +227,23 @@ export function useUltronStore(): UltronStore {
       }
     }, delay);
   };
+  // A free-text reply typed into the composer at the foot of the event page.
+  // Records it as an outbound message so it lands as a sent bubble in the thread,
+  // keeping the view anchored on the case — but, unlike commit, it doesn't move
+  // the case through its lifecycle (it's conversation, not an approved action).
+  const sendMessage = (threadId: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setSelectedId(threadId);
+    setOutboundByThread(prev => ({
+      ...prev,
+      [threadId]: [...(prev[threadId] ?? []), trimmed],
+    }));
+  };
+
   // Refinement and save-workflow are demo stubs with no surface yet — no-ops.
   const refine = (_label: string) => {};
   const saveWorkflow = (_thread: ThreadItem) => {};
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, setSelectedId, detectRisk, decide, commit, refine, saveWorkflow };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, setSelectedId, detectRisk, decide, commit, sendMessage, refine, saveWorkflow };
 }

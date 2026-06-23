@@ -292,6 +292,7 @@ export default function App() {
           onAction={ultron.commit}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
+          onSend={ultron.sendMessage}
           onClose={() => { setHomeView('ultron'); setOnLive(true); }}
           onDetectRisk={ultron.detectRisk}
         />
