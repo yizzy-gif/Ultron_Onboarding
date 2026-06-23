@@ -49,10 +49,11 @@ export const SeverityDot = styled.span`
   &[data-severity='none']   { background: var(--color-slate-bg-tertiary); }
 `;
 
-/** Semantic card/dot tone: resolved-family → green, high severity → orange,
- *  everything else (medium / low / none) → slate. Single source for the
- *  detail card surface AND the sidebar dots so they always match. */
-export type CardTone = 'orange' | 'green' | 'slate';
+/** Semantic card/dot tone: resolved-family → green, actively-working
+ *  (in_progress / monitoring) → blue, high severity → orange, everything else
+ *  (medium / low / none) → slate. Single source for the detail card surface AND
+ *  the sidebar dots so they always match. */
+export type CardTone = 'orange' | 'green' | 'blue' | 'slate';
 
 export function toneFor(thread: ThreadItem): CardTone {
   if (thread.status === 'resolved' || thread.status === 'auto_resolved' || thread.status === 'workflow_available') {
@@ -61,6 +62,9 @@ export function toneFor(thread: ThreadItem): CardTone {
   // While Ultron is still analyzing, the case stays neutral (slate). Color
   // semantics are only assigned once it reaches a decision and needs approval.
   if (thread.status === 'analyzing') return 'slate';
+  // Working state (the "Working" group): Ultron is actively executing or
+  // monitoring → blue, regardless of severity, to signal it's in hand.
+  if (thread.status === 'in_progress' || thread.status === 'monitoring') return 'blue';
   return thread.severity === 'high' ? 'orange' : 'slate';
 }
 
@@ -74,6 +78,7 @@ export const ToneDot = styled.span`
 
   &[data-tone='orange'] { background: var(--color-orange-bg-secondary); }
   &[data-tone='green']  { background: var(--color-green-bg-secondary); }
+  &[data-tone='blue']   { background: var(--color-blue-bg-secondary); }
   &[data-tone='slate']  { background: var(--color-slate-bg-secondary); }
 `;
 

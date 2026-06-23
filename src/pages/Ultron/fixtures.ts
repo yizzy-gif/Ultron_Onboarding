@@ -1,397 +1,510 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    Ultron demo fixtures
-   Merged from the two source datasets:
-     · ultron-demo-scenarios.json  → narrative fields (event, assessment,
-       recommendation, outcome, workflowOpportunity), plus name + capability.
-     · ultron-sample-threads.json  → severity, timeline shape, action labels
-       where a scenario matched a thread.
-   For scenarios with no thread match, severity / a 3–4 step timeline /
-   1–2 action labels were authored from the recommendation text.
+   Sourced from the activity-feed seed data (20 simulated events). Each event
+   carries a trigger, Ultron's silent investigation (the "Analyzing event"
+   steps), the recommended plan ("What I'd do"), the one-tap question ("Ask:"),
+   and an outcome state.
+
+   The seed data's own state field (action · wait · none) describes whether
+   Ultron can act, needs a person, or has nothing to do. For a realistic demo
+   the cases are spread across the three lifecycle groups instead — New (needs
+   attention), Working, and Done — so every component path is exercised:
+     · New  → analyzing / needs_approval / recommended
+     · Working → in_progress / monitoring
+     · Done → resolved / auto_resolved / workflow_available / unresolved
+   The "no action needed" (none) events land in Done as clean auto-resolutions.
 
    Notes:
-   · The "fill_rate_investigation" / Navigation Agent scenario is EXCLUDED.
-   · `status` is not pinned to either source by the merge rules, so a coherent
-     demo distribution was chosen to exercise every lifecycle state and the
-     purple "save as workflow" path. Two scenarios were re-stated from
-     'monitoring' for that purpose, flagged inline below:
-       - credential_expiring → 'resolved'           (resolved + workflowOpportunity → purple row)
-       - retention_risk      → 'workflow_available'  (explicit workflow-ready row)
+   · `status` drives deck membership / row treatment; it is the only field that
+     diverges from the seed data's own state, by design (see above).
+   · A resolved case with a non-null `workflowOpportunity` renders purple
+     (save-as-workflow). `workflow_available` always renders purple.
    · Array order is authored most-recent-first; recency sorting relies on it.
    ───────────────────────────────────────────────────────────────────────────── */
 
 import type { ThreadItem, ThreadSeverity } from './types';
 
 export const ultronThreads: ThreadItem[] = [
-  // ── Analyzing (events just in; Ultron is still thinking — no decision yet) ──
+  // ── New · Needs attention (needs_approval) ─────────────────────────────────
   {
-    id: 'surge_callouts',
-    name: 'RN Call-Out Reported',
-    title: 'Derek Hayes called out of this morning’s RN shift',
-    capability: 'Coverage Recovery',
-    status: 'analyzing',
-    severity: 'high',
-    event: 'Derek Hayes called out of his RN shift this morning at 7:00 AM.',
-    assessment: 'Weighing the replacement pool, overtime budget, and how exposed the shift is before recommending a plan.',
-    recommendation: 'Pull from the float pool and notify the affected manager.',
-    outcome: null,
-    workflowOpportunity: null,
-    timeline: [
-      { state: 'detected', headline: 'RN called out of this morning’s shift', done: true },
-      { state: 'assessment', headline: 'Assessing coverage impact and options', done: false },
-    ],
-    actions: ['Pull from float pool', 'Notify manager'],
-    timestamp: '2m ago',
-  },
-  {
-    id: 'ot_spike',
-    name: 'Overtime Spike Watch',
-    title: 'Overtime trending above budget on the night shift',
-    capability: 'Labor Cost',
-    status: 'analyzing',
-    severity: 'medium',
-    event: 'Night-shift overtime is pacing 18% over budget this week.',
-    assessment: 'Modeling schedule swaps and on-call options to find the lowest-disruption fix.',
-    recommendation: 'Rebalance the night shift and move two slots to on-call.',
-    outcome: null,
-    workflowOpportunity: null,
-    timeline: [
-      { state: 'detected', headline: 'Overtime crossed the weekly budget threshold', done: true },
-      { state: 'assessment', headline: 'Modeling rebalancing options', done: false },
-    ],
-    actions: ['Rebalance shifts', 'Move to on-call'],
-    timestamp: '5m ago',
-  },
-  {
-    id: 'cred_sweep',
-    name: 'Credential Sweep',
-    title: 'Six credentials approaching expiry across two sites',
-    capability: 'Compliance',
-    status: 'analyzing',
-    severity: 'low',
-    event: 'Six worker credentials expire within 30 days at two facilities.',
-    assessment: 'Checking renewal eligibility and which upcoming shifts each lapse would affect.',
-    recommendation: 'Send renewal reminders and flag the affected shifts.',
-    outcome: null,
-    workflowOpportunity: null,
-    timeline: [
-      { state: 'detected', headline: 'Six credentials flagged for upcoming expiry', done: true },
-      { state: 'assessment', headline: 'Checking eligibility and shift exposure', done: false },
-    ],
-    actions: ['Send reminders', 'Flag shifts'],
-    timestamp: '11m ago',
-  },
-  // ── Deck members (needs_approval) ──────────────────────────────────────────
-  {
-    id: 'callout_recovery',
-    name: 'Employee Call-Out Recovery',
-    title: 'Maria Lopez called out of tomorrow’s RN shift',
+    id: 'shift_drop_maria',
+    name: 'Shift Drop Recovery',
+    title: 'Maria Ellis dropped her 2pm shift at Riverside Clinic',
     capability: 'Coverage Recovery',
     status: 'needs_approval',
     severity: 'high',
-    event: 'Maria Lopez called out of her RN shift tomorrow at 8:00 AM.',
-    assessment: 'Coverage risk detected. No replacement assigned and shift begins in 18 hours.',
-    analysisResult: 'The unit would fall below minimum safe staffing with 16 hours’ notice.',
-    recommendation: 'Contact top replacement candidates and notify manager.',
+    event: 'Maria dropped her 2:00 PM RN shift at Riverside Clinic.',
+    assessment: 'Urgent fill — the shift starts in under 12 hours and still has no replacement.',
+    analysisResult: '8 available RNs match, with no overtime or do-not-return conflicts.',
+    recommendation: 'Find a qualified replacement and fill it.',
     outcome: null,
-    workflowOpportunity: 'Automate future call-out recovery.',
+    workflowOpportunity: 'Automate urgent shift-drop recovery.',
     timeline: [
-      { state: 'detected', headline: 'RN shift released for tomorrow morning', done: true },
-      { state: 'assessment', headline: 'Coverage is at risk', done: true },
-      { state: 'recommendation', headline: '12 qualified replacements identified', done: true },
+      { state: 'detected', headline: 'RN dropped this afternoon’s shift', done: true },
+      { state: 'assessment', headline: 'Starts in under 12 hours — urgent fill', done: true },
+      { state: 'recommendation', headline: '8 qualified RNs identified', done: true },
       { state: 'approval', headline: 'Approval required before outreach', done: false },
     ],
-    // Multi-action prompt → "Yes, do it all" primary + these individual actions.
-    actions: ['Contact candidates', 'Notify manager'],
-    timestamp: '8m ago',
+    actions: ['Message replacements', 'Assign first yes', 'Notify scheduler'],
+    timestamp: '8:02 AM',
   },
   {
-    id: 'no_show',
-    name: 'Employee No Show',
-    title: 'John Smith failed to clock in for his shift',
-    capability: 'Attendance Recovery',
-    status: 'needs_approval',
-    severity: 'high',
-    event: 'John Smith failed to clock in 20 minutes after shift start.',
-    assessment: 'Likely no-show. Coverage risk detected.',
-    analysisResult: 'His recent pattern points to a no-show, leaving today’s 7:00 AM shift uncovered.',
-    recommendation: 'Contact employee, notify manager, begin replacement search.',
-    outcome: null,
-    workflowOpportunity: 'Automate no-show response.',
-    timeline: [
-      { state: 'detected', headline: 'No clock-in 20 minutes after shift start', done: true },
-      { state: 'assessment', headline: 'Pattern matches a likely no-show', done: true },
-      { state: 'recommendation', headline: 'Outreach + replacement plan prepared', done: true },
-      { state: 'approval', headline: 'Approval required to begin recovery', done: false },
-    ],
-    actions: ['Reach out to John', 'Notify manager', 'Start replacement search'],
-    timestamp: '14m ago',
-  },
-  {
-    id: 'payroll_exception',
-    name: 'Payroll Exception',
-    title: 'Missing clock-out detected on a timesheet',
-    capability: 'Payroll Operations',
+    id: 'timeoff_sofia',
+    name: 'Time-Off Coverage Check',
+    title: 'Sofia Marin requested time off next Thursday–Friday',
+    capability: 'Time Off',
     status: 'needs_approval',
     severity: 'medium',
-    event: 'Employee clocked in but never clocked out.',
-    assessment: 'Payroll discrepancy detected.',
-    analysisResult: 'Left uncorrected, the open punch would overpay this timesheet and miss the payroll cutoff.',
-    recommendation: 'Approve estimated end time.',
+    event: 'Sofia requested time off next Thursday and Friday.',
+    assessment: 'Two assigned shifts fall inside the window — Thursday is covered, Friday is thin.',
+    analysisResult: 'PTO balance covers it; only one backup is available for Friday.',
+    recommendation: 'Approve Thursday and hold Friday for your call.',
     outcome: null,
-    workflowOpportunity: 'Automate timesheet exception handling.',
+    workflowOpportunity: null,
     timeline: [
-      { state: 'detected', headline: 'Open punch found on yesterday’s timesheet', done: true },
-      { state: 'assessment', headline: 'Estimated end time derived from schedule', done: true },
-      { state: 'recommendation', headline: 'Proposed correction ready for review', done: true },
-      { state: 'approval', headline: 'Approval required to correct payroll', done: false },
+      { state: 'detected', headline: 'Time-off request for Thu–Fri', done: true },
+      { state: 'assessment', headline: 'Friday coverage is thin', done: true },
+      { state: 'recommendation', headline: 'Approve Thursday, hold Friday', done: true },
+      { state: 'approval', headline: 'Approval required for the split decision', done: false },
     ],
-    // "Review" is a refinement stub.
-    actions: ['Review', 'Approve End Time'],
-    timestamp: '22m ago',
+    actions: ['Approve Thursday', 'Hold Friday for you'],
+    timestamp: '10:12 AM',
+  },
+  {
+    id: 'document_kenji',
+    name: 'Document Filing',
+    title: 'Kenji Tanaka uploaded a document to his profile',
+    capability: 'Compliance',
+    status: 'needs_approval',
+    severity: 'low',
+    event: 'Kenji uploaded a document to his profile.',
+    assessment: 'Read as a valid CPR certification that expires in 3 weeks.',
+    analysisResult: 'Name matches the uploader; the credential is valid but expires soon.',
+    recommendation: 'File it as a CPR cert and flag the renewal.',
+    outcome: null,
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'New document on Kenji’s profile', done: true },
+      { state: 'assessment', headline: 'Valid CPR cert, expires in 3 weeks', done: true },
+      { state: 'recommendation', headline: 'File the cert + flag the renewal', done: true },
+      { state: 'approval', headline: 'Approval required before filing', done: false },
+    ],
+    actions: ['File as CPR cert', 'Mark verified', 'Flag renewal'],
+    timestamp: '11:48 AM',
   },
 
-  // ── Deck members (recommended) ─────────────────────────────────────────────
+  // ── New · Needs attention (recommended) ────────────────────────────────────
   {
-    id: 'fill_risk',
-    name: 'Shift Unlikely To Fill',
-    title: 'Weekend RN shift unlikely to fill at current rate',
-    capability: 'Fill Optimization',
-    status: 'recommended',
-    severity: 'medium',
-    event: 'Weekend RN shift has remained open for 5 days.',
-    assessment: 'Fill probability is only 22% at current pay rate.',
-    analysisResult: 'At the current rate the shift has a 22% chance of filling before the weekend.',
-    recommendation: 'Increase pay by $3/hr and notify nearby qualified workers.',
-    outcome: null,
-    workflowOpportunity: 'Auto-adjust rates when fill probability falls below threshold.',
-    timeline: [
-      { state: 'detected', headline: 'Shift open 5 days', done: true },
-      { state: 'assessment', headline: 'Fill probability 22% at current rate', done: true },
-      { state: 'recommendation', headline: 'Rate increase + targeted outreach proposed', done: false },
-    ],
-    actions: ['Raise pay $3/hr', 'Notify nearby workers'],
-    timestamp: '35m ago',
-  },
-  {
-    id: 'overtime_risk',
-    name: 'Overtime Risk',
-    title: 'Projected overtime exceeds budget this week',
-    capability: 'Labor Optimization',
-    status: 'recommended',
-    severity: 'medium',
-    event: 'Projected overtime exceeds budget by $4,200 this week.',
-    assessment: 'Two employees account for most projected overtime.',
-    analysisResult: 'Two RNs are driving a $4,200 overtime overage this week unless schedules are rebalanced.',
-    recommendation: 'Rebalance schedules.',
-    outcome: null,
-    workflowOpportunity: 'Automate overtime optimization recommendations.',
-    timeline: [
-      { state: 'detected', headline: 'Projected overtime $4,200 over budget', done: true },
-      { state: 'assessment', headline: 'Two employees drive most of the overage', done: true },
-      { state: 'recommendation', headline: 'Schedule rebalance plan prepared', done: false },
-    ],
-    // "Review Schedule" is a refinement stub.
-    actions: ['Review Schedule', 'Rebalance Schedules'],
-    timestamp: '1h ago',
-  },
-  {
-    id: 'order_fill_strategy',
-    name: 'Open Order Optimization',
-    title: 'High-priority facility order is not filling',
-    capability: 'Marketplace Optimization',
-    status: 'recommended',
-    severity: 'medium',
-    event: 'High-priority facility order is not filling.',
-    assessment: 'Pay rate is below local market average.',
-    analysisResult: 'The order has stalled because its rate sits below the local market, narrowing the candidate pool.',
-    recommendation: 'Increase rate and expand search radius.',
-    outcome: null,
-    workflowOpportunity: 'Automate fill strategy optimization.',
-    timeline: [
-      { state: 'detected', headline: 'Priority order stalled', done: true },
-      { state: 'assessment', headline: 'Rate is below local market average', done: true },
-      { state: 'recommendation', headline: 'Rate + radius adjustment proposed', done: false },
-    ],
-    // "Adjust Rate" is a refinement stub.
-    actions: ['Raise the rate', 'Expand search radius'],
-    timestamp: '1h ago',
-  },
-  {
-    id: 'candidate_match',
-    name: 'Strong Applicant Match',
-    title: 'New CNA applicant is a 92% match',
+    id: 'application_priya',
+    name: 'New Lead Screening',
+    title: 'New application: Priya R. — status New Lead',
     capability: 'Recruiting',
     status: 'recommended',
     severity: 'low',
-    event: 'New CNA applicant submitted an application.',
-    assessment: '92% match for open CNA position.',
-    analysisResult: 'The applicant is a 92% match for the open full-time CNA role and is ready to advance.',
-    recommendation: 'Schedule interview.',
+    event: 'Priya R. submitted an application — status New Lead.',
+    assessment: 'Strong match for the linked CNA Night Shift role downtown.',
+    analysisResult: 'CNA license valid, availability matches — scored a 92% match.',
+    recommendation: 'Screen the lead and reach out if qualified.',
     outcome: null,
-    workflowOpportunity: 'Auto-advance qualified applicants.',
+    workflowOpportunity: 'Auto-screen and advance qualified leads.',
     timeline: [
-      { state: 'detected', headline: 'New CNA application received', done: true },
-      { state: 'assessment', headline: '92% match for open position', done: true },
-      { state: 'recommendation', headline: 'Interview recommended', done: false },
+      { state: 'detected', headline: 'New application received', done: true },
+      { state: 'assessment', headline: '92% match for CNA · Night · Downtown', done: true },
+      { state: 'recommendation', headline: 'Screen and reach out', done: false },
     ],
-    actions: ['Schedule Interview'],
-    timestamp: '2h ago',
-  },
-
-  // ── Stream members ─────────────────────────────────────────────────────────
-  {
-    id: 'autonomous_callout',
-    name: 'Overnight Autonomous Recovery',
-    title: 'Shift covered automatically overnight',
-    capability: 'Autonomous Operations',
-    status: 'auto_resolved',
-    severity: 'high',
-    event: 'Employee called out at 2:00 AM.',
-    assessment: 'Coverage risk detected overnight.',
-    recommendation: 'No approval required based on configured policy.',
-    outcome: 'Replacement found in 17 minutes. Manager notified.',
-    workflowOpportunity: 'Autonomous staffing recovery enabled.',
-    timeline: [
-      { state: 'detected', headline: 'Call-out received at 2:00 AM', done: true },
-      { state: 'assessment', headline: 'Coverage risk + autonomous policy match', done: true },
-      { state: 'execution', headline: 'Contacted candidates and filled the shift', done: true },
-      { state: 'resolution', headline: 'Replacement confirmed · manager notified', done: true },
-    ],
-    actions: [],
-    timestamp: '6h ago',
+    actions: ['Mark qualified', 'Send intro', 'Ask screening questions'],
+    timestamp: '8:41 AM',
   },
   {
-    id: 'attendance_risk',
-    name: 'Attendance Risk Detected',
-    title: 'attendance trend worsening for one employee',
-    capability: 'Workforce Insights',
-    status: 'in_progress',
-    severity: 'medium',
-    event: 'Tyler Brooks has 4 late arrivals this month, up from 1 last month.',
-    assessment: 'Attendance is trending down — the pattern is worsening month-over-month.',
-    analysisResult: 'Four late arrivals this month cross the coaching threshold — an early check-in can reverse the trend.',
-    recommendation: 'Open a coaching note and notify the manager.',
-    outcome: null,
-    workflowOpportunity: 'Attendance escalation workflow.',
-    timeline: [
-      { state: 'detected', headline: '4 late arrivals this month', done: true },
-      { state: 'assessment', headline: 'Trend worsening month-over-month', done: true },
-      { state: 'execution', headline: 'Opening a coaching note', done: false },
-    ],
-    actions: ['Review note', 'Open coaching note'],
-    timestamp: 'Working now',
-  },
-  {
-    id: 'credential_expiring',
-    name: 'Credential Expiration',
-    title: 'RN license renewed before expiration',
-    capability: 'Compliance',
-    // Re-stated from 'monitoring' → 'resolved' to exercise the
-    // resolved-with-workflowOpportunity (purple) row treatment.
-    status: 'resolved',
+    id: 'new_shift_forklift',
+    name: 'Shift Offer',
+    title: 'New shift created: Forklift Op, Friday 6am, Bay 4',
+    capability: 'Fill Optimization',
+    status: 'recommended',
     severity: 'low',
-    event: 'RN license expires in 14 days.',
-    assessment: 'Future assignments may become non-compliant.',
-    recommendation: 'Send renewal reminder and notify manager.',
-    outcome: 'License renewed before expiration.',
-    workflowOpportunity: 'Automate credential reminders.',
-    timeline: [
-      { state: 'detected', headline: 'RN license expires in 14 days', done: true },
-      { state: 'assessment', headline: 'Upcoming assignments would be non-compliant', done: true },
-      { state: 'recommendation', headline: 'Renewal reminder sent to employee + manager', done: true },
-      { state: 'resolution', headline: 'License renewed before expiration', done: true },
-    ],
-    actions: ['Send Reminder'],
-    timestamp: '3h ago',
-  },
-  {
-    id: 'retention_risk',
-    name: 'Employee Retention Risk',
-    title: 'Top performer reduced availability by 60%',
-    capability: 'Employee Retention',
-    // Re-stated from 'monitoring' → 'workflow_available' to exercise the
-    // explicit workflow-ready row treatment.
-    status: 'workflow_available',
-    severity: 'none',
-    event: 'Top-performing RN reduced availability by 60%.',
-    assessment: 'Potential retention risk detected.',
-    recommendation: 'Schedule manager check-in.',
-    outcome: 'Conversation scheduled.',
-    workflowOpportunity: 'Retention risk monitoring.',
-    timeline: [
-      { state: 'detected', headline: 'Availability dropped 60%', done: true },
-      { state: 'assessment', headline: 'Flagged as a retention risk', done: true },
-      { state: 'recommendation', headline: 'Manager check-in scheduled', done: true },
-      { state: 'workflow', headline: 'Recurring pattern ready to save as a workflow', done: true },
-    ],
-    actions: ['Schedule Check-In'],
-    timestamp: 'Yesterday',
-  },
-  {
-    id: 'unfilled_shift',
-    name: 'Shift Still Unfilled',
-    title: "Dana Whitfield's shift still has no replacement",
-    capability: 'Coverage Recovery',
-    status: 'unresolved',
-    severity: 'high',
-    event: 'Automated outreach closed with no acceptances.',
-    assessment: 'No candidates accepted; the shift remains uncovered and needs a decision.',
-    analysisResult: 'Outreach to 12 candidates closed with no acceptances; tonight’s 11:00 PM shift is still uncovered.',
-    recommendation: 'Offer a $5/hr incentive or escalate to the on-call pool.',
+    event: 'A Forklift Op shift was created for Friday 6:00 AM, Bay 4.',
+    assessment: 'Certified-only shift with a healthy pool of available workers.',
+    analysisResult: '11 certified, available workers — top 6 ranked by proximity and reliability.',
+    recommendation: 'Offer it to the best-matched workers.',
     outcome: null,
     workflowOpportunity: null,
     timeline: [
-      { state: 'detected', headline: 'Replacement search opened', done: true },
-      { state: 'execution', headline: 'Contacted 12 candidates — no acceptances', done: true },
-      { state: 'assessment', headline: 'Shift still uncovered — needs a decision', done: false },
+      { state: 'detected', headline: 'New forklift shift created', done: true },
+      { state: 'assessment', headline: '11 certified workers available', done: true },
+      { state: 'recommendation', headline: 'Offer to the top 6 matches', done: false },
     ],
-    // Unresolved cases use the shared UNRESOLVED_ACTIONS in the detail view;
-    // these mirror them. "Revisit" / "Update" are stubs; "Resolve" runs the fix.
-    actions: ['Revisit', 'Update', 'Resolve'],
-    timestamp: '30m ago',
+    actions: ['Offer to top matches', 'Assign first claim', 'Confirm and update calendar'],
+    timestamp: '9:30 AM',
+  },
+  {
+    id: 'new_user_luis',
+    name: 'Candidate Onboarding',
+    title: 'New user created — Candidate: Luis M.',
+    capability: 'Onboarding',
+    status: 'recommended',
+    severity: 'low',
+    event: 'A new Candidate record was created for Luis M.',
+    assessment: 'No tasks yet — ready for the standard intake set.',
+    analysisResult: 'Pulled the 5 standard intake tasks; nothing pre-fillable on file.',
+    recommendation: 'Kick off onboarding.',
+    outcome: null,
+    workflowOpportunity: 'Auto-start onboarding for new candidates.',
+    timeline: [
+      { state: 'detected', headline: 'New candidate record created', done: true },
+      { state: 'assessment', headline: '5 standard intake tasks ready', done: true },
+      { state: 'recommendation', headline: 'Send welcome + assign intake', done: false },
+    ],
+    actions: ['Send welcome', 'Assign intake tasks', 'Follow up to completion'],
+    timestamp: '1:40 PM',
+  },
+
+  // ── New · Needs attention (needs_approval) ─────────────────────────────────
+  {
+    id: 'missed_clockin_james',
+    name: 'Missed Clock-In',
+    title: 'James Okoro never started his 9am shift',
+    capability: 'Attendance Recovery',
+    status: 'needs_approval',
+    severity: 'high',
+    event: 'James never clocked in for his 9:00 AM shift.',
+    assessment: 'The grace window has elapsed with no release on file — needs a quick check before it’s a no-show.',
+    analysisResult: 'No time-off on file and the 5-minute grace elapsed — an unexplained gap.',
+    recommendation: 'Check if he’s on the way and update the shift.',
+    outcome: null,
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: '9am start passed with no clock-in', done: true },
+      { state: 'assessment', headline: 'No release on file — grace window elapsed', done: true },
+      { state: 'recommendation', headline: 'Check in with James and update the shift', done: true },
+      { state: 'approval', headline: 'Approval required before outreach', done: false },
+    ],
+    actions: ['Text James', 'Update shift', 'Flag scheduling inbox'],
+    timestamp: '9:03 AM',
+  },
+  {
+    id: 'thread_cancel_wed',
+    name: 'Informal Cancellation',
+    title: 'Worker replied “I can’t make tomorrow” in a thread',
+    capability: 'Coverage Recovery',
+    status: 'needs_approval',
+    severity: 'high',
+    event: 'A worker replied “I can’t make tomorrow” in an Engage thread.',
+    assessment: 'Matched to her assigned Wed 7:00 AM shift at Pier 9 — no formal release was filed.',
+    analysisResult: 'An informal cancellation with no release on file — it needs to be recorded as a drop.',
+    recommendation: 'Treat it as a drop and start a fill, with a heads-up.',
+    outcome: null,
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Inbound message reads as a cancellation', done: true },
+      { state: 'assessment', headline: 'Matched to the assigned Wed shift', done: true },
+      { state: 'recommendation', headline: 'Log the release and start a fill', done: true },
+      { state: 'approval', headline: 'Approval required before recording it', done: false },
+    ],
+    actions: ['Log the release', 'Acknowledge reply', 'Start replacement search'],
+    timestamp: '4:30 PM',
+  },
+
+  // ── New · Needs attention (needs_approval — moved from Working) ─────────────
+  {
+    id: 'job_event_staff',
+    name: 'Bulk Fill',
+    title: 'New job: Event Staff — 20 openings, Saturday',
+    capability: 'Marketplace Optimization',
+    status: 'needs_approval',
+    severity: 'medium',
+    event: 'An Event Staff job was created with 20 openings for Saturday 4:00 PM.',
+    assessment: '63 eligible workers ranked; 9 double-booked candidates filtered out.',
+    analysisResult: '63 eligible workers ranked and 9 double-bookings filtered out — ready to invite the top matches.',
+    recommendation: 'Match the pool and invite the best candidates.',
+    outcome: null,
+    workflowOpportunity: 'Automate bulk-fill invitations.',
+    timeline: [
+      { state: 'detected', headline: 'New job · 20 openings · Saturday', done: true },
+      { state: 'assessment', headline: '63 eligible workers ranked', done: true },
+      { state: 'recommendation', headline: 'Invite the top matches to claim slots', done: true },
+      { state: 'approval', headline: 'Approval required before inviting', done: false },
+    ],
+    actions: ['Invite top matches', 'Track responses', 'Keep a standby list'],
+    timestamp: '1:05 PM',
+  },
+  {
+    id: 'missed_clockout_bianca',
+    name: 'Open Timesheet',
+    title: 'Bianca Rossi missed her clock-out — no end time on the timesheet',
+    capability: 'Payroll Operations',
+    status: 'needs_approval',
+    severity: 'medium',
+    event: 'Bianca’s shift ended with no clock-out — her timesheet is open.',
+    assessment: 'Last geofence ping puts her off-site ~6:05 PM; held from payroll for a real end time.',
+    analysisResult: 'Held from payroll — the open punch needs a confirmed end time before the run.',
+    recommendation: 'Confirm her real end time and fix the timesheet.',
+    outcome: null,
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Shift ended with no clock-out', done: true },
+      { state: 'assessment', headline: 'Held from payroll — needs a real end time', done: true },
+      { state: 'recommendation', headline: 'Confirm her end time and fix the timesheet', done: true },
+      { state: 'approval', headline: 'Approval required before payroll', done: false },
+    ],
+    actions: ['Text Bianca', 'Update timesheet', 'Flag payroll'],
+    timestamp: '3:10 PM',
+  },
+
+  // ── New · Needs attention (recommended — moved from Working) ────────────────
+  {
+    id: 'payroll_acme_invoice',
+    name: 'Invoice Roll-Up',
+    title: 'Shift marked payroll approved — Acme Logistics',
+    capability: 'Payroll Operations',
+    status: 'recommended',
+    severity: 'low',
+    event: 'A shift was marked payroll approved for Acme Logistics.',
+    assessment: 'Bill rate read and matched to Acme’s open, net-30 draft invoice.',
+    analysisResult: 'No duplicate line exists — the approved shift is safe to add to the open invoice.',
+    recommendation: 'Roll it onto the client’s open invoice.',
+    outcome: null,
+    workflowOpportunity: 'Automate approved-shift invoicing.',
+    timeline: [
+      { state: 'detected', headline: 'Shift marked payroll approved', done: true },
+      { state: 'assessment', headline: 'Matched to Acme’s open invoice', done: true },
+      { state: 'recommendation', headline: 'Roll it onto the open invoice', done: false },
+    ],
+    actions: ['Add line item', 'Recalculate total'],
+    timestamp: '11:00 AM',
+  },
+  {
+    id: 'schedule_published',
+    name: 'Schedule Confirmation',
+    title: 'It’s Friday — next week’s schedule is published',
+    capability: 'Scheduling',
+    status: 'recommended',
+    severity: 'medium',
+    event: 'Next week’s schedule was published — 84 shifts across 31 workers.',
+    assessment: '22 shifts are still unconfirmed, heaviest on Monday and Tuesday.',
+    analysisResult: '22 of 84 shifts are unconfirmed — confirming now de-risks Monday and Tuesday.',
+    recommendation: 'Confirm everyone before the weekend.',
+    outcome: null,
+    workflowOpportunity: 'Automate weekly schedule confirmations.',
+    timeline: [
+      { state: 'detected', headline: 'Next week’s schedule published', done: true },
+      { state: 'assessment', headline: '22 shifts unconfirmed', done: true },
+      { state: 'recommendation', headline: 'Confirm everyone before the weekend', done: false },
+    ],
+    actions: ['Confirm all shifts', 'Chase the unconfirmed', 'Send Monday-readiness summary'],
+    timestamp: '8:00 AM',
+  },
+
+  // ── Done (resolved) ────────────────────────────────────────────────────────
+  {
+    id: 'shift_release_jenny',
+    name: 'Shift Release Recovery',
+    title: 'Jenny Park released her Saturday shift at Lakeside',
+    capability: 'Coverage Recovery',
+    status: 'resolved',
+    severity: 'medium',
+    event: 'Jenny released her Saturday 8:00 AM caregiver shift at Lakeside.',
+    assessment: 'More than 12 hours out — standard fill path with 5 qualified caregivers.',
+    recommendation: 'Find a qualified replacement and fill it.',
+    outcome: 'Replacement assigned — coverage restored and the schedule updated.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Saturday caregiver shift released', done: true },
+      { state: 'assessment', headline: '5 qualified caregivers available', done: true },
+      { state: 'recommendation', headline: 'Messaged the best matches', done: true },
+      { state: 'resolution', headline: 'First qualified yes assigned', done: true },
+    ],
+    actions: ['Assign Replacement'],
+    timestamp: '2:22 PM',
+  },
+  {
+    id: 'birthday_tomas',
+    name: 'Birthday Greeting',
+    title: 'Tomas Greco has a birthday today',
+    capability: 'Engagement',
+    status: 'resolved',
+    severity: 'none',
+    event: 'Today is Tomas’s birthday.',
+    assessment: 'Active employee; preferred channel is in-app chat — a send is appropriate.',
+    recommendation: 'Send a happy birthday from the team.',
+    outcome: 'A warm birthday note was sent to Tomas from the team.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Birthday matched to today', done: true },
+      { state: 'assessment', headline: 'Active employee · in-app chat', done: true },
+      { state: 'resolution', headline: 'Birthday note sent', done: true },
+    ],
+    actions: ['Send Birthday Note'],
+    timestamp: '9:12 AM',
+  },
+  {
+    id: 'weekly_fill_report',
+    name: 'Scheduled Report',
+    title: 'Weekly fill-rate report generated on schedule',
+    capability: 'Reporting',
+    status: 'resolved',
+    severity: 'none',
+    event: 'The weekly fill-rate report ran on its configured schedule.',
+    assessment: 'A scheduled report ran as configured — already on the Home dashboard.',
+    recommendation: 'No action needed.',
+    outcome: 'Report posted to the Home dashboard — no intervention required.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Weekly report generated', done: true },
+      { state: 'resolution', headline: 'Posted to the Home dashboard', done: true },
+    ],
+    actions: [],
+    timestamp: '5:00 PM',
+  },
+
+  // ── Done (auto-resolved — no action needed) ────────────────────────────────
+  {
+    id: 'clockin_devon',
+    name: 'Clean Clock-In',
+    title: 'Devon Pierce clocked in at Eastgate Warehouse',
+    capability: 'Attendance',
+    status: 'auto_resolved',
+    severity: 'none',
+    event: 'Devon clocked in at Eastgate Warehouse.',
+    assessment: 'Clean clock-in inside the geofence with all required fields filled.',
+    recommendation: 'No action needed.',
+    outcome: 'Clean clock-in inside the geofence — logged, nothing to do.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Clock-in at Eastgate Warehouse', done: true },
+      { state: 'assessment', headline: 'Inside geofence · all fields present', done: true },
+      { state: 'resolution', headline: 'Logged — no action needed', done: true },
+    ],
+    actions: [],
+    timestamp: '8:15 AM',
+  },
+  {
+    id: 'phone_aisha',
+    name: 'Profile Update',
+    title: 'Aisha Bello updated her phone number',
+    capability: 'Users',
+    status: 'auto_resolved',
+    severity: 'none',
+    event: 'Aisha updated her phone number.',
+    assessment: 'A routine edit on an editable field with no downstream dependency.',
+    recommendation: 'No action needed.',
+    outcome: 'Routine profile edit — no workflow depends on it, nothing to do.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Phone number updated', done: true },
+      { state: 'resolution', headline: 'No downstream impact — logged', done: true },
+    ],
+    actions: [],
+    timestamp: '12:30 PM',
+  },
+  {
+    id: 'fill_confirmed_maria',
+    name: 'Autonomous Fill Closed',
+    title: 'Fill agent confirmed a replacement for Maria’s shift',
+    capability: 'Autonomous Operations',
+    status: 'auto_resolved',
+    severity: 'high',
+    event: 'The fill agent confirmed a replacement for Maria’s earlier shift.',
+    assessment: 'An earlier fill closing out successfully — covered and scheduler notified.',
+    recommendation: 'No action needed.',
+    outcome: 'Shift covered and the scheduler notified — logged automatically.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Replacement confirmed for Maria’s shift', done: true },
+      { state: 'execution', headline: 'Coverage secured by the fill agent', done: true },
+      { state: 'resolution', headline: 'Scheduler notified — logged', done: true },
+    ],
+    actions: [],
+    timestamp: '3:55 PM',
+  },
+  {
+    id: 'invoice_paid_4821',
+    name: 'Invoice Paid',
+    title: 'Client marked invoice #4821 as paid',
+    capability: 'Invoicing',
+    status: 'auto_resolved',
+    severity: 'none',
+    event: 'A client marked invoice #4821 as paid.',
+    assessment: 'Payment was recorded outside Teambridge; the status already reflects reality.',
+    recommendation: 'No action needed.',
+    outcome: 'Invoice #4821 marked paid — record matches reality, nothing to act on.',
+    workflowOpportunity: null,
+    timeline: [
+      { state: 'detected', headline: 'Invoice #4821 marked paid', done: true },
+      { state: 'resolution', headline: 'Status already accurate — logged', done: true },
+    ],
+    actions: [],
+    timestamp: '11:25 AM',
+  },
+
+  // ── Done (workflow-ready — recurring pattern) ──────────────────────────────
+  {
+    id: 'cred_expired_nadia',
+    name: 'Credential Lapse',
+    title: 'Nadia Haddad’s CPR cert expired overnight',
+    capability: 'Compliance',
+    status: 'workflow_available',
+    severity: 'none',
+    event: 'Nadia’s CPR certification expired overnight.',
+    assessment: 'A blocking policy flagged the lapse — CPR is required for her role.',
+    recommendation: 'Pull her from non-compliant shifts and start renewal.',
+    outcome: 'Renewal task assigned and backfills lined up for the 3 affected shifts.',
+    workflowOpportunity: 'Monitor credential lapses and auto-start renewals.',
+    timeline: [
+      { state: 'detected', headline: 'CPR cert expired overnight', done: true },
+      { state: 'assessment', headline: '3 upcoming shifts now at risk', done: true },
+      { state: 'recommendation', headline: 'Renewal task + backfills lined up', done: true },
+      { state: 'workflow', headline: 'Recurring pattern ready to save as a workflow', done: true },
+    ],
+    actions: ['Start renewal', 'Line up backfills'],
+    timestamp: '10:40 AM',
   },
 ];
 
 /** Person each case is about — drives the deck card's profile avatar (with an
- *  initials fallback when the photo can't load). */
+ *  initials fallback when the photo can't load). Only set where the case title
+ *  already leads with that person's full name, so `threadDisplayTitle` leaves
+ *  the title untouched. Event-type cases (a new application, an invoice, a
+ *  published schedule) intentionally have no subject and display verbatim. */
 export const THREAD_SUBJECTS: Record<string, string> = {
-  surge_callouts: 'Derek Hayes',
-  callout_recovery: 'Maria Lopez',
-  no_show: 'John Smith',
-  payroll_exception: 'Devon Carter',
-  fill_risk: 'Priya Nair',
-  overtime_risk: 'Marcus Lee',
-  order_fill_strategy: 'Elena Rossi',
-  candidate_match: 'Aisha Khan',
-  autonomous_callout: 'Nina Alvarez',
-  attendance_risk: 'Tyler Brooks',
-  credential_expiring: 'Robert Chen',
-  retention_risk: 'Sara Donovan',
-  unfilled_shift: 'Dana Whitfield',
+  shift_drop_maria: 'Maria Ellis',
+  timeoff_sofia: 'Sofia Marin',
+  document_kenji: 'Kenji Tanaka',
+  missed_clockin_james: 'James Okoro',
+  missed_clockout_bianca: 'Bianca Rossi',
+  shift_release_jenny: 'Jenny Park',
+  birthday_tomas: 'Tomas Greco',
+  clockin_devon: 'Devon Pierce',
+  phone_aisha: 'Aisha Bello',
+  cred_expired_nadia: 'Nadia Haddad',
 };
 
 /** Glanceable case metadata for the collapsed card subtitle: a scannable
  *  Role · Shift time · Location line in place of the prose assessment. DEMO ONLY. */
 export const THREAD_META: Record<string, { role: string; shiftTime: string; location: string }> = {
-  surge_callouts:     { role: 'RN',        shiftTime: 'Today · 7:00 AM',     location: 'Riverside Memorial' },
-  ot_spike:           { role: 'RN',        shiftTime: 'Nights · this week',  location: 'Memorial East' },
-  cred_sweep:         { role: '6 staff',   shiftTime: 'Next 30 days',        location: '2 facilities' },
-  callout_recovery:   { role: 'RN',        shiftTime: 'Tomorrow · 8:00 AM',  location: 'Riverside Memorial' },
-  no_show:            { role: 'CNA',       shiftTime: 'Today · 7:00 AM',     location: 'Lakeside Care' },
-  payroll_exception:  { role: 'LPN',       shiftTime: 'Yesterday',           location: 'Lakeside Care' },
-  fill_risk:          { role: 'RN',        shiftTime: 'Sat · 7:00 PM',       location: 'Westgate Clinic' },
-  overtime_risk:      { role: 'RN',        shiftTime: 'This week',           location: 'Memorial East' },
-  order_fill_strategy:{ role: 'CNA',       shiftTime: 'Fri · 3:00 PM',       location: 'Northside Facility' },
-  candidate_match:    { role: 'CNA',       shiftTime: 'Full-time',           location: 'Lakeside Care' },
-  autonomous_callout: { role: 'RN',        shiftTime: 'Overnight · 2:00 AM', location: 'Riverside Memorial' },
-  attendance_risk:    { role: 'CNA',       shiftTime: 'This month',          location: 'Lakeside Care' },
-  credential_expiring:{ role: 'RN',        shiftTime: 'Expires in 14 days',  location: 'Memorial East' },
-  retention_risk:     { role: 'RN',        shiftTime: 'Availability ↓ 60%',  location: 'Westgate Clinic' },
-  unfilled_shift:     { role: 'RN',        shiftTime: 'Tonight · 11:00 PM',  location: 'Riverside Memorial' },
+  shift_drop_maria:      { role: 'RN',          shiftTime: 'Today · 2:00 PM',     location: 'Riverside Clinic' },
+  timeoff_sofia:         { role: 'PTO',         shiftTime: 'Next Thu–Fri',        location: '2 assigned shifts' },
+  document_kenji:        { role: 'CPR cert',    shiftTime: 'Expires in 3 weeks',  location: 'Profile upload' },
+  application_priya:     { role: 'CNA',         shiftTime: 'Night Shift',         location: 'Downtown' },
+  new_shift_forklift:    { role: 'Forklift Op', shiftTime: 'Fri · 6:00 AM',       location: 'Bay 4' },
+  new_user_luis:         { role: 'Candidate',   shiftTime: 'Onboarding',          location: '5 intake tasks' },
+  missed_clockin_james:  { role: 'Worker',      shiftTime: 'Today · 9:00 AM',     location: 'No clock-in' },
+  thread_cancel_wed:     { role: 'Worker',      shiftTime: 'Wed · 7:00 AM',       location: 'Pier 9' },
+  payroll_acme_invoice:  { role: 'Invoice',     shiftTime: '$48/hr · 8 hrs',      location: 'Acme Logistics' },
+  job_event_staff:       { role: 'Event Staff', shiftTime: 'Sat · 4:00 PM',       location: '20 openings' },
+  missed_clockout_bianca:{ role: 'Timesheet',   shiftTime: 'Ended ~6:05 PM',      location: 'Open punch' },
+  schedule_published:    { role: '31 workers',  shiftTime: 'Next week',           location: '84 shifts' },
+  shift_release_jenny:   { role: 'Caregiver',   shiftTime: 'Sat · 8:00 AM',       location: 'Lakeside' },
+  birthday_tomas:        { role: 'Employee',    shiftTime: 'Today',               location: 'In-app chat' },
+  weekly_fill_report:    { role: 'Report',      shiftTime: 'Weekly',              location: 'Home dashboard' },
+  clockin_devon:         { role: 'Clock-in',    shiftTime: 'Today · 8:15 AM',     location: 'Eastgate Warehouse' },
+  phone_aisha:           { role: 'Profile',     shiftTime: 'Today',               location: 'Phone updated' },
+  fill_confirmed_maria:  { role: 'RN',          shiftTime: 'Replacement',         location: 'Riverside Clinic' },
+  invoice_paid_4821:     { role: 'Invoice',     shiftTime: '#4821',               location: 'Marked paid' },
+  cred_expired_nadia:    { role: 'CPR cert',    shiftTime: 'Expired',             location: '3 shifts at risk' },
 };
 
-/** The glanceable metadata line for a case, e.g. "RN · Tomorrow · 8:00 AM ·
- *  Riverside Memorial". Empty string when the case has no metadata. */
+/** The glanceable metadata line for a case, e.g. "RN · Today · 2:00 PM ·
+ *  Riverside Clinic". Empty string when the case has no metadata. */
 export function threadMeta(id: string): string {
   const m = THREAD_META[id];
   return m ? [m.role, m.shiftTime, m.location].filter(Boolean).join(' · ') : '';
@@ -426,30 +539,108 @@ export interface AnalyzingStep {
 
 /** Short "thinking" steps Ultron emits while analyzing a fresh event. They
  *  reveal one at a time (accumulating, growing the analyzing card) before the
- *  case flips to Needs approval. Falls back to a generic sequence. */
+ *  case flips to Needs approval. Falls back to a generic sequence. Sourced from
+ *  each event's "Analyzing event" checklist in the seed data. */
 export const ANALYZING_ACTIVITIES: Record<string, AnalyzingStep[]> = {
-  surge_callouts: [
-    { icon: 'edit',  headline: 'Pulling float-pool availability', detail: 'Scanned 14 float-pool RNs — 6 are free and credentialed for the affected unit.' },
-    { icon: 'rate',  headline: 'Checking overtime budget headroom', detail: 'The week sits at 82% of its overtime budget, leaving room for a premium shift before the cap.' },
-    { icon: 'chart', headline: 'Gauging the shift’s coverage risk', detail: 'The 7:00 AM ICU block falls below minimum safe staffing until the slot is refilled.' },
-    { icon: 'done',  headline: 'Drafting a recommended plan', detail: 'Pairing the open shift with the strongest float match, plus a heads-up to the affected manager.' },
+  shift_drop_maria: [
+    { icon: 'clock', headline: 'Read the dropped shift', detail: 'RN · Riverside · 2:00–10:00 PM · CPR required.' },
+    { icon: 'alert', headline: 'Checked the start window', detail: 'Starts in under 12 hours — this is an urgent fill.' },
+    { icon: 'chart', headline: 'Ran matching policies', detail: '8 available RNs, with no overtime or do-not-return conflicts.' },
   ],
-  ot_spike: [
-    { icon: 'chart', headline: 'Reading the week’s overtime ledger', detail: 'Two RNs account for $4,200 of the projected overage — most of the spike traces back to the night shift.' },
-    { icon: 'chart', headline: 'Modeling schedule swaps', detail: 'Tested 9 swap combinations; three cut overtime without breaching rest rules.' },
-    { icon: 'edit',  headline: 'Checking on-call pool capacity', detail: 'Four on-call RNs are available to absorb two of the over-budget slots this week.' },
-    { icon: 'done',  headline: 'Estimating disruption per option', detail: 'Ranked the options by hours moved and staff impact — the lowest-disruption fix shifts just two slots.' },
+  timeoff_sofia: [
+    { icon: 'clock', headline: 'Read the request window', detail: 'Thu–Fri, with 2 assigned shifts inside it.' },
+    { icon: 'chart', headline: 'Ran coverage on both shifts', detail: 'Thursday is fine; Friday is thin.' },
+    { icon: 'alert', headline: 'Checked PTO balance + policy', detail: 'Balance is OK and there’s no blackout rule.' },
   ],
-  cred_sweep: [
-    { icon: 'alert', headline: 'Listing credentials nearing expiry', detail: 'Found 11 licenses lapsing in the next 30 days across 8 employees.' },
-    { icon: 'edit',  headline: 'Checking renewal eligibility', detail: '9 of the 11 are eligible to renew now; two need a manager sign-off first.' },
-    { icon: 'chart', headline: 'Mapping affected upcoming shifts', detail: 'Lapses would put 6 scheduled shifts out of compliance over the next two weeks.' },
-    { icon: 'done',  headline: 'Preparing reminder recipients', detail: 'Grouped reminders by employee and manager so each goes out with the right shift context.' },
+  document_kenji: [
+    { icon: 'edit',  headline: 'Opened and read the file', detail: 'It looks like a CPR certification.' },
+    { icon: 'clock', headline: 'Extracted the expiration date', detail: 'The credential expires in 3 weeks.' },
+    { icon: 'done',  headline: 'Matched the name to the uploader', detail: 'Confirmed it’s Kenji T.' },
   ],
-  attendance_risk: [
-    { icon: 'chart', headline: 'Reviewing the attendance history', detail: 'Pulled 90 days of punches — the late arrivals cluster on Monday early shifts.' },
-    { icon: 'alert', headline: 'Checking the attendance policy', detail: 'Four lates in a month crosses the coaching threshold in the attendance policy.' },
-    { icon: 'done',  headline: 'Shaping a coaching plan', detail: 'An early, private coaching conversation is the lowest-friction way to reverse the trend.' },
+  application_priya: [
+    { icon: 'edit',  headline: 'Read the application', detail: 'Against the linked job — CNA · Night Shift · Downtown.' },
+    { icon: 'alert', headline: 'Checked required credentials', detail: 'CNA license valid; availability matches.' },
+    { icon: 'chart', headline: 'Scored against requirements', detail: 'Strong match — 92%.' },
+  ],
+  new_shift_forklift: [
+    { icon: 'clock', headline: 'Read the new shift', detail: 'Forklift · certified only · 6:00 AM.' },
+    { icon: 'chart', headline: 'Ran matching policies', detail: '11 certified, available workers.' },
+    { icon: 'done',  headline: 'Ranked by proximity + reliability', detail: 'Surfaced the top 6.' },
+  ],
+  new_user_luis: [
+    { icon: 'edit',  headline: 'Read the new candidate record', detail: 'Type: Candidate, with no tasks yet.' },
+    { icon: 'clock', headline: 'Pulled the onboarding set', detail: '5 standard intake tasks.' },
+    { icon: 'done',  headline: 'Checked what’s on file', detail: 'Nothing pre-fillable.' },
+  ],
+  missed_clockin_james: [
+    { icon: 'clock', headline: 'Saw the start pass with no clock-in', detail: 'The 5-minute grace window elapsed.' },
+    { icon: 'edit',  headline: 'Pulled his contact + channel', detail: 'Preferred channel is SMS.' },
+    { icon: 'alert', headline: 'Confirmed no release on file', detail: 'No time-off — an unexplained gap.' },
+  ],
+  thread_cancel_wed: [
+    { icon: 'edit',  headline: 'Read the inbound message', detail: 'An informal cancellation for a Wed shift.' },
+    { icon: 'chart', headline: 'Matched it to a shift', detail: 'Wed 7:00 AM · Pier 9.' },
+    { icon: 'alert', headline: 'Confirmed no formal release', detail: 'It still needs to be recorded.' },
+  ],
+  payroll_acme_invoice: [
+    { icon: 'rate',  headline: 'Read the approved bill rate', detail: '$48/hr · 8 hrs.' },
+    { icon: 'clock', headline: 'Found Acme’s open invoice', detail: 'Net-30, draft status.' },
+    { icon: 'done',  headline: 'Confirmed no duplicate line', detail: 'Safe to add.' },
+  ],
+  job_event_staff: [
+    { icon: 'clock', headline: 'Read the job', detail: 'Event Staff · 20 needed · Sat 4:00 PM.' },
+    { icon: 'chart', headline: 'Ran matching on the pool', detail: '63 eligible workers, ranked.' },
+    { icon: 'alert', headline: 'Checked for double-booking', detail: 'Filtered out 9 against Sat shifts.' },
+  ],
+  missed_clockout_bianca: [
+    { icon: 'clock', headline: 'Saw the shift end with no clock-out', detail: 'The timesheet is left open.' },
+    { icon: 'edit',  headline: 'Pulled her end + last ping', detail: 'She left the site ~6:05 PM.' },
+    { icon: 'alert', headline: 'Held the timesheet from payroll', detail: 'It needs a real end time.' },
+  ],
+  schedule_published: [
+    { icon: 'chart', headline: 'Scanned next week’s shifts', detail: '84 shifts across 31 workers.' },
+    { icon: 'alert', headline: 'Checked confirmation status', detail: '22 are still unconfirmed.' },
+    { icon: 'edit',  headline: 'Grouped unconfirmed by day', detail: 'Monday and Tuesday are heaviest.' },
+  ],
+  shift_release_jenny: [
+    { icon: 'clock', headline: 'Read the released shift', detail: 'Caregiver · Lakeside · Sat 8:00 AM.' },
+    { icon: 'alert', headline: 'Confirmed it’s 12+ hours out', detail: 'Standard fill path.' },
+    { icon: 'chart', headline: 'Ran matching policies', detail: '5 qualified, available caregivers.' },
+  ],
+  birthday_tomas: [
+    { icon: 'clock', headline: 'Matched today to a birthday', detail: 'It’s Tomas G.' },
+    { icon: 'edit',  headline: 'Pulled his preferred channel', detail: 'In-app chat.' },
+    { icon: 'done',  headline: 'Confirmed he’s active', detail: 'A send is appropriate.' },
+  ],
+  cred_expired_nadia: [
+    { icon: 'alert', headline: 'A blocking policy flagged the lapse', detail: 'CPR is required for her role.' },
+    { icon: 'chart', headline: 'Found her CPR-gated shifts', detail: '3 in the next week.' },
+    { icon: 'done',  headline: 'Checked replacement availability', detail: 'Covered for all 3.' },
+  ],
+  // ── "No action needed" events — the verification Ultron ran to conclude there
+  // was nothing to do (so their trail reads as deliberate, not empty). ──────────
+  clockin_devon: [
+    { icon: 'clock', headline: 'Read the clock-in event', detail: 'Inside the Eastgate geofence.' },
+    { icon: 'alert', headline: 'Checked required fields', detail: 'All present — nothing missing.' },
+    { icon: 'done',  headline: 'Confirmed no action needed', detail: 'The system is working as intended.' },
+  ],
+  phone_aisha: [
+    { icon: 'edit',  headline: 'Read the profile edit', detail: 'A phone number on an editable field.' },
+    { icon: 'alert', headline: 'Checked downstream dependencies', detail: 'No policy or workflow relies on it.' },
+    { icon: 'done',  headline: 'Confirmed nothing to do', detail: 'A routine edit.' },
+  ],
+  fill_confirmed_maria: [
+    { icon: 'done',  headline: 'Saw my earlier fill close out', detail: 'A replacement was confirmed for Maria’s shift.' },
+    { icon: 'edit',  headline: 'Verified coverage', detail: 'The shift is covered and the scheduler was notified.' },
+    { icon: 'done',  headline: 'Confirmed no action needed', detail: 'I’ll just log it.' },
+  ],
+  weekly_fill_report: [
+    { icon: 'chart', headline: 'Saw the report run', detail: 'On its configured schedule.' },
+    { icon: 'done',  headline: 'Checked placement', detail: 'It’s already on the Home dashboard.' },
+  ],
+  invoice_paid_4821: [
+    { icon: 'rate',  headline: 'Read the paid status', detail: 'Recorded outside Teambridge.' },
+    { icon: 'done',  headline: 'Confirmed the record is accurate', detail: 'It reflects reality — nothing to act on.' },
   ],
 };
 
@@ -466,23 +657,23 @@ export const analyzingSteps = (id: string): AnalyzingStep[] =>
 
 /** The recommendation phrased as a question — a clear call to action that the
  *  decision buttons answer. Shown as the card prompt (falls back to the
- *  imperative `recommendation` if missing). */
+ *  imperative `recommendation` if missing). Sourced from each event's "Ask:". */
 export const THREAD_PROMPTS: Record<string, string> = {
-  surge_callouts: 'Run the coverage recovery plan?',
-  ot_spike: 'Bring overtime back under budget?',
-  cred_sweep: 'Clear the expiring credentials?',
-  callout_recovery: 'Start the coverage recovery?',
-  no_show: 'Cover the no-show?',
-  payroll_exception: 'Approve the estimated end time?',
-  fill_risk: 'Improve this shift’s fill odds?',
-  overtime_risk: 'Cut the projected overtime?',
-  order_fill_strategy: 'Widen the candidate pool?',
-  candidate_match: 'Schedule the interview?',
-  credential_expiring: 'Handle the renewal?',
-  attendance_risk: 'Start a coaching note?',
-  retention_risk: 'Schedule a manager check-in?',
-  autonomous_callout: 'No action needed — Ultron handled this automatically.',
-  unfilled_shift: 'Push to fill this shift?',
+  shift_drop_maria: 'Want me to reach out to the best replacements and get this shift filled?',
+  timeoff_sofia: 'Friday’s coverage is thin — want me to approve Thursday and hold Friday for your call?',
+  document_kenji: 'It’s a valid CPR cert expiring in 3 weeks — want me to file it and flag the renewal?',
+  application_priya: 'Want me to screen this lead and reach out if they qualify?',
+  new_shift_forklift: 'Want me to offer this shift to the best workers and get it claimed?',
+  new_user_luis: 'Want me to kick off onboarding for Luis with a welcome and intake tasks?',
+  missed_clockin_james: 'Want me to check in with James and update the shift?',
+  thread_cancel_wed: 'She’s canceling tomorrow informally — want me to log the release and start a fill?',
+  payroll_acme_invoice: 'Want me to roll this approved shift onto the client’s open invoice?',
+  job_event_staff: 'Want me to invite the best-matched workers to fill these 20 openings?',
+  missed_clockout_bianca: 'Want me to confirm Bianca’s end time and fix the timesheet before payroll?',
+  schedule_published: 'Want me to confirm next week’s schedule and chase down the 22 unconfirmed shifts?',
+  shift_release_jenny: 'Want me to reach out to the best replacements and get this shift filled?',
+  birthday_tomas: 'Want me to send Tomas a happy birthday message from the team?',
+  cred_expired_nadia: 'Her CPR lapsed — want me to start the renewal and line up backfills for the 3 shifts?',
 };
 
 /** Real, scenario-specific milestones shown one-by-one while a thread executes
@@ -498,50 +689,78 @@ export interface WorkingMilestone {
 }
 
 export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
-  callout_recovery: [
-    { icon: 'send',  headline: 'Outreach sent to 12 candidates', detail: 'Coverage requests delivered to qualified RNs.' },
-    { icon: 'clock', headline: 'Tracking responses', detail: '3 viewed · 1 interested · 0 accepted.' },
-    { icon: 'done',  headline: 'Sarah Kim is the strongest match', detail: 'Available, 94% match.' },
+  shift_drop_maria: [
+    { icon: 'send',  headline: 'Messaged the top replacements', detail: 'Sent the shift details to the best-matched RNs.' },
+    { icon: 'clock', headline: 'Collecting confirmations', detail: 'Tracking replies for the first qualified yes.' },
+    { icon: 'done',  headline: 'Shift filled', detail: 'Assigned the first qualified RN and notified the scheduler.' },
   ],
-  no_show: [
-    { icon: 'send',  headline: 'Contacting John and replacements', detail: 'Outreach sent; manager notified.' },
-    { icon: 'clock', headline: 'Tracking responses', detail: 'Two replacements responded; awaiting confirmation.' },
-    { icon: 'done',  headline: 'Priya Patel is the strongest match', detail: 'Available for the day shift — ready to assign.' },
+  timeoff_sofia: [
+    { icon: 'done',  headline: 'Approved Thursday', detail: 'PTO balance confirmed and the Thursday shift is covered.' },
+    { icon: 'edit',  headline: 'Held Friday for you', detail: 'Flagged the thin coverage with the one available backup.' },
+    { icon: 'send',  headline: 'Sofia notified', detail: 'Confirmed Thursday and that Friday is pending your call.' },
   ],
-  payroll_exception: [
-    { icon: 'clock', headline: 'Estimating end time', detail: 'Deriving from schedule and punch history.' },
-    { icon: 'edit',  headline: 'Applying correction', detail: 'Updating the open timesheet.' },
-    { icon: 'done',  headline: 'Payroll corrected', detail: 'Adjustment recorded for approval.' },
+  document_kenji: [
+    { icon: 'edit',  headline: 'Filed as a CPR cert', detail: 'Set the document type and saved the expiry.' },
+    { icon: 'done',  headline: 'Marked the credential verified', detail: 'Updated his profile.' },
+    { icon: 'alert', headline: 'Flagged the renewal', detail: 'It expires in 3 weeks — surfaced for planning.' },
   ],
-  fill_risk: [
-    { icon: 'rate',  headline: 'Raising pay by $3/hr', detail: 'Updating the posting rate.' },
-    { icon: 'send',  headline: 'Notifying nearby workers', detail: 'Targeted outreach to qualified RNs.' },
-    { icon: 'done',  headline: 'Two qualified RNs applied', detail: 'Awaiting your approval.' },
+  application_priya: [
+    { icon: 'edit',  headline: 'Marked Priya qualified', detail: 'Updated the application status.' },
+    { icon: 'send',  headline: 'Sent a warm intro', detail: 'Confirmed interest and asked the two screening questions.' },
+    { icon: 'done',  headline: 'Moved to the recruiter queue', detail: 'Ready once she replies.' },
   ],
-  overtime_risk: [
-    { icon: 'chart', headline: 'Rebalancing schedules', detail: 'Shifting hours off two over-budget employees.' },
-    { icon: 'send',  headline: 'Confirming swaps', detail: 'Notifying affected employees.' },
-    { icon: 'done',  headline: 'Overtime reduced', detail: 'Projected overage down 35%.' },
+  new_shift_forklift: [
+    { icon: 'send',  headline: 'Offered to the top matches', detail: 'Sent the shift in ranked order.' },
+    { icon: 'clock', headline: 'Tracking claims', detail: 'Watching for the first claim that clears policy.' },
+    { icon: 'done',  headline: 'Shift claimed', detail: 'Assigned the first qualified claim and updated the calendar.' },
   ],
-  order_fill_strategy: [
-    { icon: 'rate',  headline: 'Raising rate & expanding radius', detail: 'Updating the order parameters.' },
-    { icon: 'send',  headline: 'Re-marketing the order', detail: 'Reaching a wider candidate pool.' },
-    { icon: 'done',  headline: 'Candidates applying', detail: 'Three qualified candidates so far.' },
+  new_user_luis: [
+    { icon: 'send',  headline: 'Sent Luis a welcome', detail: 'Kicked off the candidate onboarding.' },
+    { icon: 'edit',  headline: 'Assigned intake tasks', detail: 'Added the 5 required tasks.' },
+    { icon: 'done',  headline: 'Following up', detail: 'Tracking each task through to completion.' },
   ],
-  candidate_match: [
-    { icon: 'clock', headline: 'Finding an interview slot', detail: 'Checking mutual availability.' },
-    { icon: 'send',  headline: 'Sending the invite', detail: 'Notifying the applicant and hiring manager.' },
-    { icon: 'done',  headline: 'Interview completed — strong feedback', detail: 'Ready for a decision.' },
+  missed_clockin_james: [
+    { icon: 'send',  headline: 'Texted James', detail: 'Asked whether he’s on his way.' },
+    { icon: 'clock', headline: 'Awaiting his reply', detail: 'Will update the shift’s confirmation status from it.' },
+    { icon: 'done',  headline: 'Shift updated', detail: 'Flagged the scheduling inbox in case of a no-show.' },
   ],
-  unfilled_shift: [
-    { icon: 'rate',  headline: 'Adding a $5/hr incentive', detail: 'Updating the shift offer.' },
-    { icon: 'send',  headline: 'Escalating to the on-call pool', detail: 'Notifying available on-call RNs.' },
-    { icon: 'done',  headline: 'On-call RN accepted', detail: 'Coverage restored with the incentive.' },
+  thread_cancel_wed: [
+    { icon: 'edit',  headline: 'Recorded the release', detail: 'Logged the Wed shift as released on her behalf.' },
+    { icon: 'send',  headline: 'Acknowledged her', detail: 'Confirmed she’s off the shift.' },
+    { icon: 'done',  headline: 'Replacement search started', detail: 'Opened a fill for the Wed 7:00 AM shift.' },
   ],
-  attendance_risk: [
-    { icon: 'edit', headline: 'Opening a coaching note', detail: 'Drafting a private note with the late-arrival dates and pattern.' },
-    { icon: 'send', headline: 'Notifying the manager', detail: 'Sharing the note and the trend with Rachel Adler.' },
-    { icon: 'done', headline: 'Coaching note shared', detail: 'Manager has the context to hold an early check-in.' },
+  payroll_acme_invoice: [
+    { icon: 'edit',  headline: 'Adding the line item', detail: 'Posting the approved shift to Acme’s open invoice.' },
+    { icon: 'rate',  headline: 'Recalculating the total', detail: 'Updating the invoice total and net terms.' },
+    { icon: 'done',  headline: 'Draft ready', detail: 'Kept ready for your end-of-week review.' },
+  ],
+  job_event_staff: [
+    { icon: 'send',  headline: 'Inviting the top 40 matches', detail: 'Sent slot invitations in ranked order.' },
+    { icon: 'clock', headline: 'Tracking responses', detail: 'Filling the 20 openings first-come.' },
+    { icon: 'done',  headline: 'Standby list kept', detail: 'Will notify you at 80% filled.' },
+  ],
+  missed_clockout_bianca: [
+    { icon: 'send',  headline: 'Texted Bianca', detail: 'Asked her to confirm her actual end time.' },
+    { icon: 'edit',  headline: 'Updating the timesheet', detail: 'Will apply her confirmed end time.' },
+    { icon: 'alert', headline: 'Holding for payroll', detail: 'Will flag payroll if she doesn’t reply before the run.' },
+  ],
+  schedule_published: [
+    { icon: 'send',  headline: 'Messaging workers to confirm', detail: 'Asked everyone to confirm next week’s shifts.' },
+    { icon: 'clock', headline: 'Chasing the unconfirmed', detail: 'Sending reminders to the 22 outstanding.' },
+    { icon: 'done',  headline: 'Readiness summary queued', detail: 'A Monday-readiness summary lands by end of day.' },
+  ],
+  shift_release_jenny: [
+    { icon: 'send',  headline: 'Messaged the best matches', detail: 'Reached out to the qualified caregivers.' },
+    { icon: 'clock', headline: 'Collecting confirmations', detail: 'Waiting on the first qualified yes.' },
+    { icon: 'done',  headline: 'Shift filled', detail: 'Assigned the replacement and updated the schedule.' },
+  ],
+  birthday_tomas: [
+    { icon: 'send',  headline: 'Sent the birthday note', detail: 'A warm message from the team via in-app chat.' },
+  ],
+  cred_expired_nadia: [
+    { icon: 'alert', headline: 'Flagged the 3 shifts at-risk', detail: 'Marked the CPR-gated shifts.' },
+    { icon: 'edit',  headline: 'Assigned a renewal task', detail: 'Added the upload step for Nadia.' },
+    { icon: 'done',  headline: 'Backfills lined up', detail: 'Offered to cover the shifts she can’t legally work.' },
   ],
 };
 
@@ -565,45 +784,35 @@ export interface ThreadFollowUp {
 }
 
 export const THREAD_FOLLOWUPS: Record<string, ThreadFollowUp> = {
-  no_show: {
-    prompt: 'Priya Patel is available — a strong match. Assign her to cover the shift?',
-    actions: ['Review', 'Assign Priya'],
+  shift_drop_maria: {
+    prompt: 'Renee Wallace replied yes — a strong match. Assign her to cover the shift?',
+    actions: ['Review', 'Assign Renee'],
     working: [
-      { icon: 'edit',  headline: 'Assigning Priya to the shift', detail: '' },
-      { icon: 'clock', headline: 'Updating the schedule', detail: '' },
-      { icon: 'done',  headline: 'Coverage confirmed', detail: '' },
+      { icon: 'edit',  headline: 'Assigning Renee to the shift', detail: 'Adding Renee Wallace to the 2:00 PM RN shift.' },
+      { icon: 'clock', headline: 'Updating the schedule', detail: 'Posting the change so the roster reflects it.' },
+      { icon: 'done',  headline: 'Coverage confirmed', detail: 'Shift filled and the scheduler notified.' },
     ],
-    record: { eyebrow: 'RN', title: 'Priya Patel', meta: ['Available now', 'Day shift', 'Strong match'], avatarSeed: 'priya_patel' },
+    record: { eyebrow: 'RN', title: 'Renee Wallace', meta: ['94% match', 'Available now', 'CPR current'], avatarSeed: 'renee_wallace' },
   },
-  callout_recovery: {
-    prompt: 'Sarah Kim is available. Assign her to the shift?',
-    actions: ['Review', 'Assign Sarah'],
+  missed_clockin_james: {
+    prompt: 'James says he’s 15 minutes out. Update the shift as confirmed-late?',
+    actions: ['Review', 'Confirm late'],
     working: [
-      { icon: 'edit',  headline: 'Assigning Sarah to the shift', detail: '' },
-      { icon: 'clock', headline: 'Updating the schedule', detail: '' },
-      { icon: 'done',  headline: 'Coverage confirmed', detail: '' },
+      { icon: 'edit',  headline: 'Updating the shift', detail: 'Marking James confirmed, arriving ~15 min late.' },
+      { icon: 'send',  headline: 'Notifying the site', detail: 'Letting the location know to expect him shortly.' },
+      { icon: 'done',  headline: 'Shift updated', detail: 'No replacement needed — coverage holds.' },
     ],
-    record: { eyebrow: 'RN', title: 'Sarah Kim', meta: ['94% match', 'Los Angeles', '4 yr Exp', 'Available immediately'], avatarSeed: 'sarah_kim' },
+    record: { eyebrow: 'Worker', title: 'James Okoro', meta: ['On his way', '~15 min late', 'Replied via SMS'], avatarSeed: 'missed_clockin_james' },
   },
-  fill_risk: {
-    prompt: 'Two RNs applied. Approve the top applicant for the shift?',
-    actions: ['Review', 'Approve Applicant'],
+  application_priya: {
+    prompt: 'Priya answered the screening questions and qualifies. Move her to the recruiter’s queue?',
+    actions: ['Review', 'Move to queue'],
     working: [
-      { icon: 'edit',  headline: 'Approving the applicant', detail: '' },
-      { icon: 'clock', headline: 'Updating the schedule', detail: '' },
-      { icon: 'done',  headline: 'Shift filled', detail: '' },
+      { icon: 'edit',  headline: 'Moving Priya to the queue', detail: 'Handing her off to the recruiter as Qualified.' },
+      { icon: 'send',  headline: 'Notifying the recruiter', detail: 'Sharing her answers and the 92% match.' },
+      { icon: 'done',  headline: 'In the recruiter’s queue', detail: 'Ready for the next step.' },
     ],
-    record: { eyebrow: 'RN', title: 'Jordan Reyes', meta: ['Top applicant', '3 yr Exp', 'Available'], avatarSeed: 'jordan_reyes' },
-  },
-  candidate_match: {
-    prompt: 'The interview went well. Send an offer to the candidate?',
-    actions: ['Review', 'Send Offer'],
-    working: [
-      { icon: 'send',  headline: 'Sending the offer', detail: '' },
-      { icon: 'clock', headline: 'Awaiting acceptance', detail: '' },
-      { icon: 'done',  headline: 'Offer accepted', detail: '' },
-    ],
-    record: { eyebrow: 'CNA Applicant', title: 'Aisha Khan', meta: ['Interview: strong', '2 yr Exp', 'Available'], avatarSeed: 'candidate_match' },
+    record: { eyebrow: 'CNA', title: 'Priya Raman', meta: ['92% match', 'Screened', 'Night Shift'], avatarSeed: 'application_priya' },
   },
 };
 
@@ -611,16 +820,19 @@ export const THREAD_FOLLOWUPS: Record<string, ThreadFollowUp> = {
  *  most cases; a short ranked list where the question is about choosing among
  *  candidates (rendered as a vertical stack of record cards). */
 export const THREAD_RECORDS: Record<string, RecordRef | RecordRef[]> = {
-  callout_recovery: [
-    { eyebrow: 'RN', title: 'Sarah Kim',    meta: ['94% match', 'Available now', 'Strong attendance'], avatarSeed: 'sarah_kim' },
-    { eyebrow: 'RN', title: 'James Carter',  meta: ['91% match', 'Available now', 'Good attendance'],   avatarSeed: 'james_carter' },
-    { eyebrow: 'RN', title: 'Priya Patel',   meta: ['88% match', 'Available now', 'Within radius'],     avatarSeed: 'priya_patel' },
+  shift_drop_maria: [
+    { eyebrow: 'RN', title: 'Renee Wallace', meta: ['94% match', 'Available now', 'CPR current'], avatarSeed: 'renee_wallace' },
+    { eyebrow: 'RN', title: 'Carl Jensen',   meta: ['90% match', 'Available now', 'Within radius'], avatarSeed: 'carl_jensen' },
+    { eyebrow: 'RN', title: 'Tina Boyd',     meta: ['87% match', 'Available now', 'No OT conflict'], avatarSeed: 'tina_boyd' },
   ],
-  no_show:           { eyebrow: 'RN', title: 'John Smith', meta: ['No-show', 'Day shift', '20m late'], avatarSeed: 'no_show' },
-  payroll_exception: { eyebrow: 'Timesheet', title: 'Devon Carter', meta: ['Missing clock-out', 'Yesterday'], avatarSeed: 'payroll_exception' },
-  candidate_match:   { eyebrow: 'CNA Applicant', title: 'Aisha Khan', meta: ['92% match', '2 yr Exp', 'Available'], avatarSeed: 'candidate_match' },
-  unfilled_shift:    { eyebrow: 'Open RN shift', title: 'Saturday · 7:00 PM', meta: ['Night', '1 RN needed', 'No replacement'], avatarSeed: 'unfilled_shift' },
-  attendance_risk:   { eyebrow: 'CNA', title: 'Tyler Brooks', meta: ['4 late arrivals', 'Avg 12 min late', 'Early shifts'], avatarSeed: 'attendance_risk' },
+  timeoff_sofia:        { eyebrow: 'PTO request', title: 'Sofia Marin', meta: ['Thu–Fri', '2 shifts inside', 'Balance OK'], avatarSeed: 'timeoff_sofia' },
+  document_kenji:       { eyebrow: 'Document', title: 'CPR Certification', meta: ['Kenji Tanaka', 'Expires in 3 weeks', 'Valid'], avatarSeed: 'document_kenji' },
+  application_priya:    { eyebrow: 'CNA · New Lead', title: 'Priya Raman', meta: ['92% match', 'Night Shift', 'Downtown'], avatarSeed: 'application_priya' },
+  new_user_luis:        { eyebrow: 'Candidate', title: 'Luis Mendez', meta: ['New record', '5 intake tasks', 'No tasks yet'], avatarSeed: 'new_user_luis' },
+  missed_clockin_james: { eyebrow: 'Worker', title: 'James Okoro', meta: ['9:00 AM shift', 'No clock-in', 'Grace elapsed'], avatarSeed: 'missed_clockin_james' },
+  thread_cancel_wed:    { eyebrow: 'Open Wed shift', title: 'Wed · 7:00 AM', meta: ['Pier 9', 'Informal cancel', 'No release filed'], avatarSeed: 'thread_cancel_wed' },
+  missed_clockout_bianca:{ eyebrow: 'Open timesheet', title: 'Bianca Rossi', meta: ['No clock-out', 'Off-site ~6:05 PM', 'Held from payroll'], avatarSeed: 'missed_clockout_bianca' },
+  cred_expired_nadia:   { eyebrow: 'Policy', title: 'Nadia Haddad', meta: ['CPR expired', '3 shifts at risk', 'Backfills ready'], avatarSeed: 'cred_expired_nadia' },
 };
 
 /** A discrete step in a decision's plan — what Ultron will run, in order, if the
@@ -637,60 +849,89 @@ export interface PlanTask {
 }
 
 /** Per-thread task breakdown for the docked decision surface. A thread with an
- *  entry here renders its plan as tasks; others keep the candidate-card list. */
+ *  entry here renders its plan as tasks; others keep the candidate-card list.
+ *  Sourced from each event's "What I'd do" steps. */
 export const THREAD_TASKS: Record<string, PlanTask[]> = {
-  callout_recovery: [
-    { label: 'Contact top candidates', showsCandidates: true },
-    { label: 'Notify the manager', person: { name: 'Rachel Adler', avatarSeed: 'rachel_adler' } },
+  shift_drop_maria: [
+    { label: 'Message the top replacements', showsCandidates: true },
+    { label: 'Assign the first qualified yes' },
+    { label: 'Mark filled and notify the scheduler', person: { name: 'Dana Cole', avatarSeed: 'scheduler_dana' } },
   ],
-  surge_callouts: [
-    { label: 'Pull from the float pool' },
-    { label: 'Notify the affected manager', person: { name: 'Rachel Adler', avatarSeed: 'rachel_adler' } },
+  timeoff_sofia: [
+    { label: 'Confirm the PTO balance covers it' },
+    { label: 'Auto-approve the Thursday portion' },
+    { label: 'Flag Friday for you', person: { name: 'You', avatarSeed: 'operator' } },
   ],
-  ot_spike: [
-    { label: 'Rebalance the night shift' },
-    { label: 'Move two slots to on-call' },
+  document_kenji: [
+    { label: 'Set the type to CPR Cert and save the expiry' },
+    { label: 'Mark the credential verified' },
+    { label: 'Flag that it expires soon' },
   ],
-  cred_sweep: [
-    { label: 'Send renewal reminders' },
-    { label: 'Flag the affected shifts' },
+  application_priya: [
+    { label: 'Update the status to Qualified' },
+    { label: 'Send a warm intro message' },
+    { label: 'Ask the two screening questions' },
+    { label: 'Move to the recruiter’s queue on reply' },
   ],
-  no_show: [
-    { label: 'Reach out to John', person: { name: 'John Smith', avatarSeed: 'no_show' } },
-    { label: 'Notify the manager', person: { name: 'Rachel Adler', avatarSeed: 'rachel_adler' } },
-    { label: 'Start a replacement search' },
+  new_shift_forklift: [
+    { label: 'Offer to the top matches in ranked order', showsCandidates: true },
+    { label: 'Assign the first claim that clears policy' },
+    { label: 'Confirm and update the calendar' },
   ],
-  fill_risk: [
-    { label: 'Raise pay by $3/hr' },
-    { label: 'Notify nearby qualified workers' },
+  new_user_luis: [
+    { label: 'Send Luis a welcome message' },
+    { label: 'Assign the required intake tasks' },
+    { label: 'Follow up until everything’s completed' },
   ],
-  order_fill_strategy: [
-    { label: 'Raise the rate' },
-    { label: 'Expand the search radius' },
+  missed_clockin_james: [
+    { label: 'Text James to ask if he’s on his way', person: { name: 'James Okoro', avatarSeed: 'missed_clockin_james' } },
+    { label: 'Update the shift’s confirmation status' },
+    { label: 'Flag the scheduling inbox if he’s a no-show' },
   ],
-  credential_expiring: [
-    { label: 'Send a renewal reminder' },
-    { label: 'Notify the manager', person: { name: 'Rachel Adler', avatarSeed: 'rachel_adler' } },
+  thread_cancel_wed: [
+    { label: 'Record the shift as released on her behalf' },
+    { label: 'Reply to acknowledge she’s off it' },
+    { label: 'Start a replacement search for the Wed shift' },
   ],
-  unfilled_shift: [
-    { label: 'Offer a $5/hr incentive' },
-    { label: 'Escalate to the on-call pool' },
+  payroll_acme_invoice: [
+    { label: 'Add the shift as a line item' },
+    { label: 'Recalculate the invoice total and terms' },
+    { label: 'Keep the draft ready for your review' },
   ],
-  attendance_risk: [
-    { label: 'Open a coaching note' },
-    { label: 'Notify the manager', person: { name: 'Rachel Adler', avatarSeed: 'rachel_adler' } },
+  job_event_staff: [
+    { label: 'Invite the top 40 matches', showsCandidates: true },
+    { label: 'Fill the 20 openings first-come' },
+    { label: 'Keep a standby list and notify you at 80%' },
+  ],
+  missed_clockout_bianca: [
+    { label: 'Text Bianca to confirm her actual end time' },
+    { label: 'Update the timesheet from her reply' },
+    { label: 'Flag payroll if she doesn’t respond' },
+  ],
+  schedule_published: [
+    { label: 'Message all workers to confirm' },
+    { label: 'Chase the unconfirmed with a reminder' },
+    { label: 'Give you a Monday-readiness summary' },
+  ],
+  shift_release_jenny: [
+    { label: 'Message the best-matched replacements', showsCandidates: true },
+    { label: 'Assign the first qualified yes' },
+    { label: 'Confirm the fill and update the schedule' },
+  ],
+  cred_expired_nadia: [
+    { label: 'Flag her 3 upcoming shifts as at-risk' },
+    { label: 'Assign Nadia a renewal task with the upload' },
+    { label: 'Offer to backfill the shifts she can’t work' },
   ],
 };
 
 /** The record a resolved thread fulfilled — the assigned/approved/hired person,
  *  shown on the resolved card so the final outcome has a concrete subject. */
 export const THREAD_RESOLVED_RECORDS: Record<string, RecordRef> = {
-  callout_recovery:   { eyebrow: 'RN · Assigned',       title: 'Sarah Kim',    meta: ['Coverage restored', 'Night shift', 'Tomorrow 8:00 AM'], avatarSeed: 'sarah_kim' },
-  no_show:            { eyebrow: 'RN · Replacement',    title: 'Priya Patel',  meta: ['Shift covered', 'Day shift'],                          avatarSeed: 'priya_patel' },
-  fill_risk:          { eyebrow: 'RN · Approved',       title: 'Jordan Reyes', meta: ['Shift filled', '3 yr Exp'],                            avatarSeed: 'jordan_reyes' },
-  candidate_match:    { eyebrow: 'CNA · Offer accepted', title: 'Aisha Khan',   meta: ['Onboarding started', '2 yr Exp'],                       avatarSeed: 'candidate_match' },
-  autonomous_callout: { eyebrow: 'RN · Auto-assigned',  title: 'Daniel Brooks', meta: ['ICU · Night shift', '7:00 PM–7:00 AM', '6 yr Exp'],       avatarSeed: 'auto_fill' },
-  attendance_risk:    { eyebrow: 'CNA · Coaching opened', title: 'Tyler Brooks', meta: ['Note shared', 'Manager notified'],                       avatarSeed: 'attendance_risk' },
+  shift_release_jenny:  { eyebrow: 'Caregiver · Assigned',  title: 'Renee Wallace', meta: ['Coverage restored', 'Sat 8:00 AM', 'Lakeside'], avatarSeed: 'renee_wallace' },
+  birthday_tomas:       { eyebrow: 'Employee',              title: 'Tomas Greco',   meta: ['Birthday note sent', 'In-app chat'],            avatarSeed: 'birthday_tomas' },
+  fill_confirmed_maria: { eyebrow: 'RN · Replacement',      title: 'Sarah Quinn',   meta: ['Shift covered', 'Riverside Clinic'],            avatarSeed: 'fill_confirmed_maria' },
+  cred_expired_nadia:   { eyebrow: 'CPR · Renewal started', title: 'Nadia Haddad',  meta: ['Renewal task assigned', '3 shifts backfilled'], avatarSeed: 'cred_expired_nadia' },
 };
 
 /** Past-activity breakdown shown (expandable) on a resolved card. A block is a
@@ -711,291 +952,135 @@ export interface ActivityMilestone {
 }
 
 const THREAD_ACTIVITY: Record<string, ActivityMilestone[]> = {
-  callout_recovery: [
+  shift_release_jenny: [
     {
       icon: 'clock',
-      headline: 'RN shift released for tomorrow morning',
-      blocks: [{ text: 'Maria Lopez called out of her 8:00 AM RN shift, leaving it open.' }],
+      headline: 'Saturday caregiver shift released',
+      blocks: [{ text: 'Jenny Park released her 8:00 AM caregiver shift at Lakeside.' }],
     },
     {
       icon: 'alert',
-      headline: 'Coverage is at risk',
-      blocks: [{
-        bullets: [
-          'Shift begins in 18 hours',
-          'No replacement currently assigned',
-          'Similar shifts typically require 4–6 hours to fill',
-          'Staffing levels would fall below target',
-        ],
-      }],
+      headline: 'Standard fill path',
+      blocks: [{ bullets: ['More than 12 hours out', '5 qualified caregivers available', 'No coverage risk'] }],
     },
     {
       icon: 'send',
-      headline: '12 qualified replacements identified',
+      headline: 'Messaged the best matches',
       blocks: [
-        { text: 'Ultron found employees that match role requirements, availability, attendance history, and commute distance.' },
-        { label: 'Top Matches', records: [
-          { eyebrow: 'RN', title: 'Sarah Kim',       meta: ['94% match', 'Available now'], avatarSeed: 'sarah_kim' },
-          { eyebrow: 'RN', title: 'James Carter',    meta: ['91% match', 'Available now'], avatarSeed: 'james_carter' },
-          { eyebrow: 'RN', title: 'Priya Patel',     meta: ['88% match', 'Available now'], avatarSeed: 'priya_patel' },
-          { eyebrow: 'RN', title: 'Daniel Brooks',   meta: ['86% match', 'Available now'], avatarSeed: 'daniel_brooks' },
-          { eyebrow: 'RN', title: 'Aisha Khan',      meta: ['84% match', 'Available now'], avatarSeed: 'aisha_khan' },
-          { eyebrow: 'RN', title: 'Marcus Lee',      meta: ['82% match', 'Available now'], avatarSeed: 'marcus_lee' },
-          { eyebrow: 'RN', title: 'Elena Rodriguez', meta: ['80% match', 'Available now'], avatarSeed: 'elena_rodriguez' },
-          { eyebrow: 'RN', title: 'Tom Nguyen',      meta: ['78% match', 'Available now'], avatarSeed: 'tom_nguyen' },
-          { eyebrow: 'RN', title: 'Olivia Bennett',  meta: ['76% match', 'Available now'], avatarSeed: 'olivia_bennett' },
-          { eyebrow: 'RN', title: 'David Okafor',    meta: ['74% match', 'Available now'], avatarSeed: 'david_okafor' },
-          { eyebrow: 'RN', title: 'Hannah Schmidt',  meta: ['72% match', 'Available now'], avatarSeed: 'hannah_schmidt' },
-          { eyebrow: 'RN', title: 'Raj Mehta',       meta: ['70% match', 'Available now'], avatarSeed: 'raj_mehta' },
+        { text: 'Ultron reached out to the qualified caregivers in ranked order.' },
+        { label: 'Top matches', records: [
+          { eyebrow: 'Caregiver', title: 'Renee Wallace', meta: ['94% match', 'Available now'], avatarSeed: 'renee_wallace' },
+          { eyebrow: 'Caregiver', title: 'Carl Jensen',   meta: ['90% match', 'Available now'], avatarSeed: 'carl_jensen' },
+          { eyebrow: 'Caregiver', title: 'Tina Boyd',     meta: ['87% match', 'Available now'], avatarSeed: 'tina_boyd' },
         ] },
-        { label: 'Matching Factors', checks: ['RN qualified', 'Available during shift', 'Strong attendance history', 'Within commute radius'] },
       ],
     },
     {
       icon: 'done',
-      headline: 'Sarah Kim assigned — coverage restored',
-      blocks: [{ checks: ['Shift assigned to Sarah Kim', 'Schedule updated', 'Manager notified'] }],
+      headline: 'Renee Wallace assigned — coverage restored',
+      blocks: [{ checks: ['Shift assigned to Renee Wallace', 'Schedule updated', 'Coverage restored'] }],
     },
   ],
-  autonomous_callout: [
+  fill_confirmed_maria: [
     {
-      icon: 'clock',
-      headline: 'Call-out received at 2:00 AM',
-      blocks: [{ text: 'Nina Alvarez reported she could not work her overnight RN shift.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Coverage risk + autonomous policy match',
-      blocks: [{
-        bullets: [
-          'Shift starts in under 5 hours',
-          'No replacement assigned',
-          'Unit would fall below minimum safe staffing',
-          'Matches the "autonomous overnight recovery" policy',
-        ],
-      }],
+      icon: 'done',
+      headline: 'Replacement confirmed for Maria’s shift',
+      blocks: [{ text: 'Ultron’s earlier fill closed out — Sarah Quinn confirmed for the open RN shift.' }],
     },
     {
       icon: 'edit',
-      headline: 'Contacted candidates and filled the shift',
-      blocks: [
-        { text: 'Ultron ranked qualified RNs by availability, attendance, and commute, then reached out automatically — no approval required under policy.' },
-        { label: 'Outreach', bullets: ['Messaged 8 qualified RNs', 'First positive reply in 9 min', 'Daniel Brooks accepted'] },
-        { label: 'Matching Factors', checks: ['RN qualified', 'Available overnight', 'Strong attendance history', 'Within commute radius'] },
-      ],
+      headline: 'Coverage secured',
+      blocks: [{ checks: ['Shift covered', 'Scheduler notified', 'No further action needed'] }],
     },
     {
       icon: 'done',
-      headline: 'Replacement confirmed · manager notified',
-      blocks: [{
-        checks: ['Shift assigned to Daniel Brooks', 'Schedule updated', 'Manager notified', 'Resolved in 17 minutes'],
-      }],
+      headline: 'Logged',
+      blocks: [{ text: 'Recorded automatically — this was my own fill closing successfully.' }],
     },
   ],
-  no_show: [
+  cred_expired_nadia: [
     {
       icon: 'clock',
-      headline: 'No clock-in 20 minutes after shift start',
-      blocks: [{ text: 'John Smith was scheduled at 7:00 AM and has not badged in or responded to the reminder.' }],
+      headline: 'CPR cert expired overnight',
+      blocks: [{ text: 'A blocking policy flagged that Nadia’s CPR certification lapsed.' }],
     },
     {
       icon: 'alert',
-      headline: 'Pattern matches a likely no-show',
-      blocks: [{ bullets: ['2 no-shows in the last 30 days', 'No reply to the clock-in reminder', 'Past the 15-minute grace window'] }],
+      headline: '3 upcoming shifts at risk',
+      blocks: [{ bullets: ['CPR is required for her role', '3 CPR-gated shifts in the next week', 'Replacements available for all 3'] }],
     },
     {
       icon: 'send',
-      headline: 'Outreach + replacement plan prepared',
+      headline: 'Renewal started + backfills lined up',
       blocks: [
-        { text: 'Ultron drafted outreach to John and lined up replacements in case he does not respond.' },
-        { label: 'Replacement shortlist', bullets: ['Priya Patel — available now', 'James Carter — available now'] },
+        { text: 'Ultron flagged the at-risk shifts, assigned a renewal task, and offered backfills.' },
+        { label: 'Plan', checks: ['3 shifts flagged at-risk', 'Renewal task assigned to Nadia', 'Backfills lined up for all 3'] },
       ],
-    },
-    {
-      icon: 'edit',
-      headline: 'Approval required to begin recovery',
-      blocks: [{ text: 'Awaiting approval to message John, alert the manager, and start the replacement search.' }],
-    },
-  ],
-  payroll_exception: [
-    {
-      icon: 'clock',
-      headline: 'Open punch found on yesterday’s timesheet',
-      blocks: [{ text: 'Devon Carter clocked in at 9:02 AM but never recorded a clock-out.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Estimated end time derived from schedule',
-      blocks: [{ bullets: ['Scheduled shift ended at 5:00 PM', 'No clock-out event recorded', 'Last badge activity at 4:54 PM'] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Proposed correction ready for review',
-      blocks: [
-        { text: 'Ultron proposes a 5:00 PM end time based on the posted schedule.' },
-        { label: 'Proposed correction', checks: ['End time set to 5:00 PM', '8.0 hours logged', 'No overtime triggered'] },
-      ],
-    },
-    {
-      icon: 'edit',
-      headline: 'Approval required to correct payroll',
-      blocks: [{ text: 'Approval required before the timesheet is corrected and sent to payroll.' }],
-    },
-  ],
-  fill_risk: [
-    {
-      icon: 'clock',
-      headline: 'Shift open 5 days',
-      blocks: [{ text: 'A weekend RN shift has gone unclaimed for five days.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Fill probability 22% at current rate',
-      blocks: [{ bullets: ['Comparable shifts pay $3–4/hr more', 'Only 4 qualified workers in range', 'Weekend demand is high'] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Rate increase + targeted outreach proposed',
-      blocks: [
-        { text: 'Ultron recommends a $3/hr increase plus outreach to nearby qualified RNs.' },
-        { label: 'Projected impact', bullets: ['Fill probability rises to ~68%', 'Est. added cost: $36 for the shift'] },
-      ],
-    },
-  ],
-  overtime_risk: [
-    {
-      icon: 'clock',
-      headline: 'Projected overtime $4,200 over budget',
-      blocks: [{ text: 'This week’s projected overtime is $4,200 above the labor budget.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Two employees drive most of the overage',
-      blocks: [{ label: 'Top contributors', records: [
-        { eyebrow: 'RN', title: 'Marcus Lee',     meta: ['11 OT hrs', 'Memorial East'], avatarSeed: 'marcus_lee' },
-        { eyebrow: 'RN', title: 'Dana Whitfield', meta: ['7 OT hrs', 'Memorial East'],  avatarSeed: 'dana_whitfield' },
-      ] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Schedule rebalance plan prepared',
-      blocks: [
-        { text: 'Ultron prepared a rebalance that shifts hours to under-utilized staff.' },
-        { label: 'Plan', bullets: ['Move 9 hrs to the part-time pool', 'Projected overtime down 35%'] },
-      ],
-    },
-  ],
-  order_fill_strategy: [
-    {
-      icon: 'clock',
-      headline: 'Priority order stalled',
-      blocks: [{ text: 'A high-priority facility order has received no applicants.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Rate is below local market average',
-      blocks: [{ bullets: ['Rate is 12% below local market', 'Search radius capped at 15 mi', '3 similar orders filled at higher rates'] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Rate + radius adjustment proposed',
-      blocks: [
-        { text: 'Ultron recommends raising the rate and widening the search radius.' },
-        { label: 'Adjustment', bullets: ['Rate +$2.50/hr', 'Radius 15 → 30 mi'] },
-      ],
-    },
-  ],
-  candidate_match: [
-    {
-      icon: 'clock',
-      headline: 'New CNA application received',
-      blocks: [{ text: 'Aisha Khan applied for the open CNA position.' }],
-    },
-    {
-      icon: 'alert',
-      headline: '92% match for open position',
-      blocks: [{ label: 'Why it matches', checks: ['CNA certified', '2 yr experience', 'Within commute radius', 'Available for open shifts'] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Interview recommended',
-      blocks: [{ text: 'Ultron recommends scheduling an interview this week.' }],
-    },
-  ],
-  credential_expiring: [
-    {
-      icon: 'clock',
-      headline: 'RN license expires in 14 days',
-      blocks: [{ text: 'Robert Chen’s RN license is set to expire in two weeks.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Upcoming assignments would be non-compliant',
-      blocks: [{ bullets: ['3 upcoming shifts fall after the expiration date', 'Those assignments would be out of compliance'] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Renewal reminder sent to employee + manager',
-      blocks: [{ text: 'Reminders went to Robert and his manager with renewal instructions and a deadline.' }],
-    },
-    {
-      icon: 'done',
-      headline: 'License renewed before expiration',
-      blocks: [{ checks: ['License renewed', 'Compliance restored', 'Upcoming shifts cleared'] }],
-    },
-  ],
-  retention_risk: [
-    {
-      icon: 'clock',
-      headline: 'Availability dropped 60%',
-      blocks: [{ text: 'A top-performing RN cut their availability by 60% this month.' }],
-    },
-    {
-      icon: 'alert',
-      headline: 'Flagged as a retention risk',
-      blocks: [{ bullets: ['Availability down 60% month-over-month', 'Declined the last 3 offered shifts', 'Strong historical performer'] }],
-    },
-    {
-      icon: 'send',
-      headline: 'Manager check-in scheduled',
-      blocks: [{ text: 'A check-in was scheduled so the manager can understand the change and respond early.' }],
     },
     {
       icon: 'done',
       headline: 'Recurring pattern ready to save as a workflow',
-      blocks: [{ text: 'This pattern recurs — Ultron can monitor it automatically as a saved workflow.' }],
+      blocks: [{ text: 'Credential lapses recur — Ultron can monitor them and auto-start renewals as a saved workflow.' }],
     },
   ],
-  attendance_risk: [
+  birthday_tomas: [
     {
       icon: 'clock',
-      headline: '4 late arrivals this month',
-      blocks: [{ text: 'Tyler Brooks has arrived late four times this month — up from once last month.' }],
+      headline: 'Birthday matched to today',
+      blocks: [{ text: 'Today is Tomas Greco’s birthday; he’s an active employee on in-app chat.' }],
     },
     {
-      icon: 'alert',
-      headline: 'Trend worsening month-over-month',
-      blocks: [{ bullets: ['Up from 1 late arrival last month', 'Averaging 12 minutes late', 'Concentrated on early shifts'] }],
+      icon: 'done',
+      headline: 'Birthday note sent',
+      blocks: [{ text: 'A warm happy-birthday message went out to Tomas from the team.' }],
     },
   ],
-  unfilled_shift: [
+  weekly_fill_report: [
+    {
+      icon: 'chart',
+      headline: 'Weekly fill-rate report generated',
+      blocks: [{ text: 'The scheduled report ran exactly as configured.' }],
+    },
+    {
+      icon: 'done',
+      headline: 'Posted to the Home dashboard',
+      blocks: [{ text: 'It’s already on your Home dashboard — no intervention required.' }],
+    },
+  ],
+  clockin_devon: [
     {
       icon: 'clock',
-      headline: 'Replacement search opened',
-      blocks: [{ text: 'A replacement search opened for Dana Whitfield’s uncovered shift.' }],
+      headline: 'Clock-in at Eastgate Warehouse',
+      blocks: [{ text: 'Devon clocked in cleanly inside the geofence.' }],
     },
+    {
+      icon: 'done',
+      headline: 'No action needed',
+      blocks: [{ checks: ['Inside the geofence', 'All required fields filled', 'System working as intended'] }],
+    },
+  ],
+  phone_aisha: [
     {
       icon: 'edit',
-      headline: 'Contacted 12 candidates — no acceptances',
-      blocks: [
-        { text: 'Automated outreach completed with no acceptances.' },
-        { label: 'Outreach', bullets: ['12 qualified candidates contacted', '0 acceptances', 'Most common decline reason: distance'] },
-      ],
+      headline: 'Phone number updated',
+      blocks: [{ text: 'A routine profile edit on an editable field.' }],
     },
     {
-      icon: 'alert',
-      headline: 'Shift still uncovered — needs a decision',
-      blocks: [{ text: 'The shift remains uncovered and needs a decision — add an incentive or escalate to the on-call pool.' }],
+      icon: 'done',
+      headline: 'No action needed',
+      blocks: [{ text: 'No downstream policy or workflow depends on it — logged.' }],
+    },
+  ],
+  invoice_paid_4821: [
+    {
+      icon: 'rate',
+      headline: 'Invoice #4821 marked paid',
+      blocks: [{ text: 'Payment was recorded outside Teambridge and the status is already updated.' }],
+    },
+    {
+      icon: 'done',
+      headline: 'No action needed',
+      blocks: [{ text: 'The record reflects reality — nothing for me to act on.' }],
     },
   ],
 };
@@ -1098,74 +1183,75 @@ export interface IncomingEvent {
 }
 
 /** The signal stream cycled through the Live landing feed (interleaved risk /
- *  routine so the conveyor reads as a live mix). */
+ *  routine so the conveyor reads as a live mix). Drawn from the same seed-data
+ *  vocabulary as the cases above. */
 export const INCOMING_EVENTS: IncomingEvent[] = [
   {
-    id: 'lakeside_double_callout',
+    id: 'riverside_shift_drop',
     capability: 'Coverage Recovery',
-    title: 'Two RNs called out of tonight’s shift at Lakeside Care',
-    name: 'Lakeside Coverage Gap',
+    title: 'An RN dropped this afternoon’s shift at Riverside Clinic',
+    name: 'Shift Drop Recovery',
     risk: true,
     severity: 'high',
-    assessment: 'Coverage risk detected. Two openings on the night shift with no replacements assigned.',
-    recommendation: 'Pull from the float pool and notify the charge nurse.',
+    assessment: 'Urgent fill — the shift starts in under 12 hours with no replacement.',
+    recommendation: 'Reach out to the best-matched RNs and fill it.',
   },
   {
-    id: 'schedule_published',
+    id: 'eastgate_clockin',
+    capability: 'Attendance',
+    title: 'Clean clock-in at Eastgate Warehouse',
+    name: 'Clean Clock-In',
+    risk: false,
+  },
+  {
+    id: 'missed_clockin_signal',
+    capability: 'Attendance Recovery',
+    title: 'A worker never started their 9am shift',
+    name: 'Missed Clock-In',
+    risk: true,
+    severity: 'high',
+    assessment: 'The start passed with no clock-in and the grace window has elapsed.',
+    recommendation: 'Check if they’re on the way and update the shift.',
+  },
+  {
+    id: 'schedule_published_signal',
     capability: 'Scheduling',
-    title: 'Next week’s schedule published at Memorial East',
+    title: 'Next week’s schedule published',
     name: 'Schedule Published',
     risk: false,
   },
   {
-    id: 'ot_budget_breach',
-    capability: 'Labor Cost',
-    title: 'Night-shift overtime crossed 120% of weekly budget',
-    name: 'Overtime Breach',
-    risk: true,
-    severity: 'medium',
-    assessment: 'Overtime is pacing well over budget. Two employees account for most of the overage.',
-    recommendation: 'Rebalance the night shift and move two slots to on-call.',
-  },
-  {
-    id: 'swap_approved',
-    capability: 'Scheduling',
-    title: 'Shift swap approved between two RNs at Westgate',
-    name: 'Shift Swap',
-    risk: false,
-  },
-  {
-    id: 'cna_cred_lapse',
+    id: 'cpr_lapse_signal',
     capability: 'Compliance',
-    title: 'A CNA certification lapses before Friday’s scheduled shift',
+    title: 'A CPR certification expired overnight',
     name: 'Credential Lapse',
     risk: true,
     severity: 'medium',
-    assessment: 'An upcoming assignment would be out of compliance once the certification lapses.',
-    recommendation: 'Send a renewal reminder and flag the affected shift.',
+    assessment: 'CPR is required for the role and upcoming shifts would be non-compliant.',
+    recommendation: 'Pull from the affected shifts and start renewal.',
   },
   {
-    id: 'order_filled',
-    capability: 'Marketplace',
-    title: 'Open order filled at Northside Facility',
-    name: 'Order Filled',
+    id: 'invoice_paid_signal',
+    capability: 'Invoicing',
+    title: 'Client marked an invoice as paid',
+    name: 'Invoice Paid',
     risk: false,
   },
   {
-    id: 'possible_no_show',
-    capability: 'Attendance Recovery',
-    title: 'Day-shift CNA not clocked in 15 minutes past start at Riverside',
-    name: 'Possible No-Show',
+    id: 'open_timesheet_signal',
+    capability: 'Payroll Operations',
+    title: 'A timesheet has no clock-out before the payroll run',
+    name: 'Open Timesheet',
     risk: true,
-    severity: 'high',
-    assessment: 'Pattern matches a likely no-show. Coverage risk detected.',
-    recommendation: 'Reach out to the employee and prepare a replacement search.',
+    severity: 'medium',
+    assessment: 'The shift ended with no clock-out — the open punch is held from payroll.',
+    recommendation: 'Confirm the real end time and fix the timesheet.',
   },
   {
-    id: 'timeoff_auto_approved',
-    capability: 'Time Off',
-    title: 'Time-off request auto-approved within policy',
-    name: 'Time Off Approved',
+    id: 'birthday_signal',
+    capability: 'Engagement',
+    title: 'An employee’s birthday is today',
+    name: 'Birthday Greeting',
     risk: false,
   },
 ];
@@ -1199,13 +1285,19 @@ export function spawnThreadFromEvent(ev: IncomingEvent): ThreadItem {
 /** Outcome populated when an actioned thread auto-completes (demo lifecycle:
  *  Needs attention → Live stream → Resolved). */
 export const RESOLVE_OUTCOMES: Record<string, string> = {
-  callout_recovery: 'Sarah Kim assigned. Coverage restored.',
-  no_show: 'Replacement assigned and the shift is covered.',
-  payroll_exception: 'Estimated end time approved. Payroll corrected.',
-  fill_risk: 'Top applicant approved — shift filled.',
-  overtime_risk: 'Schedules rebalanced. Projected overtime down 35%.',
-  order_fill_strategy: 'Rate raised and radius expanded — three candidates applied.',
-  candidate_match: 'Offer accepted — candidate hired.',
-  unfilled_shift: 'On-call RN accepted with the incentive. Coverage restored.',
-  attendance_risk: 'Coaching note shared with the manager. Watching for improvement.',
+  shift_drop_maria: 'Replacement assigned — coverage restored and the scheduler notified.',
+  timeoff_sofia: 'Thursday approved; Friday held for your call.',
+  document_kenji: 'CPR cert filed and verified — renewal flagged for 3 weeks out.',
+  application_priya: 'Priya screened and moved to the recruiter’s queue.',
+  new_shift_forklift: 'Shift offered and claimed — calendar updated.',
+  new_user_luis: 'Onboarding kicked off — welcome sent and intake tasks assigned.',
+  missed_clockin_james: 'Checked in with James and updated the shift.',
+  thread_cancel_wed: 'Release logged and a replacement search started for the Wed shift.',
+  payroll_acme_invoice: 'Shift rolled onto Acme’s open invoice — total recalculated.',
+  job_event_staff: 'Invitations sent — openings filling first-come with a standby list.',
+  missed_clockout_bianca: 'End time confirmed and the timesheet corrected before payroll.',
+  schedule_published: 'Confirmations sent — chasing the 22 unconfirmed shifts.',
+  shift_release_jenny: 'Replacement assigned — coverage restored.',
+  birthday_tomas: 'Birthday note sent to Tomas from the team.',
+  cred_expired_nadia: 'Renewal started and backfills lined up for the 3 affected shifts.',
 };

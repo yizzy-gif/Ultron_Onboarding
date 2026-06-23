@@ -33,7 +33,9 @@ export function UltronIdentityCard({ hideActivity }: { hideActivity?: boolean })
   return (
     <Card>
       <Content>
-        <AgentMark mark="circle" size={48} tone="auto" state="active" aria-label="Ultron" />
+        {/* On the Live landing (activity line hidden) the card collapses to a
+            compact identity row, so the mark shrinks to keep the header short. */}
+        <AgentMark mark="circle" size={hideActivity ? 36 : 48} tone="auto" state="active" aria-label="Ultron" />
         <TextGroup>
           <Name>Ultron</Name>
           {!hideActivity && (

@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import type { ThreadItem, ThreadStatus } from './types';
 import { SEVERITY_RANK, isPurpleRow } from './ultronShared';
-import { UltronCard, UltronActionCard, UltronActivityCards, UltronStepperCard, UltronAnalyzingTrigger } from './UltronCard';
+import { UltronCard, UltronActionCard, UltronActivityCards, UltronAnalyzingTrigger } from './UltronCard';
 import { LiveLanding } from './LiveLanding';
 import type { IncomingEvent } from './fixtures';
 
@@ -185,7 +185,7 @@ export function UltronPage({
   // Every resolved case offers to save its play as a reusable workflow, so it
   // gets a dock too — even when it carries no explicit workflowOpportunity.
   const dockEligible = !!pagedThread &&
-    (['needs_approval', 'recommended', 'unresolved', 'resolved', 'auto_resolved'].includes(pagedThread.status)
+    (['needs_approval', 'recommended', 'unresolved', 'resolved', 'auto_resolved', 'monitoring'].includes(pagedThread.status)
       || isPurpleRow(pagedThread));
   // The dock can be dismissed per case; once dismissed the prompt card is gone
   // but the event card stays in its docked (collapsed) treatment — the actions
@@ -197,21 +197,21 @@ export function UltronPage({
   // no border). Resolved/settled cases stay expanded to show their outcome — as
   // do cases carrying an analysis result, so its white result block can show.
   const eventExpanded = !(dockEligible && pagedThread &&
-    ['needs_approval', 'recommended', 'unresolved'].includes(pagedThread.status))
+    ['needs_approval', 'recommended', 'unresolved', 'monitoring'].includes(pagedThread.status))
     || !!pagedThread?.analysisResult;
 
   // Live — the default landing: Ultron's resting presence, a large Circle
   // identity mark centered in the page (no feed, no dock).
   if (section === 'live') {
     return (
-      <Page>
+      <Page key="live" $static>
         <LiveLanding onDetectRisk={onDetectRisk} />
       </Page>
     );
   }
 
   return (
-    <Page $closing={closing}>
+    <Page key="feed" $closing={closing}>
       <Scroll ref={scrollRef}>
       {/* The Ultron identity now lives at the top of the secondary nav (see
           App's menuHeader); the feed scrolls cases directly. */}
@@ -238,6 +238,10 @@ export function UltronPage({
             // that completed thinking as an activity trail below the event card
             // (the pending question lives in the docked decision surface).
             const awaitingDecision = thread.status === 'needs_approval' || thread.status === 'recommended';
+            // Escalated Working case: it has surfaced a needs-attention prompt but
+            // stays in the Working group. Show its completed trail (like a working
+            // case) with the decision docked at the foot.
+            const monitoring = thread.status === 'monitoring';
             return (
               <>
                 {/* The event card pins to the top of the scroll area; the
@@ -260,16 +264,13 @@ export function UltronPage({
                     onRefinement={onRefinement}
                     onSaveWorkflow={onSaveWorkflow}
                   />
-                  {/* Lifecycle stepper, lifted out of the event card and pinned
-                      directly below it. */}
-                  <UltronStepperCard thread={thread} stage={stageById[thread.id] ?? 0} />
                 </StickyEvent>
                 {/* One accumulating trail across analyzing → awaiting → executing →
                     resolved. While analyzing it runs live (the reasoning streams in
                     with the working mark); the analysis steps are part of the same
                     group, so there's no separate analyzing card. Keyed by case id so
                     it remounts only when the case changes, not when it advances. */}
-                {(analyzing || awaitingDecision || executing || resolved) && (
+                {(analyzing || awaitingDecision || executing || resolved || monitoring) && (
                   <UltronActivityCards
                     key={thread.id}
                     thread={thread}
@@ -349,9 +350,21 @@ const pageOut = keyframes`
   to   { opacity: 0; transform: translateY(var(--space-4)) scale(0.98); }
 `;
 
+/* Enter motion: the case detail rises + fades in as it takes over from the Live
+   landing (the inverse of pageOut). Plays on mount, so switching from the
+   landing into a case eases in rather than cutting. The landing keeps its own
+   Hero entrance ($static suppresses this page-level one to avoid double motion).
+   Each branch is keyed (live / feed) so React remounts on the on/off switch and
+   replays the entrance; switching between cases reuses the same Page (no key
+   change), so it doesn't re-animate. */
+const pageIn = keyframes`
+  from { opacity: 0; transform: translateY(var(--space-3)) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0)            scale(1);    }
+`;
+
 /* Relative shell: a column holding the scroll area above the (optional) docked
    actionable card / bottom band. */
-const Page = styled.div<{ $closing?: boolean }>`
+const Page = styled.div<{ $closing?: boolean; $static?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
@@ -367,6 +380,10 @@ const Page = styled.div<{ $closing?: boolean }>`
   color: var(--color-content-primary);
   transform-origin: 50% 30%;
   will-change: opacity, transform;
+
+  ${p => !p.$static && !p.$closing && css`
+    animation: ${pageIn} 280ms var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  `}
 
   ${p => p.$closing && css`
     animation: ${pageOut} 280ms var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) forwards;
@@ -384,7 +401,9 @@ const Scroll = styled.div`
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-5);
+  /* No top padding so the pinned event card sits flush at the top (0px); the
+     sides + bottom keep the feed's reading inset. */
+  padding: 0 var(--space-5) var(--space-5);
   scrollbar-gutter: stable;
 
   /* Bottom dissolve so thread content fades into the dock / page foot as it
@@ -442,19 +461,6 @@ const StickyEvent = styled.div`
   top: 0;
   z-index: 5;
   background: var(--color-bg-primary);
-
-  /* Extend that surface up through the scroll's top padding so the pinned card
-     reads as a solid header panel and content scrolls away behind it rather than
-     through the gap above. */
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 100%;
-    height: var(--space-5);
-    background: var(--color-bg-primary);
-  }
 
   /* Soft gradient just below the pinned card so content scrolling up dissolves
      into the page background instead of colliding with the card's bottom edge.

@@ -61,7 +61,9 @@ const UltronNavCard = styled.button<{ $active: boolean }>`
   display: block;
   width: 100%;
   margin-bottom: var(--space-2);
-  padding: var(--space-2);
+  /* On the Live landing the card is a compact identity row, so trim the
+     vertical padding to keep the header short. */
+  padding: ${p => (p.$active ? 'var(--space-1) var(--space-2)' : 'var(--space-2)')};
   border: none;
   border-radius: var(--radius-md, 8px);
   background: ${p => (p.$active ? 'var(--color-bg-secondary, rgba(70, 108, 255, 0.06))' : 'transparent')};

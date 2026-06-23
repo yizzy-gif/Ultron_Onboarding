@@ -549,12 +549,12 @@ const EventTrail = styled.div`
 const TrailDots = styled.span`
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   height: 28px;
 
   & > span {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     background: var(--color-content-tertiary);
     animation: ${blink} 1.2s ease-in-out infinite;

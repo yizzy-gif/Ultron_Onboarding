@@ -319,19 +319,20 @@ function MilestoneIcon({ slotRef, hidden }: {
 }
 
 /** A milestone's headline + (collapsible) detail blocks. Shared by the inline
- *  trail row and the standalone step card. While `typing`, the headline types
- *  out and the detail blocks hold until it finishes — Ultron mid-thought. */
+ *  trail row and the standalone step card. While `typing`, the headline pulses
+ *  (a live "thinking" blink) and the secondary text types out beneath it —
+ *  Ultron mid-thought. */
 function MilestoneContent({ milestone, last, typing, icon, collapsible = true, usage }: { milestone: ActivityMilestone; last?: boolean; typing?: boolean; icon?: ReactNode; collapsible?: boolean; usage?: ActivityUsageData }) {
   const hasBlocks = !!milestone.blocks?.length;
   const [open, setOpen] = useState(true);
-  const [headlineDone, setHeadlineDone] = useState(!typing);
-  useEffect(() => { setHeadlineDone(!typing); }, [typing, milestone.headline]);
 
   // Inside a session the activity is never individually collapsible: it shows its
   // full sub-context with no chevron (the session toggles as a unit). The
   // connected trail keeps the per-row toggle. While typing, the toggle is inert.
   const interactive = collapsible && hasBlocks && !typing;
-  const showBlocks = hasBlocks && (collapsible ? open : true) && headlineDone;
+  // Blocks reveal immediately (even while typing) so the secondary text can type
+  // out in place rather than popping in after the headline.
+  const showBlocks = hasBlocks && (collapsible ? open : true);
 
   return (
     <Content $last={last}>
@@ -346,9 +347,7 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, u
             title (top row: icon + title); the connected trail leaves it out
             (the icon lives in the left rail instead). */}
         {icon}
-        <Headline>
-          {typing ? <Typewriter text={milestone.headline} onDone={() => setHeadlineDone(true)} /> : milestone.headline}
-        </Headline>
+        <Headline $blink={!!typing}>{milestone.headline}</Headline>
         {interactive && (
           <Chevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></Chevron>
         )}
@@ -358,7 +357,7 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, u
         <Blocks $indent={!!icon}>
           {milestone.blocks!.map((b, j) => (
             <Block key={j}>
-              {b.text && <BlockText>{b.text}</BlockText>}
+              {b.text && <BlockText>{typing ? <Typewriter text={b.text} /> : b.text}</BlockText>}
               {b.label && <BlockLabel>{b.label}</BlockLabel>}
               {b.bullets && (
                 <BulletList>
@@ -382,7 +381,7 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, u
           and data the group drew on. Shown only under the last activity in a
           group (where `usage` is passed), and only once the headline finishes
           typing so it doesn't pop in mid-thought. */}
-      {icon && headlineDone && usage && <ActivityUsage usage={usage} />}
+      {icon && !typing && usage && <ActivityUsage usage={usage} />}
     </Content>
   );
 }
@@ -569,7 +568,8 @@ const ActionsRow = styled.div`
   padding-top: var(--space-4);
   /* Nudge the action cluster 8px further below the usage toggle. */
   margin-top: var(--space-2);
-  padding-left: calc(var(--space-8) + var(--space-3));
+  /* Sit on the group's left rail — flush with the session summary and the
+     activity icon column — rather than indented onto the content rail. */
 
   /* Size the action buttons (thumbs up/down + rerun) to a 32px tap target,
      keeping their icons centered. The min-width override beats the design
@@ -620,7 +620,9 @@ const Caret = styled.span<{ $blink?: boolean }>`
   width: 1px;
   height: 1em;
   margin-left: 1px;
-  vertical-align: text-bottom;
+  /* Centre on the text rather than the line box — text-bottom anchored the caret
+     to the line-box bottom (the leading/descender gap), leaving it sitting low. */
+  vertical-align: middle;
   background: currentColor;
   animation: ${p => (p.$blink ? caretBlink : 'none')} 1s step-end infinite;
 
@@ -696,11 +698,21 @@ const Header = styled.div<{ $interactive?: boolean }>`
   }
 `;
 
-const Headline = styled.span`
+/* While the row is the one Ultron is mid-thought on, the label pulses (a soft
+   opacity blink) to read as live, then settles solid once the row finishes. */
+const labelBlink = keyframes`
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+`;
+
+const Headline = styled.span<{ $blink?: boolean }>`
   font-size: var(--text-sm); /* 14px */
   font-weight: var(--font-weight-medium);
   color: var(--color-content-primary);
   line-height: var(--line-height-snug);
+  animation: ${p => (p.$blink ? labelBlink : 'none')} 1.1s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
 /* Chevron points right when collapsed, rotates to point down when expanded. */

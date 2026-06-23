@@ -21,7 +21,7 @@ import {
 import type { ActivityMilestone, WorkingMilestone, PlanTask, RecordRef, AnalyzingStep } from './fixtures';
 import { RecordCard } from './RecordCard';
 import {
-  isPurpleRow, isRefinementAction, OutcomeBlock, toneFor, UNRESOLVED_ACTIONS,
+  isPurpleRow, isRefinementAction, toneFor, UNRESOLVED_ACTIONS,
   hasMultipleCtas, DO_IT_ALL_LABEL, deriveStepLabels,
 } from './ultronShared';
 import type { CardTone } from './ultronShared';
@@ -33,29 +33,6 @@ import { AgentMark } from './AgentMark';
  *  beat so the response feels acknowledged immediately, before the remaining
  *  steps pace in at the slower ACTIVITY_STEP_MS cadence. */
 const POST_REPLY_MS = 450;
-
-/** The case lifecycle, surfaced as a stepper on the event card header. */
-const LIFECYCLE_STEPS = ['Analyzed', 'Plan proposed', 'Working', 'Resolved'] as const;
-
-/** The active lifecycle step for a status, or null for statuses outside the
- *  Analyzed → Plan proposed → Working → Resolved pipeline (monitoring,
- *  unresolved, workflow-ready).
- *
- *  `stage` is the case's decision stage (0 = first CTA, 1 = follow-up CTA). Once
- *  the operator has taken the first action (stage >= 1), the case is executing —
- *  hold the stepper on Working through any follow-up question until it resolves,
- *  rather than snapping back to Plan proposed. */
-function lifecycleStep(status: ThreadItem['status'], stage = 0): number | null {
-  if (status === 'resolved' || status === 'auto_resolved') return 3;
-  if (stage >= 1 && lifecycleStep(status) != null) return 2;
-  switch (status) {
-    case 'analyzing':      return 0;
-    case 'needs_approval':
-    case 'recommended':    return 1;
-    case 'in_progress':    return 2;
-    default:               return null;
-  }
-}
 
 /** Light-bulb glyph for Ultron's "suggested" (slate) cases. The Alloy icon set
  *  has no bulb, so this matches its stroke conventions (24px viewBox,
@@ -115,7 +92,10 @@ interface UltronCardProps {
  *  <UltronActionCard>. */
 function deriveCase(thread: ThreadItem, stage: number) {
   const needsDecision = thread.status === 'needs_approval' || thread.status === 'recommended';
-  const actionable = needsDecision || thread.status === 'unresolved';
+  // `monitoring` is a Working-group case that has surfaced a needs-attention
+  // prompt (e.g. the escalated attendance case): it stays in Working but asks
+  // the operator for a decision, so it's actionable too.
+  const actionable = needsDecision || thread.status === 'unresolved' || thread.status === 'monitoring';
   const followUp = THREAD_FOLLOWUPS[thread.id];
   const onFollowUp = stage === 1 && !!followUp;
   const prompt = onFollowUp ? followUp!.prompt : (THREAD_PROMPTS[thread.id] ?? thread.recommendation);
@@ -151,17 +131,6 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
   const showAnalyzing = analyzing && !detachAnalyzing;
   const isResolved = thread.status === 'resolved' || thread.status === 'auto_resolved';
 
-  // While a case awaits an operator decision (needs approval / recommended /
-  // unresolved), surface Ultron's one-line conclusion as a white result block
-  // under the header — the same treatment the resolved card gives its outcome line.
-  const showAnalysisResult = actionable && !!thread.analysisResult;
-
-  // While analyzing in the paged view (the thinking stream is detached into its
-  // own card below), the event card would otherwise be an empty header. Give it
-  // the same white body block the decided cards get — Ultron's current read of
-  // the event as the "additional info" — so it reads as a real event card.
-  const showAnalyzingInfo = analyzing && detachAnalyzing && !!(thread.analysisResult ?? thread.assessment);
-
   // When the actionable block is detached (rendered at the page bottom), the
   // prompt, context records, and action buttons all move there — the event card
   // is left with just its header (plus any resolved/analyzing activity).
@@ -171,8 +140,8 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
   // no in-card body (their live activity renders below as <UltronWorkingCards>),
   // so we skip the body wrapper rather than render an empty white box.
   const hasBody = detachActionable
-    ? (showAnalyzing || isResolved || showAnalysisResult || showAnalyzingInfo)
-    : (actionable || showAnalyzing || isResolved || showActions || showAnalysisResult || showAnalyzingInfo);
+    ? (showAnalyzing || isResolved)
+    : (actionable || showAnalyzing || isResolved || showActions);
 
   // A header-only case (monitoring / in-progress, whose activity streams below
   // as separate cards) has no in-card body to expand into, so it always reads as
@@ -196,8 +165,11 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
     else onAction(thread.id, label);
   };
 
+  // The deconstructed (transparent, flat) treatment follows the focused/detail
+  // card — `expanded` — not whether it has in-card body content, so removing the
+  // analysis-result banner doesn't snap it back to the collapsed tonal fill.
   return (
-    <Card data-tone={tone} $expanded={effectiveExpanded}>
+    <Card data-tone={tone} $expanded={expanded}>
       <CardHeader>
         <HeaderToggle
           type="button"
@@ -242,18 +214,15 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
 
       {effectiveExpanded && hasBody && (
       <CardBody>
-        {(showAnalysisResult || showAnalyzingInfo) && (() => {
+        {isResolved && !!thread.outcome && (() => {
           const ResultIcon = analysisResultIcon(tone);
+          // The resolved outcome line, on the leading status-icon rail.
           return (
             <ResultRow>
               <ResultIconSlot data-tone={tone} aria-hidden="true">
-                {/* Still analyzing → an active working mark (Ultron is thinking);
-                    once a conclusion lands, the tone status glyph. */}
-                {showAnalyzingInfo
-                  ? <AgentMark mark="lines" size={20} tone="auto" state="active" coreHalo={false} />
-                  : <ResultIcon size={16} />}
+                <ResultIcon size={16} />
               </ResultIconSlot>
-              <AnalysisResult>{thread.analysisResult ?? thread.assessment}</AnalysisResult>
+              <AnalysisResult>{thread.outcome}</AnalysisResult>
             </ResultRow>
           );
         })()}
@@ -273,13 +242,10 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
           </Analyzing>
         )}
 
-        {isResolved && (
-          <>
-            <OutcomeBlock thread={thread} />
-            {THREAD_RESOLVED_RECORDS[thread.id] && (
-              <RecordCard record={THREAD_RESOLVED_RECORDS[thread.id]} />
-            )}
-          </>
+        {/* The resolved outcome line now renders above with a leading status
+            icon (see the ResultRow block); only the fulfilled record remains here. */}
+        {isResolved && THREAD_RESOLVED_RECORDS[thread.id] && (
+          <RecordCard record={THREAD_RESOLVED_RECORDS[thread.id]} />
         )}
 
         {showActions && (
@@ -482,41 +448,6 @@ function AvatarStack({ records }: { records: RecordRef[] }) {
   );
 }
 
-// ── Progress steppers ─────────────────────────────────────────────────────────
-// The case lifecycle stepper, lifted out of the event card into its own card
-// placed directly below it. Advances with the case's status:
-// Analyzed → Plan proposed → Working → Resolved. Renders nothing for statuses
-// outside that pipeline (monitoring / unresolved / workflow-ready).
-export function UltronStepperCard({ thread, stage = 0 }: { thread: ThreadItem; stage?: number }) {
-  const step = lifecycleStep(thread.status, stage);
-  if (step == null) return null;
-  const tone = toneFor(thread);
-  const executing = thread.status === 'in_progress';
-  return (
-    <StepperCard data-tone={tone}>
-      <Stepper
-        data-tone={tone}
-        data-working={executing || undefined}
-        /* The terminal step (Resolved) is a settled end state — its bar fills
-           statically rather than running the in-progress draw animation. */
-        data-terminal={step === LIFECYCLE_STEPS.length - 1 || undefined}
-        role="progressbar"
-        aria-valuemin={1}
-        aria-valuemax={LIFECYCLE_STEPS.length}
-        aria-valuenow={step + 1}
-        aria-valuetext={LIFECYCLE_STEPS[step]}
-      >
-        {LIFECYCLE_STEPS.map((label, i) => (
-          <Step key={label} data-state={i < step ? 'done' : i === step ? 'current' : 'upcoming'}>
-            <StepBar />
-            <StepLabel>{label}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
-    </StepperCard>
-  );
-}
-
 // ── Analyzing ─────────────────────────────────────────────────────────────────
 // The "Ultron is thinking" content (orbit mark + headline + assessment + demo
 // trigger). Shared by the in-card analyzing block and the detached card below.
@@ -684,8 +615,9 @@ function buildTrail(thread: ThreadItem, outbound: string[]): { items: TrailItem[
     const items: TrailItem[] = milestones.map(m => ({ kind: 'activity', milestone: m }));
     // A case already executing autonomously (working state, no operator action
     // this session) continues the trail with the work Ultron is running — no
-    // sent-message bubble, since the operator didn't kick it off here.
-    if (thread.status === 'in_progress') {
+    // sent-message bubble, since the operator didn't kick it off here. A case
+    // that has since escalated to `monitoring` keeps that completed work shown.
+    if (thread.status === 'in_progress' || thread.status === 'monitoring') {
       (WORKING_ACTIVITIES[thread.id] ?? []).map(workingToMilestone)
         .forEach(m => items.push({ kind: 'activity', milestone: m }));
     }
@@ -711,7 +643,9 @@ function buildTrail(thread: ThreadItem, outbound: string[]): { items: TrailItem[
 }
 
 export function UltronActivityCards({ thread, outbound = [], analyzing = false }: { thread: ThreadItem; outbound?: string[]; analyzing?: boolean }) {
-  const executing = thread.status === 'in_progress';
+  // `monitoring` (escalated Working case) reveals its full completed trail, like
+  // an executing/resolved case rather than stalling at the reasoning steps.
+  const executing = thread.status === 'in_progress' || thread.status === 'monitoring';
   const resolved = thread.status === 'resolved' || thread.status === 'auto_resolved';
 
   const { items, reasoningCount } = buildTrail(thread, outbound);
@@ -760,7 +694,25 @@ export function UltronActivityCards({ thread, outbound = [], analyzing = false }
   // working and the stream is still growing — never re-typing settled cards.
   const streaming = count < items.length;
   const newestIsActivity = revealed.length > 0 && revealed[revealed.length - 1].kind === 'activity';
-  const typingOn = (executing || analyzing) && streaming && newestIsActivity;
+  // Ultron has caught up with everything available for the current phase.
+  const atRest = count >= target;
+  // The newest activity always runs its own type-in (blink + typewriter) before
+  // the group settles — including the final 'done' step. That last step is
+  // revealed with the stream already at its end (streaming=false), so without
+  // this it would skip straight to the settled state. Hold a one-beat typing
+  // window open once the last revealed item is a fresh activity in a live
+  // (working/analyzing) phase; when it elapses the group settles to standby.
+  const [newestTyping, setNewestTyping] = useState(false);
+  useEffect(() => {
+    if (!(atRest && newestIsActivity && (executing || analyzing) && !resolved)) {
+      setNewestTyping(false);
+      return;
+    }
+    setNewestTyping(true);
+    const t = setTimeout(() => setNewestTyping(false), ACTIVITY_STEP_MS);
+    return () => clearTimeout(t);
+  }, [atRest, newestIsActivity, count, executing, analyzing, resolved]);
+  const typingOn = (executing || analyzing) && (streaming || newestTyping) && newestIsActivity;
   let lastActsIdx = -1;
   groups.forEach((g, i) => { if (g.type === 'acts') lastActsIdx = i; });
 
@@ -779,7 +731,7 @@ export function UltronActivityCards({ thread, outbound = [], analyzing = false }
   // isn't resolved — its mark rests at the foot of the trail as a "monitoring"
   // presence, the magnetic form, just below the last completed activity. It stays
   // there across the wait (operator decision, follow-up) until the case resolves.
-  const atRest = count >= target;
+  // (atRest is computed above, alongside the typing window.)
   // While analyzing, the live working mark rides the reasoning (see below), so the
   // resting "monitoring" mark holds off until analysis settles into a decision.
   // While executing, the working group settles its OWN mark in place (it glides
@@ -816,23 +768,26 @@ export function UltronActivityCards({ thread, outbound = [], analyzing = false }
         // its single trail group the live working group too.
         const isAutonomousWorking = executing && outbound.length === 0 && i === lastActsIdx;
         const isWorkingGroup = isAnalyzingGroup || isAutonomousWorking || (executing && seenMessage && i === lastIdx);
-        const isStreamingGroup = isWorkingGroup && (streaming || isAnalyzingGroup);
+        // The newest-typing window keeps the group "live" (its mark rides the
+        // final step) until the type-in finishes, so it settles after — not before.
+        const isStreamingGroup = isWorkingGroup && (streaming || newestTyping || isAnalyzingGroup);
         // Once a (non-analyzing) working group catches up, it holds its own mark
         // and settles it: the SAME mark glides just below the last step and morphs
         // lines → magnetic, rather than disappearing while a separate foot mark
         // pops in below. Analysis never settles here — it hands off to the awaiting
         // state's foot mark instead.
-        const groupSettling = isWorkingGroup && !isAnalyzingGroup && !streaming && !resolved;
+        const groupSettling = isWorkingGroup && !isAnalyzingGroup && !streaming && !newestTyping && !resolved;
         const markIndex = (isStreamingGroup || groupSettling) ? g.milestones.length - 1 : undefined;
         // Collapse a work group (one that followed a sent message) once it's no
         // longer the live working group — i.e. Ultron has finished it and moved on
         // to a response (a follow-up decision or the resolution). It stays expanded
         // while streaming, then folds to its summary line, reopenable on click.
         // Pre-action reasoning still collapses via isLegacy.
-        // Exception: the final activity group of a resolved (Done) case is its
-        // outcome — no prompt response follows it — so keep it expanded.
-        const isResolvedOutcome = resolved && i === lastActsIdx;
-        const collapsed = !isResolvedOutcome && (isLegacy || (seenMessage && !isWorkingGroup));
+        // Exception: the last activity group always stays expanded — it's the
+        // freshest reasoning (or, for a resolved case, the outcome), with no
+        // prompt response following it, so it reads open by default.
+        const isLastActs = i === lastActsIdx;
+        const collapsed = !isLastActs && (isLegacy || (seenMessage && !isWorkingGroup));
         return (
           <ActivityTrailCards
             key={`a${i}`}
@@ -879,179 +834,40 @@ const Card = styled.div<{ $expanded: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-primary);
   border-radius: var(--radius-lg);
-  /* Collapsed cards sit flat (no shadow); an expanded card rests with a shadow.
-     Hovering any card lifts it with an enhanced shadow + a subtle rise. */
-  box-shadow: ${p => (p.$expanded ? 'var(--shadow-below-md)' : 'none')};
   overflow: hidden;
+  /* The expanded event card is deconstructed: transparent, no tonal fill, no
+     shadow/border — its content sits flat on the page. Collapsed list cards keep
+     their solid surface + flat tonal status fill, and lift on hover. */
+  background: ${p => (p.$expanded ? 'transparent' : 'var(--color-bg-primary)')};
+  box-shadow: none;
   transition: transform var(--duration-base) var(--ease-out),
               box-shadow var(--duration-base) var(--ease-out);
 
+  ${p => (p.$expanded ? '' : `
   &:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-below-md);
-  }
-
-  /* Gradient border ring: a 1px tonal line that fades right → left (full color
-     at the right edge, transparent at the left). Painted on a ::before whose
-     fill is masked to just the border band, so it respects the rounded corners
-     (border-image would square them off). Only the expanded card paints it
-     (darker -border-secondary, per data-tone below); collapsed cards stay
-     borderless. */
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-            mask-composite: exclude;
-    pointer-events: none;
-    transition: background var(--duration-fast) var(--ease-out);
-  }
+  }`)}
 
   @media (prefers-reduced-motion: reduce) {
     transition: box-shadow var(--duration-base) var(--ease-out);
     &:hover { transform: none; }
-    &::before { transition: none; }
   }
 
   /* Semantic card tone: high severity → orange, resolved-family → green,
-     everything else (medium / low / none) → slate. */
-  /* Collapsed cards take a flat tonal fill (the tone's bg-tertiary, no
-     gradient); expanded cards keep the soft tonal glow layered on the base bg. */
-  &[data-tone='orange'] {
-    ${p => (p.$expanded
-      ? `background-image:
-          radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--color-orange-bg-secondary) 18%, transparent) 0%, transparent 60%),
-          linear-gradient(color-mix(in srgb, var(--color-orange-bg-secondary) 8%, transparent), color-mix(in srgb, var(--color-orange-bg-secondary) 8%, transparent));`
-      : `background-image: none;
-         background-color: var(--color-orange-bg-tertiary);`)}
-    &::before { background: ${p => (p.$expanded
-      ? 'linear-gradient(to left, var(--color-orange-border-secondary) 0%, color-mix(in srgb, var(--color-orange-border-secondary) 35%, transparent) 100%)'
-      : 'transparent')}; }
-  }
-  &[data-tone='green'] {
-    ${p => (p.$expanded
-      ? `background-image:
-          radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--color-green-bg-secondary) 18%, transparent) 0%, transparent 60%),
-          linear-gradient(color-mix(in srgb, var(--color-green-bg-secondary) 8%, transparent), color-mix(in srgb, var(--color-green-bg-secondary) 8%, transparent));`
-      : `background-image: none;
-         background-color: var(--color-green-bg-tertiary);`)}
-    /* Resolved (green) cases never paint the tonal border — in any state. */
-    &::before { background: transparent; }
-  }
-  &[data-tone='slate'] {
-    ${p => (p.$expanded
-      ? `background-image:
-          radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--color-slate-bg-secondary) 18%, transparent) 0%, transparent 60%),
-          linear-gradient(color-mix(in srgb, var(--color-slate-bg-secondary) 8%, transparent), color-mix(in srgb, var(--color-slate-bg-secondary) 8%, transparent));`
-      : `background-image: none;
-         background-color: var(--color-slate-bg-tertiary);`)}
-    &::before { background: ${p => (p.$expanded
-      ? 'linear-gradient(to left, var(--color-slate-border-secondary) 0%, color-mix(in srgb, var(--color-slate-border-secondary) 35%, transparent) 100%)'
-      : 'transparent')}; }
-  }
-`;
-
-/* The active "Working" segment breathes to read as in-progress. */
-/* The current segment's fill "draws" across left→right, then resets — reads as
-   an active, in-progress bar rather than a static fill. */
-const stepDraw = keyframes`
-  0%        { transform: scaleX(0); }
-  60%, 100% { transform: scaleX(1); }
-`;
-
-/* Progress steppers card — the lifecycle stepper lifted into its own flat
-   surface below the event card. Matches the detached analyzing card's chrome
-   (flat bg-primary, lg radius, no border/shadow) so it threads cleanly into the
-   feed. */
-const StepperCard = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) 0;
-  background: var(--color-bg-primary);
-  border-radius: var(--radius-lg);
-`;
-
-/* Lifecycle stepper — a row of four labelled segments that advance with the
-   case: Analyzed → Plan proposed → Working → Resolved. Done and current segments
-   fill with the card tone; upcoming ones stay on the track. The current segment
-   pulses while the case is actively working. */
-const Stepper = styled.div`
-  display: flex;
-  gap: var(--space-2);
-
-  /* Done segments fill solid; the current segment's fill lives on its ::after so
-     it can animate (draw across) over the track. */
-  &[data-tone='orange'] [data-state='done'] > span:first-child,
-  &[data-tone='orange'] [data-state='current'] > span:first-child::after { background: var(--color-orange-bg-secondary); }
-  &[data-tone='green']  [data-state='done'] > span:first-child,
-  &[data-tone='green']  [data-state='current'] > span:first-child::after { background: var(--color-green-bg-secondary); }
-  &[data-tone='slate']  [data-state='done'] > span:first-child,
-  &[data-tone='slate']  [data-state='current'] > span:first-child::after { background: var(--color-slate-bg-secondary); }
-
-  /* The current step's label reads as the live one; done/upcoming stay muted. */
-  [data-state='current'] > span:last-child {
-    color: var(--color-content-primary);
-    font-weight: var(--font-weight-medium);
-  }
-
-  /* The current segment "draws" its fill across, looping, to read as in-progress. */
-  [data-state='current'] > span:first-child::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    transform-origin: left;
-    animation: ${stepDraw} 1.6s var(--ease-default) infinite;
-  }
-
-  /* The terminal (Resolved) step is a settled end state — fill it statically. */
-  &[data-terminal] [data-state='current'] > span:first-child::after {
-    animation: none;
-    transform: scaleX(1);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-state='current'] > span:first-child::after { animation: none; transform: scaleX(1); }
-  }
-`;
-
-const Step = styled.div`
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-`;
-
-const StepBar = styled.span`
-  position: relative;
-  height: 3px;
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  overflow: hidden;
-`;
-
-const StepLabel = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  line-height: var(--line-height-relaxed);
-  color: var(--color-content-inverse-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+     actively-working (in_progress / monitoring) → blue, everything else
+     (medium / low / none) → slate. Only collapsed cards take the flat tonal
+     fill; the expanded event card stays transparent. */
+  &[data-tone='orange'] { ${p => (p.$expanded ? '' : `background-color: var(--color-orange-bg-tertiary);`)} }
+  &[data-tone='green']  { ${p => (p.$expanded ? '' : `background-color: var(--color-green-bg-tertiary);`)} }
+  &[data-tone='blue']   { ${p => (p.$expanded ? '' : `background-color: var(--color-blue-bg-tertiary);`)} }
+  &[data-tone='slate']  { ${p => (p.$expanded ? '' : `background-color: var(--color-slate-bg-tertiary);`)} }
 `;
 
 /* Detached actionable card — the prompt + decision buttons, docked at the page
-   bottom. Solid surface with a lift shadow so it reads above the scrolling feed.
-   A left tonal accent ties it back to the event it acts on. */
+   bottom. Solid surface with a neutral opaque border + small lift shadow so it
+   reads above the scrolling feed without a heavy drop. */
 const ActionCard = styled.div`
   position: relative;
   display: flex;
@@ -1061,14 +877,10 @@ const ActionCard = styled.div`
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-opaque);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-below-high);
+  box-shadow: var(--shadow-below-low);
 
   /* Reserve room so the prompt never slides under the absolute dismiss button. */
   > p { padding-right: var(--space-8); }
-
-  &[data-tone='orange'] { border-color: var(--color-orange-border-secondary); }
-  &[data-tone='green']  { border-color: var(--color-green-border-secondary); }
-  &[data-tone='slate']  { border-color: var(--color-slate-border-secondary); }
 `;
 
 /* Keyboard hint under the action row — Alloy paragraph / small, muted. */
@@ -1171,8 +983,8 @@ const CardBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  /* 8px inset all around — a tighter body so the conclusion/prompt sit closer
-     to the card edge. */
+  /* 8px padding all around for a tight body. A 4px margin all around insets the
+     body as a framed panel within the card. */
   padding: var(--space-2);
   margin: var(--space-1);
   border-radius: var(--radius-md);
@@ -1502,19 +1314,22 @@ const ResultRow = styled.div`
   gap: var(--space-3);
 `;
 
-/* 32px leading-icon slot — the 16px status icon centers within it, lining the
-   conclusion up on the same icon rail as the activity trail below. Tinted to
-   match the card tone so the glyph echoes the surface's status color. */
+/* 32px-wide leading-icon slot — the width lines the conclusion text up on the
+   same rail as the event header's title (past its avatar); the 20px height keeps
+   the row hugging the text so the banner stays tight. The 16px status icon
+   centers within it, tinted to match the card tone so the glyph echoes the
+   surface's status color. */
 const ResultIconSlot = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   width: var(--space-8);
-  height: var(--space-8);
+  height: var(--space-5);
 
   &[data-tone='orange'] { color: var(--color-orange-content-primary); }
   &[data-tone='green']  { color: var(--color-green-content-primary); }
+  &[data-tone='blue']   { color: var(--color-blue-content-primary); }
   &[data-tone='slate']  { color: var(--color-slate-content-primary); }
 `;
 
