@@ -294,6 +294,8 @@ export default function App() {
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
           onSend={ultron.sendMessage}
+          replyingIds={ultron.replyingIds}
+          onStop={ultron.stopReply}
           onClose={() => { setHomeView('ultron'); setOnLive(true); }}
           onDetectRisk={ultron.detectRisk}
         />

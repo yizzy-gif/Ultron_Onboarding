@@ -6,18 +6,18 @@
    DEMO ONLY — state lives in the shared store hook.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useState } from 'react';
-import styled, { keyframes, css } from 'styled-components';
+import { useEffect, useState, Fragment } from 'react';
+import styled, { keyframes } from 'styled-components';
 import {
-  Avatar, Button, Save01Icon, MinusIcon, ChevronSelectorVerticalIcon, ChevronRightIcon, CheckIcon, LinkExternal01Icon, XCloseIcon,
+  Avatar, Button, Save01Icon, MinusIcon, ChevronSelectorVerticalIcon, ChevronRightIcon, CheckIcon, LinkExternal01Icon, XCloseIcon, AlertTriangleIcon,
 } from 'alloy-design-system';
 import type { ChatMessage, ThreadItem } from './types';
 import {
   THREAD_SUBJECTS, threadAvatarUrl, THREAD_PROMPTS, threadDisplayTitle, threadMeta,
   THREAD_FOLLOWUPS, THREAD_RECORDS, activityForThread, analyzingSteps,
-  WORKING_ACTIVITIES, THREAD_TASKS, caseSummary,
+  WORKING_ACTIVITIES, THREAD_TASKS, casePlan, THREAD_FLAGS, actionAck,
 } from './fixtures';
-import type { ActivityMilestone, WorkingMilestone, PlanTask, RecordRef, AnalyzingStep } from './fixtures';
+import type { ActivityMilestone, WorkingMilestone, PlanTask, RecordRef, AnalyzingStep, EventFlag } from './fixtures';
 import { RecordCard } from './RecordCard';
 import {
   isPurpleRow, isRefinementAction, toneFor, UNRESOLVED_ACTIONS,
@@ -542,7 +542,8 @@ export function UltronAnalyzingCard({ thread, onDecide, analyzed, hideTrigger }:
  *  sent message bubble. The trail is a single chronological stream of these. */
 type TrailItem =
   | { kind: 'activity'; milestone: ActivityMilestone }
-  | { kind: 'message'; text: string };
+  | { kind: 'message'; text: string }
+  | { kind: 'reply'; text: string };
 
 /** Working milestones carry a flat `detail` string; activity cards take blocks. */
 function workingToMilestone(w: WorkingMilestone): ActivityMilestone {
@@ -603,12 +604,15 @@ function buildTrail(thread: ThreadItem, outbound: string[]): { items: TrailItem[
     .map(m => ({ kind: 'activity', milestone: m } as TrailItem));
   outbound.forEach((text, stage) => {
     items.push({ kind: 'message', text });
+    // The work runs first, then Ultron closes with a short text reply beneath it —
+    // so each activity group sits above its response to the operator's action.
     (segments[stage] ?? []).forEach(m => items.push({ kind: 'activity', milestone: m }));
+    items.push({ kind: 'reply', text: actionAck(stage) });
   });
   return { items, reasoningCount };
 }
 
-export function UltronActivityCards({ thread, outbound = [], chat = [], analyzing = false }: { thread: ThreadItem; outbound?: string[]; chat?: ChatMessage[]; analyzing?: boolean }) {
+export function UltronActivityCards({ thread, outbound = [], chat = [], replying = false, analyzing = false }: { thread: ThreadItem; outbound?: string[]; chat?: ChatMessage[]; replying?: boolean; analyzing?: boolean }) {
   // `monitoring` (escalated Working case) reveals its full completed trail, like
   // an executing/resolved case rather than stalling at the reasoning steps.
   const executing = thread.status === 'in_progress' || thread.status === 'monitoring';
@@ -634,13 +638,24 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], analyzin
     if (count >= target) return;
     const cur = items[count];
     const prev = items[count - 1];
-    // Sent messages pop in immediately. The first work step right after a reply
-    // lands promptly too — no long dead air after the operator responds — then
-    // the remaining steps pace in at the normal working cadence.
-    const delay = cur?.kind === 'message' ? 0
-      : prev?.kind === 'message' ? POST_REPLY_MS
-      : ACTIVITY_STEP_MS;
-    const t = setTimeout(() => setCount(c => c + 1), delay);
+    // The operator's sent message pops in immediately.
+    if (cur?.kind === 'message') {
+      const t = setTimeout(() => setCount(c => c + 1), 0);
+      return () => clearTimeout(t);
+    }
+    // After the message, the work group (collapsed) and Ultron's text reply appear
+    // TOGETHER: reveal the whole execution segment — its activity steps plus the
+    // trailing reply — in one beat, so the "Thought for X" summary and the response
+    // land in the same frame rather than the text trailing the steps.
+    if (prev?.kind === 'message') {
+      let end = count;
+      while (end < items.length && items[end].kind === 'activity') end++;
+      if (end < items.length && items[end].kind === 'reply') end++;
+      const t = setTimeout(() => setCount(Math.min(end, target)), POST_REPLY_MS);
+      return () => clearTimeout(t);
+    }
+    // Otherwise pace one item at a time — the live reasoning stream during analysis.
+    const t = setTimeout(() => setCount(c => c + 1), ACTIVITY_STEP_MS);
     return () => clearTimeout(t);
   }, [count, target]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -648,9 +663,10 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], analyzin
   // message bubbles, so each run renders as one flush activity block and the
   // messages sit between them.
   const revealed = items.slice(0, count);
-  const groups: ({ type: 'acts'; milestones: ActivityMilestone[] } | { type: 'msg'; text: string })[] = [];
+  const groups: ({ type: 'acts'; milestones: ActivityMilestone[] } | { type: 'msg'; text: string } | { type: 'reply'; text: string })[] = [];
   for (const it of revealed) {
     if (it.kind === 'message') { groups.push({ type: 'msg', text: it.text }); continue; }
+    if (it.kind === 'reply') { groups.push({ type: 'reply', text: it.text }); continue; }
     const last = groups[groups.length - 1];
     if (last && last.type === 'acts') last.milestones.push(it.milestone);
     else groups.push({ type: 'acts', milestones: [it.milestone] });
@@ -703,35 +719,48 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], analyzin
   // While executing, the working group settles its OWN mark in place (it glides
   // down + morphs lines → magnetic), so the separate foot mark stays out of the
   // way — otherwise the in-trail mark would vanish and this one would pop in below.
-  // Once Ultron has finished working a case — it's awaiting a decision, or it has
-  // resolved / is workflow-ready — it collapses the thinking group and communicates
-  // the result as a short message below it: the plan (awaiting) or the outcome
-  // (done). This makes every event page read the same way.
+  // Once Ultron has finished reasoning a case it communicates its read as a short
+  // message right after the (collapsed) thinking group: the situation + the plan
+  // it shaped. This message is PERSISTENT — it stays put through the whole
+  // lifecycle (awaiting → working → resolved) rather than vanishing the moment the
+  // operator acts, so the thread keeps its history (the read + flag card) as new
+  // messages and work land below it. Shown once the reasoning has finished
+  // streaming, on any post-analysis case (awaiting, executing, or resolved).
   const awaitingDecision = thread.status === 'needs_approval' || thread.status === 'recommended';
   const concluded = awaitingDecision || resolved || thread.status === 'workflow_available';
-  const showSummaryMessage = concluded && outbound.length === 0 && atRest && revealed.length > 0;
+  const reasoningRevealed = count >= reasoningCount;
+  const showPlanMessage = (concluded || executing) && reasoningRevealed && revealed.length > 0;
+  // Position the plan message right after the reasoning group(s) and before the
+  // first sent message, so it reads chronologically: think → plan → act → work.
+  const firstMsgIdx = groups.findIndex(g => g.type === 'msg');
+  const planAnchorIdx = firstMsgIdx === -1 ? groups.length - 1 : firstMsgIdx - 1;
+  const planNode = showPlanMessage
+    ? <UltronPlanMessage paragraphs={casePlan(thread, outbound.length > 0)} flag={THREAD_FLAGS[thread.id]} />
+    : null;
 
-  // The resting "monitoring" mark holds at the foot while Ultron waits — but when
-  // it has a summary message to show, that message stands in as its presence instead.
-  const showRestingMark = !resolved && !analyzing && !executing && atRest && revealed.length > 0 && !showSummaryMessage;
 
-  // Keep the resting magnetic mark mounted briefly after activity resumes so it
-  // fades out in place (cross-fading into the gliding lines mark) instead of
-  // blinking off — it stays put through the incoming activity, then transforms.
-  const [restLinger, setRestLinger] = useState(false);
-  useEffect(() => {
-    if (showRestingMark) { setRestLinger(true); return; }
-    if (!restLinger) return;
-    const t = setTimeout(() => setRestLinger(false), 420);
-    return () => clearTimeout(t);
-  }, [showRestingMark]); // eslint-disable-line react-hooks/exhaustive-deps
-  const renderRestingMark = showRestingMark || restLinger;
+  // Ultron's identity mark lives at the very bottom of the thread, travelling with
+  // the content as it grows rather than sitting beside any one message. It animates
+  // while Ultron composes a chat reply or runs work, and rests idle otherwise.
+  // (While analyzing, the live analysis group carries its own mark, so the foot
+  // mark holds off until that settles into a plan.)
+  const showFootMark = revealed.length > 0 && !analyzing;
+  const footActive = replying || executing;
 
   return (
     <>
+      {planAnchorIdx < 0 && planNode}
       {groups.map((g, i) => {
         if (g.type === 'msg') { seenMessage = true; return <UltronOutboundMessages key={`m${i}`} messages={[g.text]} />; }
-        const isLegacy = !seenMessage && outbound.length > 0;
+        // Ultron's text reply to the operator's action — plain prose (its chat
+        // voice), introducing the work that streams in below it.
+        if (g.type === 'reply') {
+          return (
+            <InboundRow key={`r${i}`}>
+              <InboundBubble><InboundText>{g.text}</InboundText></InboundBubble>
+            </InboundRow>
+          );
+        }
         // Its leading icon slot shows the animated agent mark, gliding down to the
         // newest step — but only while the working group is actively streaming.
         // Once it catches up, the in-trail mark gives way to the resting magnetic
@@ -754,24 +783,14 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], analyzin
         // state's foot mark instead.
         const groupSettling = isWorkingGroup && !isAnalyzingGroup && !streaming && !newestTyping && !resolved;
         const markIndex = (isStreamingGroup || groupSettling) ? g.milestones.length - 1 : undefined;
-        // Collapse a work group (one that followed a sent message) once it's no
-        // longer the live working group — i.e. Ultron has finished it and moved on
-        // to a response (a follow-up decision or the resolution). It stays expanded
-        // while streaming, then folds to its summary line, reopenable on click.
-        // Pre-action reasoning still collapses via isLegacy.
-        // Exception: the last activity group always stays expanded — it's the
-        // freshest reasoning (or, for a resolved case, the outcome), with no
-        // prompt response following it, so it reads open by default.
-        const isLastActs = i === lastActsIdx;
-        // On a concluded case (awaiting a decision, or resolved / workflow-ready),
-        // the thinking group folds to its "Thought for X" summary once Ultron has
-        // finished reasoning (not the live analyzing run, not actively streaming):
-        // the plan or outcome is communicated in the message below, so the steps
-        // tuck away (still reopenable). The live working trail stays expanded.
-        const isReasoning = !seenMessage && !isWorkingGroup;
-        const reasoningDone = concluded && isReasoning && !isAnalyzingGroup && !isStreamingGroup;
-        const collapsed = reasoningDone || (!isLastActs && (isLegacy || (seenMessage && !isWorkingGroup)));
-        return (
+        // Activity groups stay folded to their "Thought for X" summary by default —
+        // even the live working trail while it runs in the background — so the prose
+        // messages (the plan above, the reply below) carry the story and the steps
+        // tuck away, reopenable on click. The one exception is the live analysis
+        // reasoning, which streams open: it has no plan message yet, so watching
+        // Ultron think IS the content at that point.
+        const collapsed = !isAnalyzingGroup;
+        const card = (
           <ActivityTrailCards
             key={`a${i}`}
             milestones={g.milestones}
@@ -781,47 +800,107 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], analyzin
             settled={groupSettling}
           />
         );
+        // Ultron's read on the case — the situation + plan it shaped — sits right
+        // after the reasoning group and persists through the case's lifecycle, so
+        // it isn't lost when the operator acts and work lands below it.
+        return planNode && i === planAnchorIdx
+          ? <Fragment key={`g${i}`}>{card}{planNode}</Fragment>
+          : card;
       })}
-      {/* Ultron's read on the case — the plan (awaiting) or the outcome (done) —
-          communicated as a response right after the (collapsed) thinking group. */}
-      {showSummaryMessage && <UltronPlanMessage paragraphs={caseSummary(thread)} />}
-      {renderRestingMark && (
-        <RestingMark role="img" aria-label="Ultron monitoring" $leaving={!showRestingMark}>
-          <AgentMark mark="magnetic" size={36} tone="auto" state="active" motionSpeed={1.2} coreHalo={false} aria-hidden="true" />
-        </RestingMark>
-      )}
       {/* The free-text conversation sits at the foot of the trail: the operator's
           typed messages and Ultron's replies, the latest landing just above the
           composer dock. */}
       <UltronChatThread messages={chat} />
+      {/* Ultron's single identity mark — at the very bottom of the thread, after
+          every message and work group, so it travels with the content. */}
+      {showFootMark && (
+        <ChatFootMark role={footActive ? 'status' : 'img'} aria-label={replying ? 'Ultron is replying' : footActive ? 'Ultron is working' : 'Ultron'}>
+          <AgentMark mark="circle" size={28} tone="auto" state={footActive ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
+          {replying && <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>}
+        </ChatFootMark>
+      )}
     </>
   );
 }
 
-// Ultron's plan, shown as a single inbound message (left, on its identity mark)
-// directly after the reasoning group — the prose statement of what it intends to
-// do, which the operator then approves (or adjusts) in the docked decision surface.
-function UltronPlanMessage({ paragraphs }: { paragraphs: string[] }) {
+// Ultron's plan, shown as a persistent inbound message directly after the
+// reasoning group — the prose statement of what it intends to do, which the
+// operator then approves (or adjusts) in the docked decision surface. Its
+// identity mark is no longer attached here; a single mark rests at the foot of
+// the whole thread instead.
+function UltronPlanMessage({ paragraphs, flag }: { paragraphs: string[]; flag?: EventFlag }) {
   if (!paragraphs.length) return null;
   return (
     <PlanBlock>
       <PlanBody>
-        {paragraphs.map((p, i) => <PlanText key={i}>{p}</PlanText>)}
+        {paragraphs.map((p, i) => (
+          <Fragment key={i}>
+            <PlanText>{p}</PlanText>
+            {/* The "what's off" card sits right after the opening beat — Ultron
+                names the event in prose, then lays out the off-kilter facts before
+                walking through its reasoning and plan. */}
+            {i === 0 && flag && <FlagCard flag={flag} />}
+          </Fragment>
+        ))}
       </PlanBody>
-      <PlanMark aria-hidden="true">
-        <AgentMark mark="circle" size={28} tone="auto" state="idle" coreHalo={false} />
-      </PlanMark>
     </PlanBlock>
   );
 }
 
+/** An info-circle glyph for the neutral tone — drawn inline (Alloy's
+ *  InfoCircleIcon isn't reliably re-exported) on the same 24px icon grid. */
+function InfoGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" strokeWidth={1.75} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" />
+      <path d="M12 11v5M12 8h.01" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** The badge glyph per tone: a warning triangle for problems, a check for
+ *  resolved/healthy events, an info circle for routine ones. */
+const FLAG_TONE_ICON = {
+  warning: AlertTriangleIcon,
+  positive: CheckIcon,
+  neutral: InfoGlyph,
+} as const;
+
+/** A compact card surfacing the key facts of an event: a tonal badge + event
+ *  header, then a divider and a list of labelled facts — the salient ones (what's
+ *  off on a problem, what's confirmed on a resolution) drawn in the tone colour so
+ *  they read at a glance. Modelled on Ultron's record/context cards. */
+function FlagCard({ flag }: { flag: EventFlag }) {
+  const tone = flag.tone ?? 'warning';
+  const ToneIcon = FLAG_TONE_ICON[tone];
+  return (
+    <FlagShell role="group" aria-label={flag.eyebrow} data-tone={tone}>
+      <FlagHeader>
+        <FlagBadge aria-hidden="true"><ToneIcon size={16} /></FlagBadge>
+        <FlagHeadings>
+          <FlagTitle>{flag.title}</FlagTitle>
+          <FlagSubtitle>{flag.subtitle}</FlagSubtitle>
+        </FlagHeadings>
+      </FlagHeader>
+      <FlagDivider aria-hidden="true" />
+      <FlagRows>
+        {flag.rows.map((r, i) => (
+          <FlagRowEl key={i}>
+            <FlagRowLabel>{r.label}</FlagRowLabel>
+            <FlagRowValue data-alert={r.alert || undefined}>{r.value}</FlagRowValue>
+          </FlagRowEl>
+        ))}
+      </FlagRows>
+    </FlagShell>
+  );
+}
+
 // The free-text conversation — the operator's typed messages (right, dark
-// bubbles) interleaved with Ultron's mocked replies (left, on its identity mark).
-// While Ultron is composing a reply (the latest turn is the operator's) a typing
-// bubble holds its place so the answer reads as a direct response.
+// bubbles) interleaved with Ultron's plain-text replies. Ultron's presence (the
+// identity mark / typing indicator) is rendered once at the foot of the whole
+// thread by the parent, not per reply here.
 export function UltronChatThread({ messages }: { messages: ChatMessage[] }) {
   if (!messages.length) return null;
-  const awaitingReply = messages[messages.length - 1].role === 'operator';
   return (
     <ChatList>
       {messages.map((m, i) =>
@@ -833,24 +912,11 @@ export function UltronChatThread({ messages }: { messages: ChatMessage[] }) {
           </OutboundRow>
         ) : (
           <InboundRow key={i}>
-            <InboundMark aria-hidden="true">
-              <AgentMark mark="circle" size={28} tone="auto" state="idle" coreHalo={false} />
-            </InboundMark>
             <InboundBubble>
               <InboundText>{m.text}</InboundText>
             </InboundBubble>
           </InboundRow>
         ),
-      )}
-      {awaitingReply && (
-        <InboundRow role="status" aria-label="Ultron is replying">
-          <InboundMark aria-hidden="true">
-            <AgentMark mark="circle" size={28} tone="auto" state="active" coreHalo={false} />
-          </InboundMark>
-          <InboundBubble>
-            <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>
-          </InboundBubble>
-        </InboundRow>
       )}
     </ChatList>
   );
@@ -1203,33 +1269,6 @@ const WorkingMarkAbs = styled.span`
 /* Resting agent mark — the magnetic form parked at the foot of the trail once
    Ultron has caught up, marking it as present/monitoring below the last activity.
    Left-aligned to sit roughly under the trail's icon column. */
-/* Soft fade-up so the magnetic mark cross-fades in as the gliding lines mark
-   fades out above it — no pop. */
-const restingIn = keyframes`
-  from { opacity: 0; transform: translateY(var(--space-2)); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
-
-const RestingMark = styled.div<{ $leaving?: boolean }>`
-  display: flex;
-  align-items: center;
-  /* Nudges the 36px mark so its center lands under the trail's icon column. */
-  padding-left: var(--space-2);
-  pointer-events: none;
-  animation: ${restingIn} 320ms var(--ease-out) both;
-
-  /* On handoff to the working "lines" mark it lingers and fades out in place
-     rather than blinking off — so the magnetic monitoring mark stays through the
-     incoming activity and cross-fades into the gliding lines mark. */
-  ${p => p.$leaving && css`
-    animation: none;
-    opacity: 0;
-    transition: opacity 380ms var(--ease-out);
-  `}
-
-  @media (prefers-reduced-motion: reduce) { animation: none; }
-`;
-
 /* DEMO ONLY — manual trigger to flip an analyzing case to Needs approval.
    Sits at the content-left edge, on the same rail as the thinking-stream marks. */
 const DemoTrigger = styled(Button)`
@@ -1472,29 +1511,30 @@ const ChatList = styled.div`
    leading edge so the reply reads as Ultron speaking back. */
 const InboundRow = styled.div`
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: flex-start;
-  gap: var(--space-2);
+  gap: var(--space-3);
 `;
 
-/* The small identity mark beside an inbound bubble, nudged up to sit on the
-   bubble's baseline. */
-const InboundMark = styled.span`
+/* Ultron's single identity mark at the foot of the thread — left-aligned to the
+   conversation's leading edge, with the typing dots beside it while it replies. */
+const ChatFootMark = styled.span`
   display: inline-flex;
-  flex-shrink: 0;
-  margin-bottom: 2px;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
 `;
 
-/* Light tonal fill, left side — Ultron's voice in the thread (mirrors the dark
-   outbound bubble). Shares the sent-bubble glide-in. */
+/* Ultron's voice in the thread — plain prose on its identity mark (no bubble),
+   mirroring the plan message; only the operator's outbound side keeps a bubble.
+   Shares the sent-bubble glide-in. */
 const InboundBubble = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   max-width: 80%;
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-xl);
+  padding: var(--space-1) 0;
   animation: ${bubbleIn} 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
@@ -1520,12 +1560,6 @@ const PlanBlock = styled.div`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-/* The identity mark below the plan text, left-aligned to the text's leading edge. */
-const PlanMark = styled.span`
-  display: inline-flex;
-  align-self: flex-start;
-`;
-
 /* The plan's paragraph column — reasoning beats stacked above the plan line. */
 const PlanBody = styled.div`
   flex: 1;
@@ -1541,4 +1575,111 @@ const PlanText = styled.p`
   font-size: var(--text-sm);
   line-height: var(--line-height-relaxed);
   color: var(--color-content-primary);
+`;
+
+/* The event-facts card — a bordered, rounded surface sitting between the plan's
+   prose beats. A small top/bottom margin lifts it clear of the paragraphs so it
+   reads as an inset reference rather than another line of text. `data-tone` sets
+   the accent (badge + salient values): warning → orange (what's off), positive →
+   green (confirmed), neutral → slate (routine). */
+const FlagShell = styled.div`
+  --flag-accent: var(--color-orange-content-secondary);
+  --flag-badge-bg: var(--color-orange-bg-tertiary);
+
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-1) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-sans);
+
+  &[data-tone='positive'] {
+    --flag-accent: var(--color-green-content-secondary);
+    --flag-badge-bg: var(--color-green-bg-tertiary);
+  }
+  &[data-tone='neutral'] {
+    --flag-accent: var(--color-slate-content-secondary);
+    --flag-badge-bg: var(--color-slate-bg-tertiary);
+  }
+`;
+
+const FlagHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+`;
+
+/* Tonal badge — a rounded square carrying the tone glyph, tinted by the card's
+   accent so it matches the event's severity (orange / green / slate). */
+const FlagBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-md);
+  background: var(--flag-badge-bg);
+  color: var(--flag-accent);
+`;
+
+const FlagHeadings = styled.div`
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+`;
+
+const FlagTitle = styled.span`
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-primary);
+`;
+
+const FlagSubtitle = styled.span`
+  font-size: var(--text-xs);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-tertiary);
+`;
+
+/* Hairline separating the header from the labelled facts. */
+const FlagDivider = styled.span`
+  height: 1px;
+  margin: var(--space-3) 0;
+  background: var(--color-border-opaque);
+`;
+
+const FlagRows = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+`;
+
+/* One labelled fact — label on the left, value on the right. */
+const FlagRowEl = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+`;
+
+const FlagRowLabel = styled.span`
+  font-size: var(--text-sm);
+  color: var(--color-content-tertiary);
+`;
+
+/* The value — primary content by default; the *off* facts switch to the warning
+   tone and bold so the problem stands out. */
+const FlagRowValue = styled.span`
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+  color: var(--color-content-primary);
+
+  &[data-alert] {
+    font-weight: var(--font-weight-semibold);
+    color: var(--flag-accent);
+  }
 `;

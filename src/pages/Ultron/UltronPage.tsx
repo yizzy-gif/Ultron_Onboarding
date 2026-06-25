@@ -64,6 +64,10 @@ interface UltronPageProps {
   onSaveWorkflow: (thread: ThreadItem) => void;
   /** Send a free-text chat message to Ultron from the composer at the page foot. */
   onSend: (threadId: string, text: string) => void;
+  /** Threads where Ultron is mid-reply — flips the composer into a stop control. */
+  replyingIds: string[];
+  /** Interrupt Ultron's in-flight reply for a thread. */
+  onStop: (threadId: string) => void;
   /** Close the case detail and return to the Live landing. */
   onClose: () => void;
   /** Fired when a risk signal surfaces on the Live landing — opens a New case. */
@@ -75,7 +79,7 @@ interface UltronPageProps {
 const CLOSE_MS = 280;
 
 export function UltronPage({
-  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, onSend, onClose, onDetectRisk,
+  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, onSend, replyingIds, onStop, onClose, onDetectRisk,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
   // we hand off to the parent, which swaps the page to the Live landing.
@@ -286,6 +290,7 @@ export function UltronPage({
                     thread={thread}
                     outbound={outboundByThread[thread.id] ?? []}
                     chat={chatByThread[thread.id] ?? []}
+                    replying={replyingIds.includes(thread.id)}
                     analyzing={analyzing}
                   />
                 )}
@@ -347,6 +352,8 @@ export function UltronPage({
             <UltronComposer
               key={`composer-${pagedCurrentId}`}
               onSend={text => onSend(pagedCurrentId, text)}
+              working={replyingIds.includes(pagedCurrentId)}
+              onStop={() => onStop(pagedCurrentId)}
             />
           </ActionDockInner>
         </ActionDock>

@@ -294,26 +294,26 @@ export const ultronThreads: ThreadItem[] = [
     timestamp: '8:00 AM',
   },
 
-  // ── Done (resolved) ────────────────────────────────────────────────────────
+  // ── New · needs attention (coverage) ───────────────────────────────────────
   {
     id: 'shift_release_jenny',
     name: 'Shift Release Recovery',
     title: 'Jenny Park released her Saturday shift at Lakeside',
     capability: 'Coverage Recovery',
-    status: 'resolved',
+    status: 'needs_approval',
     severity: 'medium',
     event: 'Jenny released her Saturday 8:00 AM caregiver shift at Lakeside.',
     assessment: 'More than 12 hours out — standard fill path with 5 qualified caregivers.',
     recommendation: 'Find a qualified replacement and fill it.',
-    outcome: 'Replacement assigned — coverage restored and the schedule updated.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
       { state: 'detected', headline: 'Saturday caregiver shift released', done: true },
       { state: 'assessment', headline: '5 qualified caregivers available', done: true },
-      { state: 'recommendation', headline: 'Messaged the best matches', done: true },
-      { state: 'resolution', headline: 'First qualified yes assigned', done: true },
+      { state: 'recommendation', headline: 'Best matches identified', done: true },
+      { state: 'approval', headline: 'Approval required before outreach', done: false },
     ],
-    actions: ['Assign Replacement'],
+    actions: ['Message replacements', 'Assign first yes'],
     timestamp: '2:22 PM',
   },
   {
@@ -321,17 +321,18 @@ export const ultronThreads: ThreadItem[] = [
     name: 'Birthday Greeting',
     title: 'Tomas Greco has a birthday today',
     capability: 'Engagement',
-    status: 'resolved',
-    severity: 'none',
+    status: 'needs_approval',
+    severity: 'low',
     event: 'Today is Tomas’s birthday.',
     assessment: 'Active employee; preferred channel is in-app chat — a send is appropriate.',
     recommendation: 'Send a happy birthday from the team.',
-    outcome: 'A warm birthday note was sent to Tomas from the team.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
       { state: 'detected', headline: 'Birthday matched to today', done: true },
       { state: 'assessment', headline: 'Active employee · in-app chat', done: true },
-      { state: 'resolution', headline: 'Birthday note sent', done: true },
+      { state: 'recommendation', headline: 'A warm note drafted', done: true },
+      { state: 'approval', headline: 'Approval required before sending', done: false },
     ],
     actions: ['Send Birthday Note'],
     timestamp: '9:12 AM',
@@ -339,121 +340,129 @@ export const ultronThreads: ThreadItem[] = [
   {
     id: 'weekly_fill_report',
     name: 'Scheduled Report',
-    title: 'Weekly fill-rate report generated on schedule',
+    title: 'Next week’s fill-rate report is ready for review',
     capability: 'Reporting',
-    status: 'resolved',
-    severity: 'none',
-    event: 'The weekly fill-rate report ran on its configured schedule.',
-    assessment: 'A scheduled report ran as configured — already on the Home dashboard.',
-    recommendation: 'No action needed.',
-    outcome: 'Report posted to the Home dashboard — no intervention required.',
+    status: 'needs_approval',
+    severity: 'medium',
+    event: 'The weekly fill-rate report ran — 22 shifts are under target for next week.',
+    assessment: 'Coverage gaps cluster on Monday and Tuesday; scheduling should see them before the week starts.',
+    recommendation: 'Publish the report and flag the gaps to scheduling.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
       { state: 'detected', headline: 'Weekly report generated', done: true },
-      { state: 'resolution', headline: 'Posted to the Home dashboard', done: true },
+      { state: 'assessment', headline: '22 shifts under target', done: true },
+      { state: 'recommendation', headline: 'Gaps flagged for scheduling', done: true },
+      { state: 'approval', headline: 'Approval required before sharing', done: false },
     ],
-    actions: [],
+    actions: ['Publish & flag gaps'],
     timestamp: '5:00 PM',
   },
 
-  // ── Done (auto-resolved — no action needed) ────────────────────────────────
+  // ── New · needs attention (attendance & records) ───────────────────────────
   {
     id: 'clockin_devon',
-    name: 'Clean Clock-In',
-    title: 'Devon Pierce clocked in at Eastgate Warehouse',
+    name: 'Clock-In Approval',
+    title: 'Devon Pierce’s clock-in is ready for payroll approval',
     capability: 'Attendance',
-    status: 'auto_resolved',
-    severity: 'none',
-    event: 'Devon clocked in at Eastgate Warehouse.',
-    assessment: 'Clean clock-in inside the geofence with all required fields filled.',
-    recommendation: 'No action needed.',
-    outcome: 'Clean clock-in inside the geofence — logged, nothing to do.',
+    status: 'needs_approval',
+    severity: 'low',
+    event: 'Devon clocked in at Eastgate Warehouse — the punch is clean and inside the geofence.',
+    assessment: 'All required fields are present, so it’s ready to approve for the payroll run.',
+    recommendation: 'Approve the clock-in for payroll.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
       { state: 'detected', headline: 'Clock-in at Eastgate Warehouse', done: true },
       { state: 'assessment', headline: 'Inside geofence · all fields present', done: true },
-      { state: 'resolution', headline: 'Logged — no action needed', done: true },
+      { state: 'recommendation', headline: 'Ready for payroll approval', done: true },
+      { state: 'approval', headline: 'Approval required before payroll', done: false },
     ],
-    actions: [],
+    actions: ['Approve clock-in'],
     timestamp: '8:15 AM',
   },
   {
     id: 'phone_aisha',
     name: 'Profile Update',
-    title: 'Aisha Bello updated her phone number',
+    title: 'Aisha Bello changed her phone number',
     capability: 'Users',
-    status: 'auto_resolved',
-    severity: 'none',
-    event: 'Aisha updated her phone number.',
-    assessment: 'A routine edit on an editable field with no downstream dependency.',
-    recommendation: 'No action needed.',
-    outcome: 'Routine profile edit — no workflow depends on it, nothing to do.',
+    status: 'needs_approval',
+    severity: 'low',
+    event: 'Aisha updated her phone number on file.',
+    assessment: 'It’s her notification contact, so it’s worth a quick verification before it goes live.',
+    recommendation: 'Verify the new number and update her notification contact.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
       { state: 'detected', headline: 'Phone number updated', done: true },
-      { state: 'resolution', headline: 'No downstream impact — logged', done: true },
+      { state: 'assessment', headline: 'Used as her notification contact', done: true },
+      { state: 'recommendation', headline: 'Verification ready to send', done: true },
+      { state: 'approval', headline: 'Approval required before verifying', done: false },
     ],
-    actions: [],
+    actions: ['Verify & update'],
     timestamp: '12:30 PM',
   },
   {
     id: 'fill_confirmed_maria',
-    name: 'Autonomous Fill Closed',
-    title: 'Fill agent confirmed a replacement for Maria’s shift',
+    name: 'Autonomous Fill',
+    title: 'The fill agent lined up a replacement for Maria’s shift',
     capability: 'Autonomous Operations',
-    status: 'auto_resolved',
+    status: 'needs_approval',
     severity: 'high',
-    event: 'The fill agent confirmed a replacement for Maria’s earlier shift.',
-    assessment: 'An earlier fill closing out successfully — covered and scheduler notified.',
-    recommendation: 'No action needed.',
-    outcome: 'Shift covered and the scheduler notified — logged automatically.',
+    event: 'The fill agent found Sarah Quinn for Maria’s open RN shift at Riverside Clinic.',
+    assessment: 'Sarah clears policy and is available — the assignment just needs your confirmation.',
+    recommendation: 'Confirm the assignment and notify the scheduler.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
-      { state: 'detected', headline: 'Replacement confirmed for Maria’s shift', done: true },
-      { state: 'execution', headline: 'Coverage secured by the fill agent', done: true },
-      { state: 'resolution', headline: 'Scheduler notified — logged', done: true },
+      { state: 'detected', headline: 'Replacement found for Maria’s shift', done: true },
+      { state: 'assessment', headline: 'Sarah Quinn clears policy · available', done: true },
+      { state: 'recommendation', headline: 'Assignment ready to confirm', done: true },
+      { state: 'approval', headline: 'Approval required before assigning', done: false },
     ],
-    actions: [],
+    actions: ['Confirm assignment'],
     timestamp: '3:55 PM',
   },
   {
     id: 'invoice_paid_4821',
-    name: 'Invoice Paid',
+    name: 'Invoice Reconciliation',
     title: 'Client marked invoice #4821 as paid',
     capability: 'Invoicing',
-    status: 'auto_resolved',
-    severity: 'none',
-    event: 'A client marked invoice #4821 as paid.',
-    assessment: 'Payment was recorded outside Teambridge; the status already reflects reality.',
-    recommendation: 'No action needed.',
-    outcome: 'Invoice #4821 marked paid — record matches reality, nothing to act on.',
+    status: 'needs_approval',
+    severity: 'low',
+    event: 'A client marked invoice #4821 paid outside Teambridge.',
+    assessment: 'The payment needs reconciling against the open balance before the invoice can close.',
+    recommendation: 'Reconcile the payment and close the invoice.',
+    outcome: null,
     workflowOpportunity: null,
     timeline: [
       { state: 'detected', headline: 'Invoice #4821 marked paid', done: true },
-      { state: 'resolution', headline: 'Status already accurate — logged', done: true },
+      { state: 'assessment', headline: 'Payment recorded outside Teambridge', done: true },
+      { state: 'recommendation', headline: 'Ready to reconcile and close', done: true },
+      { state: 'approval', headline: 'Approval required before closing', done: false },
     ],
-    actions: [],
+    actions: ['Reconcile & close'],
     timestamp: '11:25 AM',
   },
 
-  // ── Done (workflow-ready — recurring pattern) ──────────────────────────────
+  // ── New · needs attention (compliance — recurring pattern) ─────────────────
   {
     id: 'cred_expired_nadia',
     name: 'Credential Lapse',
     title: 'Nadia Haddad’s CPR cert expired overnight',
     capability: 'Compliance',
-    status: 'workflow_available',
-    severity: 'none',
+    status: 'needs_approval',
+    severity: 'high',
     event: 'Nadia’s CPR certification expired overnight.',
     assessment: 'A blocking policy flagged the lapse — CPR is required for her role.',
     recommendation: 'Pull her from non-compliant shifts and start renewal.',
-    outcome: 'Renewal task assigned and backfills lined up for the 3 affected shifts.',
+    outcome: null,
     workflowOpportunity: 'Monitor credential lapses and auto-start renewals.',
     timeline: [
       { state: 'detected', headline: 'CPR cert expired overnight', done: true },
       { state: 'assessment', headline: '3 upcoming shifts now at risk', done: true },
-      { state: 'recommendation', headline: 'Renewal task + backfills lined up', done: true },
-      { state: 'workflow', headline: 'Recurring pattern ready to save as a workflow', done: true },
+      { state: 'recommendation', headline: 'Renewal + backfills lined up', done: true },
+      { state: 'approval', headline: 'Approval required before changes', done: false },
     ],
     actions: ['Start renewal', 'Line up backfills'],
     timestamp: '10:40 AM',
@@ -617,27 +626,30 @@ export const ANALYZING_ACTIVITIES: Record<string, AnalyzingStep[]> = {
     { icon: 'chart', headline: 'Determine recommended course of action', detail: 'Three CPR-gated shifts in the next week are now at risk, but replacements are available for all three. The right move is to pull her from the non-compliant shifts, start a renewal, and line up backfills so coverage holds while she recertifies.' },
     { icon: 'done', headline: 'Plan created and shared', detail: '' },
   ],
-  // ── "No action needed" events — the thinking Ultron ran to conclude there was
-  // nothing to do (so their trail reads as deliberate, not empty). ──────────────
   clockin_devon: [
     { icon: 'clock', headline: 'Reviewed clock-in', detail: 'Devon clocked in at Eastgate Warehouse; I checked it against the geofence and required fields.' },
-    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'It’s a clean clock-in inside the geofence with every required field present, so there’s nothing to fix — the system is working as intended and I’ll just log it.' },
+    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'It’s a clean punch inside the geofence with every required field present, so it’s payroll-ready. Rather than let it sit unapproved before the run, I’ll confirm the geofence and fields and approve it for payroll.' },
+    { icon: 'done', headline: 'Plan created and shared', detail: '' },
   ],
   phone_aisha: [
-    { icon: 'clock', headline: 'Reviewed profile update', detail: 'Aisha updated her phone number — a routine edit on an editable field.' },
-    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'No policy or workflow depends on this field, so there’s no downstream impact and nothing to do beyond logging it.' },
+    { icon: 'clock', headline: 'Reviewed profile update', detail: 'Aisha updated her phone number — it’s the contact her notifications go to.' },
+    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'Because it’s her notification contact, a wrong number means missed shift alerts. The safe move is to send a quick verification ping and, once it checks out, update the contact on file so alerts keep reaching her.' },
+    { icon: 'done', headline: 'Plan created and shared', detail: '' },
   ],
   fill_confirmed_maria: [
-    { icon: 'clock', headline: 'Reviewed autonomous fill', detail: 'My earlier fill for Maria’s shift closed out — Sarah Quinn confirmed for the open RN shift.' },
-    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'Coverage is secured and the scheduler was already notified, so this is my own work completing successfully — there’s nothing more to do but log it.' },
+    { icon: 'clock', headline: 'Reviewed autonomous fill', detail: 'My fill for Maria’s open RN shift surfaced Sarah Quinn — available and within radius for Riverside Clinic.' },
+    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'Sarah clears every policy and is available, so she’s a clean match. I’ll confirm the assignment and notify the scheduler so the roster reflects the coverage — pending your go-ahead since it commits a worker to the shift.' },
+    { icon: 'done', headline: 'Plan created and shared', detail: '' },
   ],
   weekly_fill_report: [
-    { icon: 'clock', headline: 'Reviewed scheduled report', detail: 'The weekly fill-rate report ran on its configured schedule.' },
-    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'It’s already posted to the Home dashboard and reflects current numbers, so there’s nothing to intervene on — I’ll just confirm placement and log it.' },
+    { icon: 'clock', headline: 'Reviewed scheduled report', detail: 'The weekly fill-rate report ran — 22 of next week’s shifts are under target, heaviest on Monday and Tuesday.' },
+    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'The gaps are concentrated early in the week, so they’re fixable if scheduling sees them now. I’ll publish the report and flag the at-risk shifts to the scheduling team so they can act before the week starts.' },
+    { icon: 'done', headline: 'Plan created and shared', detail: '' },
   ],
   invoice_paid_4821: [
-    { icon: 'clock', headline: 'Reviewed paid invoice', detail: 'A client marked invoice #4821 as paid, recorded outside Teambridge.' },
-    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'The status already reflects reality and there’s no duplicate or follow-up needed, so there’s nothing to act on — I’ll log it.' },
+    { icon: 'clock', headline: 'Reviewed paid invoice', detail: 'A client marked invoice #4821 paid outside Teambridge; the open balance is still showing in the ledger.' },
+    { icon: 'chart', headline: 'Determine recommended course of action', detail: 'The payment was recorded out-of-band, so the record won’t close on its own. I’ll reconcile the amount against the open balance and, once it matches, close the invoice so billing stays accurate.' },
+    { icon: 'done', headline: 'Plan created and shared', detail: '' },
   ],
 };
 
@@ -670,6 +682,11 @@ export const THREAD_PROMPTS: Record<string, string> = {
   schedule_published: 'Want me to confirm next week’s schedule and chase down the 22 unconfirmed shifts?',
   shift_release_jenny: 'Want me to reach out to the best replacements and get this shift filled?',
   birthday_tomas: 'Want me to send Tomas a happy birthday message from the team?',
+  weekly_fill_report: '22 shifts are under target next week — want me to publish the report and flag the gaps to scheduling?',
+  clockin_devon: 'Devon’s clock-in is clean and inside the geofence — want me to approve it for payroll?',
+  phone_aisha: 'She changed her notification number — want me to verify it and update her contact?',
+  fill_confirmed_maria: 'Sarah Quinn is a clean match — want me to confirm the assignment and notify the scheduler?',
+  invoice_paid_4821: 'The client paid #4821 outside Teambridge — want me to reconcile it and close the invoice?',
   cred_expired_nadia: 'Her CPR lapsed — want me to start the renewal and line up backfills for the 3 shifts?',
 };
 
@@ -754,6 +771,30 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   birthday_tomas: [
     { icon: 'send',  headline: 'Sent the birthday note', detail: 'A warm message from the team via in-app chat.' },
   ],
+  weekly_fill_report: [
+    { icon: 'send',  headline: 'Published the report', detail: 'Posted next week’s fill-rate report to the Home dashboard.' },
+    { icon: 'alert', headline: 'Flagged the at-risk shifts', detail: 'Surfaced the 22 under-target shifts to the scheduling team.' },
+    { icon: 'done',  headline: 'Scheduling notified', detail: 'Sent the Mon–Tue gaps so they can act before the week starts.' },
+  ],
+  clockin_devon: [
+    { icon: 'edit',  headline: 'Confirmed the punch', detail: 'Re-checked the geofence and required fields.' },
+    { icon: 'done',  headline: 'Approved for payroll', detail: 'Released the clean clock-in into the payroll run.' },
+  ],
+  phone_aisha: [
+    { icon: 'send',  headline: 'Sent a verification ping', detail: 'Texted the new number to confirm it reaches her.' },
+    { icon: 'edit',  headline: 'Updated the contact', detail: 'Set the verified number as her notification contact.' },
+    { icon: 'done',  headline: 'Alerts confirmed', detail: 'Shift notifications now route to the new number.' },
+  ],
+  fill_confirmed_maria: [
+    { icon: 'edit',  headline: 'Confirmed Sarah Quinn', detail: 'Assigned her to Maria’s open RN shift.' },
+    { icon: 'clock', headline: 'Updated the roster', detail: 'Posted the change so the schedule reflects it.' },
+    { icon: 'done',  headline: 'Scheduler notified', detail: 'Coverage confirmed and the scheduler is in the loop.' },
+  ],
+  invoice_paid_4821: [
+    { icon: 'rate',  headline: 'Reconciled the payment', detail: 'Matched the amount against #4821’s open balance.' },
+    { icon: 'edit',  headline: 'Closed the invoice', detail: 'Marked it paid-in-full once the balance cleared.' },
+    { icon: 'done',  headline: 'Ledger updated', detail: 'Billing now reflects the recorded payment.' },
+  ],
   cred_expired_nadia: [
     { icon: 'alert', headline: 'Flagged the 3 shifts at-risk', detail: 'Marked the CPR-gated shifts.' },
     { icon: 'edit',  headline: 'Assigned a renewal task', detail: 'Added the upload step for Nadia.' },
@@ -830,6 +871,12 @@ export const THREAD_RECORDS: Record<string, RecordRef | RecordRef[]> = {
   thread_cancel_wed:    { eyebrow: 'Open Wed shift', title: 'Wed · 7:00 AM', meta: ['Pier 9', 'Informal cancel', 'No release filed'], avatarSeed: 'thread_cancel_wed' },
   missed_clockout_bianca:{ eyebrow: 'Open timesheet', title: 'Bianca Rossi', meta: ['No clock-out', 'Off-site ~6:05 PM', 'Held from payroll'], avatarSeed: 'missed_clockout_bianca' },
   cred_expired_nadia:   { eyebrow: 'Policy', title: 'Nadia Haddad', meta: ['CPR expired', '3 shifts at risk', 'Backfills ready'], avatarSeed: 'cred_expired_nadia' },
+  shift_release_jenny: [
+    { eyebrow: 'Caregiver', title: 'Renee Wallace', meta: ['94% match', 'Available now', 'Within radius'], avatarSeed: 'renee_wallace' },
+    { eyebrow: 'Caregiver', title: 'Carl Jensen',   meta: ['90% match', 'Available now', 'No OT conflict'], avatarSeed: 'carl_jensen' },
+    { eyebrow: 'Caregiver', title: 'Tina Boyd',     meta: ['87% match', 'Available now', 'CPR current'], avatarSeed: 'tina_boyd' },
+  ],
+  fill_confirmed_maria: { eyebrow: 'RN', title: 'Sarah Quinn', meta: ['Clears policy', 'Available now', 'Within radius'], avatarSeed: 'sarah_quinn' },
 };
 
 /** A discrete step in a decision's plan — what Ultron will run, in order, if the
@@ -918,11 +965,268 @@ export const THREAD_TASKS: Record<string, PlanTask[]> = {
     { label: 'Assign the first qualified yes' },
     { label: 'Confirm the fill and update the schedule' },
   ],
+  weekly_fill_report: [
+    { label: 'Publish the report to the Home dashboard' },
+    { label: 'Flag the 22 under-target shifts' },
+    { label: 'Notify scheduling of the Mon–Tue gaps', person: { name: 'Dana Cole', avatarSeed: 'scheduler_dana' } },
+  ],
+  clockin_devon: [
+    { label: 'Re-check the geofence and required fields' },
+    { label: 'Approve the clock-in for payroll' },
+  ],
+  phone_aisha: [
+    { label: 'Send a verification ping to the new number', person: { name: 'Aisha Bello', avatarSeed: 'phone_aisha' } },
+    { label: 'Update her notification contact on reply' },
+    { label: 'Confirm shift alerts route to it' },
+  ],
+  fill_confirmed_maria: [
+    { label: 'Confirm Sarah Quinn for the shift', person: { name: 'Sarah Quinn', avatarSeed: 'sarah_quinn' } },
+    { label: 'Update the roster' },
+    { label: 'Notify the scheduler', person: { name: 'Dana Cole', avatarSeed: 'scheduler_dana' } },
+  ],
+  invoice_paid_4821: [
+    { label: 'Reconcile the payment against the open balance' },
+    { label: 'Close the invoice once it clears' },
+    { label: 'Update the ledger' },
+  ],
   cred_expired_nadia: [
     { label: 'Flag her 3 upcoming shifts as at-risk' },
     { label: 'Assign Nadia a renewal task with the upload' },
     { label: 'Offer to backfill the shifts she can’t work' },
   ],
+};
+
+/** One labelled fact about the event, shown as a label → value row in the flag
+ *  card. `alert` marks the values that are *what's off* — the anomalous ones,
+ *  rendered in the warning tone (e.g. the imminent start time, the missing
+ *  coverage) so the problem reads at a glance. */
+export interface FlagRow {
+  label: string;
+  value: string;
+  alert?: boolean;
+}
+
+/** A compact facts card Ultron surfaces alongside its plan: a header naming the
+ *  event, then a few labelled facts with the salient ones flagged. The tone sets
+ *  the accent — `warning` highlights what's off, `positive` what's confirmed,
+ *  `neutral` the routine read. */
+export interface EventFlag {
+  /** Accessible label for the card (the visible eyebrow text is omitted). */
+  eyebrow: string;
+  /** Accent + badge glyph. Defaults to `warning`. */
+  tone?: 'warning' | 'positive' | 'neutral';
+  title: string;
+  subtitle: string;
+  rows: FlagRow[];
+}
+
+/** Per-thread facts cards — one per event, surfaced inside Ultron's plan message.
+ *  Problem cases lead with what's off (warning); resolved/healthy ones with what's
+ *  confirmed (positive); routine ones read neutral. */
+export const THREAD_FLAGS: Record<string, EventFlag> = {
+  // ── New · needs attention ──
+  shift_drop_maria: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Uncovered shift · Maria Ellis',
+    subtitle: 'Today · 2:00–10:00 PM',
+    rows: [
+      { label: 'Role', value: 'RN · ICU' },
+      { label: 'Location', value: 'Riverside Clinic' },
+      { label: 'Starts in', value: '4 hours', alert: true },
+      { label: 'Coverage', value: 'None lined up', alert: true },
+    ],
+  },
+  timeoff_sofia: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Time-off request · Sofia Marin',
+    subtitle: 'Next Thu–Fri',
+    rows: [
+      { label: 'PTO balance', value: 'Covers it' },
+      { label: 'Thursday', value: 'Fully covered' },
+      { label: 'Friday', value: 'Thin — 1 backup', alert: true },
+    ],
+  },
+  document_kenji: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'CPR certification · Kenji Tanaka',
+    subtitle: 'Profile upload',
+    rows: [
+      { label: 'Name match', value: 'Verified' },
+      { label: 'Credential', value: 'Valid' },
+      { label: 'Expires', value: 'In 3 weeks', alert: true },
+    ],
+  },
+  application_priya: {
+    eyebrow: 'What stands out', tone: 'positive',
+    title: 'New application · Priya R.',
+    subtitle: 'CNA · Night Shift · Downtown',
+    rows: [
+      { label: 'License', value: 'Valid' },
+      { label: 'Availability', value: 'Matches shift' },
+      { label: 'Match', value: '92%', alert: true },
+    ],
+  },
+  new_shift_forklift: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'New shift · Forklift Op',
+    subtitle: 'Fri · 6:00 AM · Bay 4',
+    rows: [
+      { label: 'Requirement', value: 'Certified-only' },
+      { label: 'Available pool', value: '11 certified', alert: true },
+      { label: 'Coverage risk', value: 'None' },
+    ],
+  },
+  new_user_luis: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'New candidate · Luis M.',
+    subtitle: 'Onboarding',
+    rows: [
+      { label: 'Record', value: 'Candidate' },
+      { label: 'Tasks on file', value: 'None yet' },
+      { label: 'Intake set', value: '5 standard', alert: true },
+    ],
+  },
+  missed_clockin_james: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Missed clock-in · James Okoro',
+    subtitle: 'Today · 9:00 AM',
+    rows: [
+      { label: 'Grace window', value: 'Elapsed', alert: true },
+      { label: 'Release on file', value: 'None' },
+      { label: 'Channel', value: 'SMS' },
+    ],
+  },
+  thread_cancel_wed: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Informal cancellation · Wed shift',
+    subtitle: 'Wed · 7:00 AM · Pier 9',
+    rows: [
+      { label: 'Message', value: '“Can’t make tomorrow”' },
+      { label: 'Formal release', value: 'None', alert: true },
+      { label: 'Record', value: 'Still shows covered', alert: true },
+    ],
+  },
+  job_event_staff: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'New job · Event Staff',
+    subtitle: 'Sat · 4:00 PM',
+    rows: [
+      { label: 'Openings', value: '20' },
+      { label: 'Eligible', value: '63 ranked', alert: true },
+      { label: 'Filtered out', value: '9 double-booked' },
+    ],
+  },
+  missed_clockout_bianca: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Open timesheet · Bianca Rossi',
+    subtitle: 'Shift ended ~6:05 PM',
+    rows: [
+      { label: 'Clock-out', value: 'Missing', alert: true },
+      { label: 'Last ping', value: 'Off-site ~6:05 PM' },
+      { label: 'Payroll', value: 'Held' },
+    ],
+  },
+  payroll_acme_invoice: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'Payroll approved · Acme Logistics',
+    subtitle: '$48/hr · 8 hrs',
+    rows: [
+      { label: 'Invoice', value: 'Open · net-30' },
+      { label: 'Duplicate line', value: 'None' },
+      { label: 'Action', value: 'Roll onto invoice', alert: true },
+    ],
+  },
+  schedule_published: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Schedule published · Next week',
+    subtitle: '84 shifts · 31 workers',
+    rows: [
+      { label: 'Unconfirmed', value: '22 shifts', alert: true },
+      { label: 'Heaviest', value: 'Mon–Tue', alert: true },
+      { label: 'Workers', value: '31' },
+    ],
+  },
+  // ── New · needs attention (formerly Done) ──
+  shift_release_jenny: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Released shift · Jenny Park',
+    subtitle: 'Sat · 8:00 AM · Lakeside',
+    rows: [
+      { label: 'Notice', value: 'More than 12 hours' },
+      { label: 'Qualified', value: '5 caregivers' },
+      { label: 'Coverage', value: 'None yet', alert: true },
+    ],
+  },
+  birthday_tomas: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'Birthday · Tomas Greco',
+    subtitle: 'Today',
+    rows: [
+      { label: 'Employee', value: 'Active' },
+      { label: 'Channel', value: 'In-app chat' },
+      { label: 'Message', value: 'Not sent yet', alert: true },
+    ],
+  },
+  weekly_fill_report: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Fill-rate report · Next week',
+    subtitle: '84 shifts · 31 workers',
+    rows: [
+      { label: 'Under target', value: '22 shifts', alert: true },
+      { label: 'Heaviest', value: 'Mon–Tue', alert: true },
+      { label: 'Status', value: 'Not shared yet' },
+    ],
+  },
+  clockin_devon: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'Clock-in · Devon Pierce',
+    subtitle: 'Eastgate Warehouse',
+    rows: [
+      { label: 'Geofence', value: 'Inside' },
+      { label: 'Required fields', value: 'Complete' },
+      { label: 'Payroll', value: 'Awaiting approval', alert: true },
+    ],
+  },
+  phone_aisha: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'Phone change · Aisha Bello',
+    subtitle: 'Today',
+    rows: [
+      { label: 'Field', value: 'Phone number' },
+      { label: 'Used for', value: 'Shift alerts' },
+      { label: 'Verification', value: 'Pending', alert: true },
+    ],
+  },
+  fill_confirmed_maria: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Open RN shift · Maria’s shift',
+    subtitle: 'Riverside Clinic',
+    rows: [
+      { label: 'Candidate', value: 'Sarah Quinn' },
+      { label: 'Policy', value: 'Clears · available' },
+      { label: 'Assignment', value: 'Unconfirmed', alert: true },
+    ],
+  },
+  invoice_paid_4821: {
+    eyebrow: 'What stands out', tone: 'neutral',
+    title: 'Paid invoice · #4821',
+    subtitle: 'Marked paid by client',
+    rows: [
+      { label: 'Payment', value: 'Recorded out-of-band' },
+      { label: 'Balance', value: 'Still open', alert: true },
+      { label: 'Invoice', value: 'Not closed yet' },
+    ],
+  },
+  cred_expired_nadia: {
+    eyebrow: 'What’s off', tone: 'warning',
+    title: 'Credential lapsed · Nadia Haddad',
+    subtitle: 'CPR certification',
+    rows: [
+      { label: 'Status', value: 'Expired', alert: true },
+      { label: 'Policy', value: 'Blocking' },
+      { label: 'Shifts at risk', value: '3', alert: true },
+    ],
+  },
 };
 
 /** Ultron's full read on a case, communicated as a short message after the
@@ -955,6 +1259,32 @@ export function caseSummary(thread: ThreadItem): string[] {
     const noAction = thread.recommendation.trim().toLowerCase().startsWith('no action');
     if (!noAction && thread.outcome) paragraphs.push(thread.outcome);
   }
+
+  return paragraphs;
+}
+
+/** Ultron's read on a case as a *persistent* message: the reasoning beats plus
+ *  the plan it shaped — frozen, so it stays put through the case's lifecycle
+ *  (awaiting → working → resolved) rather than being swapped for the outcome.
+ *  The outcome is communicated by the trail's final step, so this message reads
+ *  the same before and after the operator acts. `acted` drops the "Approve below"
+ *  call-to-action once the operator has already responded. */
+export function casePlan(thread: ThreadItem, acted: boolean): string[] {
+  const paragraphs = analyzingSteps(thread.id).map(s => s.detail).filter(Boolean);
+
+  const tasks = THREAD_TASKS[thread.id];
+  let plan: string;
+  if (tasks?.length) {
+    const steps = tasks.map(t => t.label.charAt(0).toLowerCase() + t.label.slice(1));
+    const list = steps.length > 1
+      ? `${steps.slice(0, -1).join(', ')}, and ${steps[steps.length - 1]}`
+      : steps[0];
+    plan = `Here’s my plan — I’ll ${list}.`;
+  } else {
+    plan = `Here’s my plan — ${thread.recommendation}`;
+  }
+  if (!acted) plan += ' Approve below and I’ll get started.';
+  paragraphs.push(plan);
 
   return paragraphs;
 }
@@ -992,87 +1322,16 @@ const THREAD_ACTIVITY: Record<string, ActivityMilestone[]> = {
   job_event_staff: [],
   missed_clockout_bianca: [],
   schedule_published: [],
-  shift_release_jenny: [
-    {
-      icon: 'send',
-      headline: 'Messaged the best matches',
-      blocks: [
-        { text: 'Ultron reached out to the qualified caregivers in ranked order.' },
-        { label: 'Top matches', records: [
-          { eyebrow: 'Caregiver', title: 'Renee Wallace', meta: ['94% match', 'Available now'], avatarSeed: 'renee_wallace' },
-          { eyebrow: 'Caregiver', title: 'Carl Jensen',   meta: ['90% match', 'Available now'], avatarSeed: 'carl_jensen' },
-          { eyebrow: 'Caregiver', title: 'Tina Boyd',     meta: ['87% match', 'Available now'], avatarSeed: 'tina_boyd' },
-        ] },
-      ],
-    },
-    {
-      icon: 'done',
-      headline: 'Renee Wallace assigned — coverage restored',
-      blocks: [{ checks: ['Shift assigned to Renee Wallace', 'Schedule updated', 'Coverage restored'] }],
-    },
-  ],
-  fill_confirmed_maria: [
-    {
-      icon: 'edit',
-      headline: 'Coverage secured',
-      blocks: [{ checks: ['Shift covered', 'Scheduler notified', 'No further action needed'] }],
-    },
-    {
-      icon: 'done',
-      headline: 'Logged',
-      blocks: [{ text: 'Recorded automatically — this was my own fill closing successfully.' }],
-    },
-  ],
-  cred_expired_nadia: [
-    {
-      icon: 'send',
-      headline: 'Renewal started + backfills lined up',
-      blocks: [
-        { text: 'Ultron flagged the at-risk shifts, assigned a renewal task, and offered backfills.' },
-        { label: 'Plan', checks: ['3 shifts flagged at-risk', 'Renewal task assigned to Nadia', 'Backfills lined up for all 3'] },
-      ],
-    },
-    {
-      icon: 'done',
-      headline: 'Recurring pattern ready to save as a workflow',
-      blocks: [{ text: 'Credential lapses recur — Ultron can monitor them and auto-start renewals as a saved workflow.' }],
-    },
-  ],
-  birthday_tomas: [
-    {
-      icon: 'done',
-      headline: 'Birthday note sent',
-      blocks: [{ text: 'A warm happy-birthday message went out to Tomas from the team.' }],
-    },
-  ],
-  weekly_fill_report: [
-    {
-      icon: 'done',
-      headline: 'Posted to the Home dashboard',
-      blocks: [{ text: 'It’s already on your Home dashboard — no intervention required.' }],
-    },
-  ],
-  clockin_devon: [
-    {
-      icon: 'done',
-      headline: 'No action needed',
-      blocks: [{ checks: ['Inside the geofence', 'All required fields filled', 'System working as intended'] }],
-    },
-  ],
-  phone_aisha: [
-    {
-      icon: 'done',
-      headline: 'No action needed',
-      blocks: [{ text: 'No downstream policy or workflow depends on it — logged.' }],
-    },
-  ],
-  invoice_paid_4821: [
-    {
-      icon: 'done',
-      headline: 'No action needed',
-      blocks: [{ text: 'The record reflects reality — nothing for me to act on.' }],
-    },
-  ],
+  // Formerly Done — now pending New cases: the reasoning trail IS the whole
+  // story (the executed work only appears after the operator approves).
+  shift_release_jenny: [],
+  fill_confirmed_maria: [],
+  cred_expired_nadia: [],
+  birthday_tomas: [],
+  weekly_fill_report: [],
+  clockin_devon: [],
+  phone_aisha: [],
+  invoice_paid_4821: [],
 };
 
 const STATE_ICON: Record<string, WorkingIcon> = {
@@ -1289,6 +1548,11 @@ export const RESOLVE_OUTCOMES: Record<string, string> = {
   schedule_published: 'Confirmations sent — chasing the 22 unconfirmed shifts.',
   shift_release_jenny: 'Replacement assigned — coverage restored.',
   birthday_tomas: 'Birthday note sent to Tomas from the team.',
+  weekly_fill_report: 'Report published and the 22 at-risk shifts flagged to scheduling.',
+  clockin_devon: 'Clock-in approved and released into the payroll run.',
+  phone_aisha: 'New number verified and set as her notification contact.',
+  fill_confirmed_maria: 'Sarah Quinn confirmed — coverage restored and the scheduler notified.',
+  invoice_paid_4821: 'Payment reconciled and invoice #4821 closed.',
   cred_expired_nadia: 'Renewal started and backfills lined up for the 3 affected shifts.',
 };
 
@@ -1309,4 +1573,13 @@ const ULTRON_REPLIES = [
  *  through the pool rather than echoing one another. */
 export function mockUltronReply(_text: string, index: number): string {
   return ULTRON_REPLIES[index % ULTRON_REPLIES.length];
+}
+
+/** Ultron's short text reply after it runs the work for an approved action — it
+ *  sits beneath the activity group, closing the loop on the operator's message.
+ *  Stage 0 is the first action, stage 1 the follow-up that wraps the case. */
+export function actionAck(stage: number): string {
+  return stage === 0
+    ? 'That’s underway now — I’ll keep you posted as it runs.'
+    : 'All done — I’ll keep monitoring and flag anything new.';
 }

@@ -4,7 +4,7 @@
    share one source of truth. DEMO ONLY — in-memory, no backend.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useMemo, useReducer, useState } from 'react';
+import { useMemo, useReducer, useRef, useState } from 'react';
 import { ultronThreads, RESOLVE_OUTCOMES, THREAD_FOLLOWUPS, WORKING_ACTIVITIES, spawnThreadFromEvent, mockUltronReply } from './fixtures';
 import type { IncomingEvent } from './fixtures';
 import type { ChatMessage, ThreadItem, ThreadStatus } from './types';
@@ -111,6 +111,9 @@ export interface UltronStore {
   /** The free-text conversation per thread — the operator's typed messages and
    *  Ultron's (mocked) replies, shown as a chat below the activity trail. */
   chatByThread: Record<string, ChatMessage[]>;
+  /** Thread ids where Ultron is mid-reply (between a sent message and its mocked
+   *  answer) — drives the composer's stop button and the foot typing indicator. */
+  replyingIds: string[];
   setSelectedId: (id: string) => void;
   /** Open a fresh analyzing case from a risk signal detected on the Live
    *  landing. Idempotent per signal; the user stays on Live while it lands. */
@@ -123,6 +126,9 @@ export interface UltronStore {
    *  reply a beat later, without advancing the case's status the way an approved
    *  action (commit) does. */
   sendMessage: (threadId: string, text: string) => void;
+  /** Interrupt Ultron's in-flight reply for a thread (the composer stop button) —
+   *  cancels the pending answer and clears the working state. */
+  stopReply: (threadId: string) => void;
   refine: (label: string) => void;
   saveWorkflow: (thread: ThreadItem) => void;
 }
@@ -185,6 +191,13 @@ export function useUltronStore(): UltronStore {
   // Free-text conversation per thread — the operator's typed messages paired with
   // Ultron's mocked replies, rendered as a chat below the activity trail.
   const [chatByThread, setChatByThread] = useState<Record<string, ChatMessage[]>>({});
+
+  // Threads where Ultron is mid-reply — the window between a sent message and its
+  // mocked answer landing. Drives the composer's stop button and the thread's
+  // typing indicator; cleared when the reply arrives or the operator stops it.
+  const [replyingIds, setReplyingIds] = useState<string[]>([]);
+  // Pending reply timers, so a stop can cancel the in-flight answer.
+  const replyTimers = useRef<Record<string, number>>({});
 
   // A risk surfaced on the Live landing → Ultron opens a case. Lands a fresh
   // analyzing case at the top of New (orbit/working mark + typing title in the
@@ -251,10 +264,12 @@ export function useUltronStore(): UltronStore {
       ...prev,
       [threadId]: [...(prev[threadId] ?? []), { role: 'operator', text: trimmed }],
     }));
-    // Ultron answers shortly after. The reply variant walks the canned pool by
+    // Ultron answers shortly after — until then it reads as "working" (the
+    // composer shows a stop button). The reply variant walks the canned pool by
     // how many times Ultron has already replied in this thread (read fresh from
     // the latest state so rapid messages don't collide on a stale count).
-    window.setTimeout(() => {
+    setReplyingIds(prev => (prev.includes(threadId) ? prev : [...prev, threadId]));
+    const timer = window.setTimeout(() => {
       setChatByThread(prev => {
         const existing = prev[threadId] ?? [];
         const replyCount = existing.filter(m => m.role === 'ultron').length;
@@ -263,12 +278,23 @@ export function useUltronStore(): UltronStore {
           [threadId]: [...existing, { role: 'ultron', text: mockUltronReply(trimmed, replyCount) }],
         };
       });
+      setReplyingIds(prev => prev.filter(id => id !== threadId));
+      delete replyTimers.current[threadId];
     }, REPLY_DELAY_MS);
+    replyTimers.current[threadId] = timer;
+  };
+
+  // Interrupt Ultron's in-flight reply: cancel the pending answer and drop the
+  // working state. The operator's message stays; Ultron simply doesn't respond.
+  const stopReply = (threadId: string) => {
+    const timer = replyTimers.current[threadId];
+    if (timer) { window.clearTimeout(timer); delete replyTimers.current[threadId]; }
+    setReplyingIds(prev => prev.filter(id => id !== threadId));
   };
 
   // Refinement and save-workflow are demo stubs with no surface yet — no-ops.
   const refine = (_label: string) => {};
   const saveWorkflow = (_thread: ThreadItem) => {};
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, setSelectedId, detectRisk, decide, commit, sendMessage, refine, saveWorkflow };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, sendMessage, stopReply, refine, saveWorkflow };
 }

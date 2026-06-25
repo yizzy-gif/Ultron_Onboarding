@@ -19,15 +19,31 @@ import { Button, ArrowNarrowUpIcon } from 'alloy-design-system';
 interface UltronComposerProps {
   /** Send the typed message. Returns nothing — the input clears on submit. */
   onSend: (text: string) => void;
+  /** True while Ultron is composing a reply to the last sent message — flips the
+   *  send button into a stop control. */
+  working?: boolean;
+  /** Interrupt Ultron's in-flight reply (the stop button). */
+  onStop?: () => void;
   /** Placeholder copy; defaults to a Message-Ultron prompt. */
   placeholder?: string;
+}
+
+/** A filled rounded square — the stop glyph the send button shows while Ultron
+ *  is replying (the chat-composer convention for interrupting a response).
+ *  Alloy has no stop icon, so it's drawn inline on the 24px icon grid. */
+function StopGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="7" y="7" width="10" height="10" rx="2.5" fill="currentColor" />
+    </svg>
+  );
 }
 
 /** Cap the auto-grow so a long draft scrolls internally instead of pushing the
  *  thread off-screen — roughly six lines before the textarea starts scrolling. */
 const MAX_HEIGHT = 160;
 
-export function UltronComposer({ onSend, placeholder = 'Message Ultron…' }: UltronComposerProps) {
+export function UltronComposer({ onSend, working = false, onStop, placeholder = 'Message Ultron…' }: UltronComposerProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const canSend = value.trim().length > 0;
@@ -41,7 +57,7 @@ export function UltronComposer({ onSend, placeholder = 'Message Ultron…' }: Ul
   };
 
   const submit = () => {
-    if (!canSend) return;
+    if (!canSend || working) return;
     onSend(value);
     setValue('');
     // Collapse back to the single-line resting height after sending.
@@ -75,16 +91,31 @@ export function UltronComposer({ onSend, placeholder = 'Message Ultron…' }: Ul
         onChange={e => { setValue(e.target.value); resize(); }}
         onKeyDown={onKeyDown}
       />
-      <SendButton
-        type="submit"
-        variant="primary"
-        size="sm"
-        iconOnly
-        disabled={!canSend}
-        aria-label="Send message"
-      >
-        <ArrowNarrowUpIcon size={18} />
-      </SendButton>
+      {/* While Ultron is replying the send button becomes a stop control — it
+          stays enabled so the operator can interrupt the in-flight response. */}
+      {working ? (
+        <SendButton
+          type="button"
+          variant="primary"
+          size="sm"
+          iconOnly
+          aria-label="Stop"
+          onClick={onStop}
+        >
+          <StopGlyph size={18} />
+        </SendButton>
+      ) : (
+        <SendButton
+          type="submit"
+          variant="primary"
+          size="sm"
+          iconOnly
+          disabled={!canSend}
+          aria-label="Send message"
+        >
+          <ArrowNarrowUpIcon size={18} />
+        </SendButton>
+      )}
     </Bar>
   );
 }
