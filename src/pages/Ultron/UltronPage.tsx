@@ -156,16 +156,29 @@ export function UltronPage({
       stick = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= NEAR;
     };
     scroller.addEventListener('scroll', onScroll, { passive: true });
+    // Growth that immediately follows a click inside the feed is the operator
+    // toggling something open (an activity group, a usage panel, "show more") —
+    // not streamed content. We hold off the auto-follow in that window so
+    // expanding a group leaves the scroll where it is. Streamed activities /
+    // messages grow the feed with no preceding click here, so they still follow.
+    let lastInteract = 0;
+    const onInteract = () => { lastInteract = performance.now(); };
+    scroller.addEventListener('pointerdown', onInteract, { passive: true });
     // Only chase the bottom when the content actually grew — not on a reflow
     // (e.g. expanding a usage panel) or the initial layout, so opening a case
     // still lands at the top with the event card in view.
     const ro = new ResizeObserver(() => {
       const h = scroller.scrollHeight;
-      if (h > prevH + 1 && stick) scroller.scrollTo({ top: h, behavior });
+      const userToggled = performance.now() - lastInteract < 500;
+      if (h > prevH + 1 && stick && !userToggled) scroller.scrollTo({ top: h, behavior });
       prevH = h;
     });
     ro.observe(content);
-    return () => { scroller.removeEventListener('scroll', onScroll); ro.disconnect(); };
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      scroller.removeEventListener('pointerdown', onInteract);
+      ro.disconnect();
+    };
   }, [pagedCurrentId, section]);
 
   // Rule: every event page opens anchored at the latest message / activity.

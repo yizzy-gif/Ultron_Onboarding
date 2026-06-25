@@ -477,7 +477,7 @@ function AnalyzingBody({ thread, onDecide, analyzed, hideDetail, hideTrigger }: 
             {analyzed ? (
               'Ultron analyzed this event'
             ) : (
-              <>Ultron is analyzing this event<Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots></>
+              'Ultron is analyzing this event'
             )}
           </AnalyzingHeadline>
           {!hideDetail && <AnalyzingDetail>{thread.assessment}</AnalyzingDetail>}
@@ -830,6 +830,11 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
         const workMilestones = hasWork ? (groups[u.gi] as { milestones: ActivityMilestone[] }).milestones : [];
         const streamingGroup = hasWork && activityFlags(u.gi).isStreamingGroup;
         const isLast = ui === units.length - 1;
+        // Only one mark trails the whole thread. A response set carries it solely
+        // when it's the thread's tail — the last unit with nothing rendered after
+        // it (no chat thread, not mid-reply). Earlier response sets stand down so
+        // the single mark sits at the foot of the last group.
+        const isThreadTail = isLast && chat.length === 0 && !replying;
         return (
           <UltronResponse
             key={`resp${ui}`}
@@ -837,10 +842,10 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
             text={u.text}
             feedbackTime={synthClock(workMilestones)}
             // While the work group still rides its own in-trail mark, suppress the
-            // set's mark; once it settles, the set mark provides the presence —
-            // active while the case is still executing/monitoring.
-            active={footActive && isLast && !streamingGroup}
-            showMark={!streamingGroup}
+            // set's mark; once it settles, the tail set's mark provides the presence
+            // — active while the case is still executing/monitoring.
+            active={footActive && isThreadTail && !streamingGroup}
+            showMark={isThreadTail && !streamingGroup}
           />
         );
       })}
@@ -852,7 +857,6 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
       {showFootMark && (
         <ChatFootMark role={footActive ? 'status' : 'img'} aria-label={replying ? 'Ultron is replying' : footActive ? 'Ultron is working' : 'Ultron'}>
           <AgentMark mark="circle" size={28} tone="auto" state={footActive ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
-          {replying && <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>}
         </ChatFootMark>
       )}
     </>
@@ -895,7 +899,6 @@ function UltronResponse({ activity, text, feedbackTime, active = false, showMark
       {showMark && (
         <ResponseMark role={active ? 'status' : 'img'} aria-label={active ? 'Ultron is working' : 'Ultron'}>
           <AgentMark mark="circle" size={28} tone="auto" state={active ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
-          {active && <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>}
         </ResponseMark>
       )}
     </ResponseSet>
@@ -987,6 +990,9 @@ function FlagCard({ flag }: { flag: EventFlag }) {
 // a generated chat reply arrives as the same whole set as a post-action reply.
 export function UltronChatThread({ messages, replying = false }: { messages: ChatMessage[]; replying?: boolean }) {
   if (!messages.length && !replying) return null;
+  // The single trailing mark belongs to the last Ultron reply — unless Ultron is
+  // mid-reply, where the pending set below carries it. Earlier replies stand down.
+  const lastUltronIdx = messages.reduce((acc, m, i) => (m.role === 'ultron' ? i : acc), -1);
   return (
     <ChatList>
       {messages.map((m, i) =>
@@ -1002,6 +1008,7 @@ export function UltronChatThread({ messages, replying = false }: { messages: Cha
             activity={<ActivityTrailCards milestones={chatReplyMilestones()} collapsed hideActions />}
             text={m.text}
             feedbackTime={synthClock(chatReplyMilestones())}
+            showMark={!replying && i === lastUltronIdx}
           />
         ),
       )}
@@ -1365,24 +1372,6 @@ const DemoTrigger = styled(Button)`
   align-self: flex-start;
 `;
 
-/* Animated trailing ellipsis — three dots blink in sequence. */
-const blink = keyframes`
-  0%, 100% { opacity: 0.2; }
-  50%      { opacity: 1; }
-`;
-
-const Dots = styled.span`
-  & > span {
-    animation: ${blink} 1.2s ease-in-out infinite;
-  }
-  & > span:nth-child(2) { animation-delay: 0.15s; }
-  & > span:nth-child(3) { animation-delay: 0.3s; }
-
-  @media (prefers-reduced-motion: reduce) {
-    & > span { animation: none; }
-  }
-`;
-
 /* Vertical stack of context record cards (e.g. ranked candidate matches). */
 const RecordList = styled.div`
   display: flex;
@@ -1449,7 +1438,7 @@ const TaskDetail = styled.span`
   font-size: var(--text-xs);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-normal);
-  color: var(--color-content-tertiary);
+  color: var(--color-content-disabled);
 `;
 
 /* Trailing slot — the candidate avatar stack, right-aligned. */
@@ -1566,7 +1555,7 @@ const OutboundBubble = styled.div`
   align-items: flex-end;
   max-width: 80%;
   padding: var(--space-2) var(--space-4);
-  background: var(--color-bg-inverse-primary);
+  background: var(--color-bg-secondary);
   border-radius: var(--radius-full);
   animation: ${bubbleIn} 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
 
@@ -1578,7 +1567,7 @@ const OutboundText = styled.span`
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-relaxed);
-  color: var(--color-content-inverse-primary);
+  color: var(--color-content-primary);
 `;
 
 /* The conversation block — operator + Ultron turns stacked below the trail. The
