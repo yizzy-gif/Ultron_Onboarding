@@ -11,18 +11,25 @@ import styled, { keyframes } from 'styled-components';
 import {
   Avatar, Button, ChevronRightIcon, XCloseIcon,
   AIMessageActions, ThumbsUpIcon, ThumbsDownIcon, RefreshCw04Icon,
-  Tool01Icon, ZapIcon, Grid01Icon,
+  SearchMdIcon, MessageCircle02Icon, TriangleUpIcon, CheckVerified01Icon,
+  Edit01Icon, LineChartUp01Icon, ClockIcon, EyeIcon,
 } from 'alloy-design-system';
-import type { ActivityMilestone, RecordRef, ActivityUsage, UsageEntry } from './fixtures';
+import type { ActivityMilestone, RecordRef, ActivityUsage, UsageEntry, UsageIconKey } from './fixtures';
 import { avatarUrl, aggregateUsage } from './fixtures';
 
-/** The Run-details drawer's three kinds, each with its section icon. */
+/** Maps a usage entry's icon key to its Alloy glyph — each capability fronts its
+ *  Run-details row with an icon that reads its kind at a glance. */
 type UsageIcon = ComponentType<{ size?: number }>;
-const USAGE_SECTIONS: { key: keyof ActivityUsage; label: string; Icon: UsageIcon }[] = [
-  { key: 'tools', label: 'Tools', Icon: Tool01Icon },
-  { key: 'skills', label: 'Skills', Icon: ZapIcon },
-  { key: 'data', label: 'Data', Icon: Grid01Icon },
-];
+const USAGE_ICONS: Record<UsageIconKey, UsageIcon> = {
+  search: SearchMdIcon,
+  message: MessageCircle02Icon,
+  policy: TriangleUpIcon,
+  shield: CheckVerified01Icon,
+  schedule: Edit01Icon,
+  analytics: LineChartUp01Icon,
+  clock: ClockIcon,
+  monitor: EyeIcon,
+};
 import { AgentMark } from './AgentMark';
 import { RecordCard } from './RecordCard';
 
@@ -330,11 +337,13 @@ export function SessionActions({ time }: { time: string }) {
 
 /** A trigger summarising what a group's activities drew on — "{N} tools used" —
  *  that opens the Run details drawer on the right. The toolkit is derived from
- *  the group's own activities (their kinds), so each group surfaces the tools,
- *  skills, and data sources that actually applied to its work rather than a fixed
- *  canned set. */
+ *  the group's own activities (their kinds), so each group surfaces the
+ *  capabilities that actually applied to its work rather than a fixed canned set. */
 function UsageSummary({ usage }: { usage: ActivityUsage }) {
   const [open, setOpen] = useState(false);
+  // Single-open accordion: only one row's detail is expanded at a time. Tracks the
+  // open row's index (null = all collapsed) so opening one collapses the others.
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
 
   // Close the drawer on Escape while it's open.
   useEffect(() => {
@@ -344,13 +353,7 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  // The drawer breaks the toolkit into its three kinds; the trigger counts tools
-  // (the headline measure), the same number the Tools section shows.
-  const sections = USAGE_SECTIONS
-    .map(s => ({ ...s, items: usage[s.key] }))
-    .filter(s => s.items.length);
-
-  if (!usage.tools.length) return null;
+  if (!usage.length) return null;
   return (
     <UsageWrap>
       <Button
@@ -359,9 +362,9 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
         trailingArtwork={<ChevronRightIcon size={12} />}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen(true)}
+        onClick={() => { setOpen(true); setOpenIdx(null); }}
       >
-        {usage.tools.length} {usage.tools.length === 1 ? 'tool' : 'tools'} used
+        {usage.length} {usage.length === 1 ? 'tool' : 'tools'} used
       </Button>
       {open && createPortal(
         <UsageOverlay role="dialog" aria-modal="true" aria-label="Run details">
@@ -370,21 +373,23 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
             <UsageDrawerHeader>
               <UsageDrawerHeadings>
                 <UsageDrawerTitle>Run details</UsageDrawerTitle>
-                <UsageDrawerSubtitle>What this activity drew on — tap any for details</UsageDrawerSubtitle>
               </UsageDrawerHeadings>
               <UsageClose type="button" aria-label="Close" onClick={() => setOpen(false)}>
                 <XCloseIcon size={18} />
               </UsageClose>
             </UsageDrawerHeader>
             <UsageDrawerBody>
-              {sections.map(s => (
-                <UsageSection key={s.label}>
-                  <ToolsSectionLabel>{s.label} · {s.items.length}</ToolsSectionLabel>
-                  <ToolList>
-                    {s.items.map((it, i) => <UsageRow key={it.name} entry={it} Icon={s.Icon} first={i === 0} />)}
-                  </ToolList>
-                </UsageSection>
-              ))}
+              <ToolList>
+                {usage.map((it, i) => (
+                  <UsageRow
+                    key={it.name}
+                    entry={it}
+                    first={i === 0}
+                    open={openIdx === i}
+                    onToggle={() => setOpenIdx(cur => (cur === i ? null : i))}
+                  />
+                ))}
+              </ToolList>
             </UsageDrawerBody>
           </UsageDrawer>
         </UsageOverlay>,
@@ -394,23 +399,33 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
   );
 }
 
-/** One tool / skill / data row in the Run details drawer — a compact single line
- *  (icon + name) that expands to reveal what it did, the query it ran (tools
- *  only), and a plain-language summary of what it returned. */
-function UsageRow({ entry, Icon, first }: { entry: UsageEntry; Icon: UsageIcon; first: boolean }) {
-  const [open, setOpen] = useState(false);
+/** One capability row in the Run details drawer — a compact line (icon + name +
+ *  description) that expands to reveal the query it ran (when there is one) and a
+ *  plain-language summary of what it returned. */
+function UsageRow({ entry, first, open, onToggle }: { entry: UsageEntry; first: boolean; open: boolean; onToggle: () => void }) {
+  const Icon = USAGE_ICONS[entry.icon];
   return (
     <ToolRow data-first={first || undefined}>
-      <ToolHeader type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+      <ToolHeader type="button" aria-expanded={open} onClick={onToggle}>
         <ToolTile aria-hidden="true"><Icon size={16} /></ToolTile>
-        <ToolName>{entry.name}</ToolName>
+        <ToolHeadings>
+          <ToolName>{entry.name}</ToolName>
+          <ToolDesc>{entry.description}</ToolDesc>
+        </ToolHeadings>
         <ToolChevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={16} /></ToolChevron>
       </ToolHeader>
       {open && (
         <ToolDetail>
-          <ToolDesc>{entry.description}</ToolDesc>
-          {entry.query && <ToolQuery>{entry.query}</ToolQuery>}
-          <ToolSummary>{entry.summary}</ToolSummary>
+          {entry.query && (
+            <ToolField>
+              <ToolFieldLabel>Query</ToolFieldLabel>
+              <ToolQuery>{entry.query}</ToolQuery>
+            </ToolField>
+          )}
+          <ToolField>
+            <ToolFieldLabel>Summary</ToolFieldLabel>
+            <ToolSummary>{entry.summary}</ToolSummary>
+          </ToolField>
         </ToolDetail>
       )}
     </ToolRow>
@@ -476,10 +491,6 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
   const hasBlocks = !!milestone.blocks?.length;
   // Extra content hung under this step (the group's "tools used" trigger).
   const hasExtra = !!extra;
-  // Executed work steps always render an outcome line (their `progress`), so they
-  // read as open even when collapsed — the usage trigger should sit inline with it
-  // rather than hide behind an expand the operator has no reason to click.
-  const hasProgress = !!milestone.progress?.length;
   // Collapsible steps start collapsed (an accordion the operator opens to reveal
   // the supplemental line); always-on steps stay expanded.
   const [open, setOpen] = useState(!collapsible);
@@ -487,16 +498,15 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
   // A collapsible step toggles its own supplemental sub-context via a trailing
   // chevron (the prompt-card step accordion). While typing it's inert — the
   // chevron only appears once the step has settled. It's expandable when it has
-  // hidden content to reveal: detail blocks, or — for steps with no always-visible
-  // progress line — the usage trigger itself.
-  const interactive = collapsible && !typing && (hasBlocks || (hasExtra && !hasProgress));
+  // hidden content to reveal: detail blocks, or the usage trigger itself.
+  const interactive = collapsible && !typing && (hasBlocks || hasExtra);
   // Blocks reveal immediately (even while typing) so the secondary text can type
   // out in place rather than popping in after the headline.
   const showBlocks = hasBlocks && (collapsible ? open : true);
-  // The usage trigger shows whenever the step's supplemental content is on screen:
-  // inline for steps that always show a progress/outcome line, or on expand for
-  // collapse-only (reasoning) steps.
-  const showExtra = hasExtra && (collapsible ? (open || hasProgress) : true);
+  // The usage trigger lives inside the step's accordion — revealed only when the
+  // operator opens the step, so it reads as detail tucked under the activity
+  // rather than a permanently-on inline control.
+  const showExtra = hasExtra && (collapsible ? open : true);
 
   return (
     <Content $last={last}>
@@ -842,7 +852,7 @@ const UsageDrawerHeader = styled.div`
   justify-content: space-between;
   gap: var(--space-3);
   height: 48px;
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-3);
   border-bottom: 1px solid var(--color-border-opaque);
 `;
 
@@ -859,18 +869,6 @@ const UsageDrawerTitle = styled.h2`
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-snug);
   color: var(--color-content-primary);
-`;
-
-/* Alloy paragraph / small — kept to one line so the header holds its 48px. */
-const UsageDrawerSubtitle = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-snug);
-  color: var(--color-content-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 `;
 
 const UsageClose = styled.button`
@@ -892,25 +890,8 @@ const UsageDrawerBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-4) var(--space-6);
+  padding: 0;
   overflow-y: auto;
-`;
-
-/* One kind of usage — Tools / Skills / Data — as a labeled list of rows. */
-const UsageSection = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-`;
-
-/* Section eyebrow above a list — "TOOLS · N". */
-const ToolsSectionLabel = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
 `;
 
 const ToolList = styled.div`
@@ -919,48 +900,77 @@ const ToolList = styled.div`
 `;
 
 /* One tool/skill/data row — a single-line header plus its (collapsible) detail.
-   A hairline divider separates each from the last. */
+   Each row carries its own 12px left/right gutter (rather than the list wrapper) so
+   it owns its inset. A hairline divider separates each from the last — inset on the
+   left to start at the title (row gutter + icon tile column + header gap, matching
+   ToolDetail) and held off the right gutter, so it reads as a row separator under
+   the text rather than a full-bleed rule. */
 const ToolRow = styled.div`
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--color-border-opaque);
+  position: relative;
+  padding: 0 var(--space-3);
 
-  &[data-first] { border-top: none; }
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    /* gutter + tile + header gap — the ::before is anchored to the padding box, so
+       the row's own left gutter is added back in to land on the title. */
+    left: calc(var(--space-3) + var(--space-8) + var(--space-3));
+    /* Runs flush to the row's right edge — no right gutter. */
+    right: 0;
+    border-top: 1px solid var(--color-border-opaque);
+  }
+
+  &[data-first]::before { display: none; }
 `;
 
-/* The always-visible line: small icon tile + name + disclosure chevron. */
+/* The always-visible row: rounded icon tile + a two-line name/description block +
+   disclosure chevron. The description rides under the name (rather than hiding
+   behind the expand) so every tool reads at a glance. */
 const ToolHeader = styled.button`
   all: unset;
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) 0;
+  padding: var(--space-3) 0;
   cursor: pointer;
 
   &:focus-visible { box-shadow: 0 0 0 2px var(--color-border-focus); border-radius: var(--radius-sm); }
 `;
 
-/* Small rounded icon tile keyed to the section's kind. */
+/* Rounded icon tile keyed to the section's kind — 32px (space-8). */
 const ToolTile = styled.span`
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--space-7);
-  height: var(--space-7);
-  border-radius: var(--radius-sm);
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
   color: var(--color-content-secondary);
 `;
 
-const ToolName = styled.span`
+/* The name + description stack — takes the row's flexible width between the tile
+   and the chevron. */
+const ToolHeadings = styled.span`
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+`;
+
+const ToolName = styled.span`
   min-width: 0;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-snug);
   color: var(--color-content-primary);
 `;
@@ -970,27 +980,54 @@ const ToolDesc = styled.span`
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-relaxed);
+  line-height: var(--line-height-snug);
   letter-spacing: var(--tracking-normal);
   color: var(--color-content-tertiary);
 `;
 
-/* Disclosure chevron — points right when collapsed, rotates down when open. */
+/* Disclosure chevron — points right when collapsed, rotates down when open.
+   Sits in a 32px square slot so its tap target matches the leading icon tile and
+   the glyph stays centered as it rotates. */
 const ToolChevron = styled.span`
   flex-shrink: 0;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
   color: var(--color-content-tertiary);
   transition: transform var(--duration-base) var(--ease-default);
   &[data-open] { transform: rotate(90deg); }
 `;
 
-/* Expanded detail — hung under the name, clearing the icon tile column. */
+/* Expanded detail — hung under the name, clearing the icon tile column (tile
+   width space-8, plus the header gap space-3). */
 const ToolDetail = styled.div`
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 0 var(--space-4);
+  padding-left: calc(var(--space-8) + var(--space-3));
+`;
+
+/* One labeled field inside the expanded detail — an eyebrow label over its value
+   (the query block or the summary text). */
+const ToolField = styled.div`
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
-  padding: 0 0 var(--space-3);
-  padding-left: calc(var(--space-7) + var(--space-2));
+`;
+
+/* Field eyebrow — "QUERY" / "SUMMARY", matching the section label treatment.
+   A touch below --text-xs (12px) since the uppercase + wide tracking lets it read
+   fine smaller as a quiet eyebrow. */
+const ToolFieldLabel = styled.span`
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-content-tertiary);
 `;
 
 /* The tool's query, in a code block. */
@@ -1000,7 +1037,7 @@ const ToolQuery = styled.pre`
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   line-height: var(--line-height-normal);
   color: var(--color-content-primary);
   white-space: pre-wrap;

@@ -332,6 +332,7 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
             Yes/No choices) so it floats apart without competing with them. */}
         {actionable && (
           <SaveWorkflowPill
+            $trailing
             variant="ghost" size="sm"
             aria-pressed={savedWorkflow}
             data-on={savedWorkflow || undefined}
@@ -342,24 +343,15 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
           </SaveWorkflowPill>
         )}
         {offerWorkflow && !actionable && (
-          savedWorkflow ? (
-            <Button
-              variant="secondary" size="sm"
-              leadingArtwork={<CheckIcon size={14} />}
-              trailingArtwork={<LinkExternal01Icon size={14} />}
-              onClick={() => onSaveWorkflow(thread)}
-            >
-              Saved
-            </Button>
-          ) : (
-            <Button
-              variant="secondary" size="sm"
-              leadingArtwork={<Save01Icon size={14} />}
-              onClick={() => { onSaveWorkflow(thread); setSavedWorkflow(true); }}
-            >
-              Save as workflow
-            </Button>
-          )
+          <SaveWorkflowPill
+            variant="ghost" size="sm"
+            aria-pressed={savedWorkflow}
+            data-on={savedWorkflow || undefined}
+            leadingArtwork={savedWorkflow ? <CheckIcon size={14} /> : <Save01Icon size={14} />}
+            onClick={() => setSavedWorkflow(on => { if (!on) onSaveWorkflow(thread); return !on; })}
+          >
+            {savedWorkflow ? 'Saved' : 'Save as workflow'}
+          </SaveWorkflowPill>
         )}
       </Actions>
     </ActionCard>
@@ -1598,8 +1590,8 @@ const OtherPill = styled(Button)`
 /* Trailing "save as workflow" affordance — right-aligned in the decision row,
    pill-radius to match the Yes/No choices. Acts as a toggle: the "on" state
    reads with a brand-tinted fill + leading checkmark (set in the markup). */
-const SaveWorkflowPill = styled(Button)`
-  margin-left: auto;
+const SaveWorkflowPill = styled(Button)<{ $trailing?: boolean }>`
+  ${p => p.$trailing && 'margin-left: auto;'}
   border-radius: var(--radius-full);
 
   &[data-on] {

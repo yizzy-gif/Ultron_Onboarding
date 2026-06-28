@@ -731,7 +731,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   timeoff_sofia: [
     { icon: 'done',  headline: 'Approved Thursday', detail: 'PTO balance confirmed and the Thursday shift is covered.', progress: ['Checking the PTO balance…', 'Thursday approved · coverage holds'] },
     { icon: 'edit',  headline: 'Held Friday for you', detail: 'Flagged the thin coverage with the one available backup.', progress: ['Scanning Friday coverage…', '1 backup available — held for review'] },
-    { icon: 'send',  headline: 'Sofia notified', detail: 'Confirmed Thursday and that Friday is pending your call.', progress: ['Messaging Sofia…', 'Sofia notified'] },
+    { icon: 'send',  headline: 'Sofia notified', detail: 'Confirmed Thursday and that Friday is pending your call.', progress: ['Messaging Sofia…', 'Sofia notified'], avatars: ['timeoff_sofia'] },
   ],
   document_kenji: [
     { icon: 'edit',  headline: 'Filed as a CPR cert', detail: 'Set the document type and saved the expiry.', progress: ['Reading the document…', 'Filed as CPR cert · expiry saved'] },
@@ -740,7 +740,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   ],
   application_priya: [
     { icon: 'edit',  headline: 'Marked Priya qualified', detail: 'Updated the application status.', progress: ['Reviewing her application…', 'Marked qualified · 92% match'] },
-    { icon: 'send',  headline: 'Sent a warm intro', detail: 'Confirmed interest and asked the two screening questions.', progress: ['Drafting the intro…', 'Intro sent · 2 screening questions asked'] },
+    { icon: 'send',  headline: 'Sent a warm intro', detail: 'Confirmed interest and asked the two screening questions.', progress: ['Drafting the intro…', 'Intro sent · 2 screening questions asked'], avatars: ['application_priya'] },
     { icon: 'done',  headline: 'Moved to the recruiter queue', detail: 'Ready once she replies.', progress: ['Handing off to the recruiter…', 'In the recruiter queue'] },
   ],
   new_shift_forklift: [
@@ -749,18 +749,18 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
     { icon: 'done',  headline: 'Shift claimed', detail: 'Assigned the first qualified claim and updated the calendar.', progress: ['Assigning the claim…', 'Shift claimed · calendar updated'] },
   ],
   new_user_luis: [
-    { icon: 'send',  headline: 'Sent Luis a welcome', detail: 'Kicked off the candidate onboarding.', progress: ['Drafting the welcome…', 'Welcome sent · onboarding started'] },
+    { icon: 'send',  headline: 'Sent Luis a welcome', detail: 'Kicked off the candidate onboarding.', progress: ['Drafting the welcome…', 'Welcome sent · onboarding started'], avatars: ['new_user_luis'] },
     { icon: 'edit',  headline: 'Assigned intake tasks', detail: 'Added the 5 required tasks.', progress: ['Building the intake list…', '5 intake tasks assigned'] },
     { icon: 'done',  headline: 'Following up', detail: 'Tracking each task through to completion.', progress: ['Setting reminders…', 'Tracking all 5 tasks to done'] },
   ],
   missed_clockin_james: [
-    { icon: 'send',  headline: 'Texted James', detail: 'Asked whether he’s on his way.', progress: ['Texting James…', 'Message delivered'] },
+    { icon: 'send',  headline: 'Texted James', detail: 'Asked whether he’s on his way.', progress: ['Texting James…', 'Message delivered'], avatars: ['missed_clockin_james'] },
     { icon: 'clock', headline: 'Awaiting his reply', detail: 'Will update the shift’s confirmation status from it.', progress: ['Waiting on his reply…', 'James replied — 15 min out'] },
     { icon: 'done',  headline: 'Shift updated', detail: 'Flagged the scheduling inbox in case of a no-show.', progress: ['Updating the shift…', 'Marked confirmed-late · inbox flagged'] },
   ],
   thread_cancel_wed: [
     { icon: 'edit',  headline: 'Recorded the release', detail: 'Logged the Wed shift as released on her behalf.', progress: ['Filing the release…', 'Wed shift released'] },
-    { icon: 'send',  headline: 'Acknowledged her', detail: 'Confirmed she’s off the shift.', progress: ['Messaging her…', 'Confirmed she’s off the shift'] },
+    { icon: 'send',  headline: 'Acknowledged her', detail: 'Confirmed she’s off the shift.', progress: ['Messaging her…', 'Confirmed she’s off the shift'], avatars: ['thread_cancel_wed'] },
     { icon: 'done',  headline: 'Replacement search started', detail: 'Opened a fill for the Wed 7:00 AM shift.', progress: ['Opening a fill…', 'Search live for Wed 7:00 AM'] },
   ],
   payroll_acme_invoice: [
@@ -774,7 +774,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
     { icon: 'done',  headline: 'Standby list kept', detail: 'Will notify you at 80% filled.', progress: ['Building the standby list…', 'Standby list kept'] },
   ],
   missed_clockout_bianca: [
-    { icon: 'send',  headline: 'Texted Bianca', detail: 'Asked her to confirm her actual end time.', progress: ['Texting Bianca…', 'Asked her to confirm her end time'] },
+    { icon: 'send',  headline: 'Texted Bianca', detail: 'Asked her to confirm her actual end time.', progress: ['Texting Bianca…', 'Asked her to confirm her end time'], avatars: ['missed_clockout_bianca'] },
     { icon: 'edit',  headline: 'Updating the timesheet', detail: 'Will apply her confirmed end time.', progress: ['Standing by for her reply…', 'Timesheet ready to update'] },
     { icon: 'alert', headline: 'Holding for payroll', detail: 'Will flag payroll if she doesn’t reply before the run.', progress: ['Watching the payroll cutoff…', 'Holding — will flag if no reply'] },
   ],
@@ -789,7 +789,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
     { icon: 'done',  headline: 'Shift filled', detail: 'Assigned the replacement and updated the schedule.', progress: ['Assigning the shift…', 'Renee Wallace assigned · schedule updated'] },
   ],
   birthday_tomas: [
-    { icon: 'send',  headline: 'Sent the birthday note', detail: 'A warm message from the team via in-app chat.', progress: ['Writing the note…', 'Birthday note sent'] },
+    { icon: 'send',  headline: 'Sent the birthday note', detail: 'A warm message from the team via in-app chat.', progress: ['Writing the note…', 'Birthday note sent'], avatars: ['birthday_tomas'] },
   ],
   weekly_fill_report: [
     { icon: 'send',  headline: 'Published the report', detail: 'Posted next week’s fill-rate report to the Home dashboard.', progress: ['Compiling the numbers…', 'Report published to Home'] },
@@ -801,12 +801,12 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
     { icon: 'done',  headline: 'Approved for payroll', detail: 'Released the clean clock-in into the payroll run.', progress: ['Releasing to payroll…', 'Approved for the payroll run'] },
   ],
   phone_aisha: [
-    { icon: 'send',  headline: 'Sent a verification ping', detail: 'Texted the new number to confirm it reaches her.', progress: ['Texting the new number…', 'Ping delivered'] },
+    { icon: 'send',  headline: 'Sent a verification ping', detail: 'Texted the new number to confirm it reaches her.', progress: ['Texting the new number…', 'Ping delivered'], avatars: ['phone_aisha'] },
     { icon: 'edit',  headline: 'Updated the contact', detail: 'Set the verified number as her notification contact.', progress: ['Verifying the reply…', 'Contact updated'] },
     { icon: 'done',  headline: 'Alerts confirmed', detail: 'Shift notifications now route to the new number.', progress: ['Re-routing alerts…', 'Alerts now reach the new number'] },
   ],
   fill_confirmed_maria: [
-    { icon: 'edit',  headline: 'Confirmed Sarah Quinn', detail: 'Assigned her to Maria’s open RN shift.', progress: ['Assigning the shift…', 'Sarah Quinn confirmed'] },
+    { icon: 'edit',  headline: 'Confirmed Sarah Quinn', detail: 'Assigned her to Maria’s open RN shift.', progress: ['Assigning the shift…', 'Sarah Quinn confirmed'], avatars: ['sarah_quinn'] },
     { icon: 'clock', headline: 'Updated the roster', detail: 'Posted the change so the schedule reflects it.', progress: ['Posting the change…', 'Roster updated'] },
     { icon: 'done',  headline: 'Scheduler notified', detail: 'Coverage confirmed and the scheduler is in the loop.', progress: ['Notifying the scheduler…', 'Coverage confirmed'] },
   ],
@@ -818,7 +818,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   cred_expired_nadia: [
     { icon: 'alert', headline: 'Flagged the 3 shifts at-risk', detail: 'Marked the CPR-gated shifts.', progress: ['Scanning her schedule…', '3 CPR-gated shifts flagged'] },
     { icon: 'edit',  headline: 'Assigned a renewal task', detail: 'Added the upload step for Nadia.', progress: ['Creating the task…', 'Renewal task assigned to Nadia'] },
-    { icon: 'done',  headline: 'Backfills lined up', detail: 'Offered to cover the shifts she can’t legally work.', progress: ['Finding backfills…', 'Backfills lined up'] },
+    { icon: 'done',  headline: 'Backfills lined up', detail: 'Offered to cover the shifts she can’t legally work.', progress: ['Finding backfills…', 'Backfills lined up'], avatars: ['carl_jensen', 'tina_boyd', 'marcus_idris'] },
   ],
 };
 
@@ -1394,92 +1394,69 @@ export function activityForThread(thread: ThreadItem): ActivityMilestone[] {
     });
 }
 
-/** One tool, skill, or data source an activity drew on — surfaced in the Run
- *  details drawer as a collapsible row: name + description, expanding to reveal
- *  (for tools) the query Ultron ran and, for all, a plain-language summary of
- *  what it returned. `query` is omitted for skills and data sources, which have
- *  no invocation to show. */
+/** Which glyph fronts a usage row — mapped to an Alloy icon at render time so the
+ *  data layer stays component-free. */
+export type UsageIconKey =
+  | 'search' | 'message' | 'policy' | 'shield' | 'schedule'
+  | 'analytics' | 'clock' | 'monitor';
+
+/** One capability an activity drew on — a tool Ultron ran, a skill it applied, or
+ *  a data source it read. Surfaced in the Run details drawer as a collapsible row:
+ *  icon + name + description, expanding to reveal the query Ultron ran (when there
+ *  is one) and a plain-language summary of what it returned. `query` is omitted for
+ *  capabilities with no invocation to show. */
 export interface UsageEntry {
   name: string;
   description: string;
+  icon: UsageIconKey;
   query?: string;
   summary: string;
 }
 
-/** The tools, skills, and data sources an activity drew on — surfaced under each
- *  activity on demand. Keyed by the activity's icon (its kind) so every activity
- *  carries a plausible, relevant set without per-milestone authoring. */
-export interface ActivityUsage { tools: UsageEntry[]; skills: UsageEntry[]; data: UsageEntry[]; }
+/** The capabilities an activity drew on, as one flat list. A single scannable set
+ *  reads more easily than a tools/skills/data split, so the three kinds are merged
+ *  into one. Keyed by the activity's icon (its kind) so every activity carries a
+ *  plausible, relevant set without per-milestone authoring. */
+export type ActivityUsage = UsageEntry[];
 
-/* Shared entry library — defined once and referenced across icons so a tool that
-   recurs (e.g. the Schedule API) carries identical detail everywhere and dedupes
-   cleanly when several activities are aggregated into one group toolkit. */
-const TOOL: Record<string, UsageEntry> = {
-  messaging:        { name: 'Messaging',         description: 'Sent the outreach to matched workers',     query: 'message.send(template="shift_offer", to=matched)', summary: 'Delivered the personalized offer to each matched worker with the role, time, location, and rate filled in.' },
-  push:             { name: 'Push notifications', description: 'Pinged workers on their devices',          query: 'notify.push(audience="matched", priority="high")', summary: 'Sent a high-priority push so the offer surfaced immediately on every matched worker’s device.' },
-  scheduleApi:      { name: 'Schedule API',      description: 'Read and wrote shift assignments',         query: 'schedule.query(shift=target) · schedule.assign(worker)', summary: 'Pulled the affected shift, checked its coverage, and wrote the assignment back once a worker confirmed.' },
-  timeClock:        { name: 'Time clock',        description: 'Checked punches against the schedule',     query: 'timeclock.punches(shift=target, window="±15m")', summary: 'Compared expected vs. actual punches around the shift window to confirm the attendance gap.' },
-  payEngine:        { name: 'Pay engine',        description: 'Modeled rate and budget impact',           query: 'pay.model(shift=target, scenario="incentive")', summary: 'Modeled the cost of the fill against budget headroom and flagged whether an incentive was warranted.' },
-  analyticsEngine:  { name: 'Analytics engine',  description: 'Ran the forecasting + scenario models',    query: 'analytics.forecast(metric="coverage", window="90d")', summary: 'Forecast coverage risk from 90 days of history and ran the staffing scenarios behind the recommendation.' },
-  policyEngine:     { name: 'Policy engine',     description: 'Validated against active policies',        query: 'policy.validate(subject=target, policies="active")', summary: 'Evaluated the action against active policies — overtime, rest windows, and licensing — and reported any violations.' },
-};
-const SKILL: Record<string, UsageEntry> = {
-  outreachDrafting:   { name: 'Outreach drafting',   description: 'Wrote the worker-facing message',  summary: 'Composed a clear, personalized message tuned to the shift and the recipient.' },
-  recipientTargeting: { name: 'Recipient targeting', description: 'Chose who to contact',             summary: 'Selected the right audience by qualification, availability, and proximity to the need.' },
-  shiftMonitoring:    { name: 'Shift monitoring',    description: 'Watched the shift for risk',       summary: 'Tracked the shift’s coverage and attendance signals to catch the issue as it surfaced.' },
-  shiftAssignment:    { name: 'Shift assignment',    description: 'Placed a worker on the shift',     summary: 'Assigned the confirmed worker and updated the schedule of record.' },
-  rateOptimization:   { name: 'Rate optimization',   description: 'Tuned the pay for the fill',       summary: 'Balanced fill likelihood against budget to land on the right rate.' },
-  demandForecasting:  { name: 'Demand forecasting',  description: 'Projected upcoming coverage need', summary: 'Projected staffing demand from historical patterns to anticipate the gap.' },
-  scenarioModeling:   { name: 'Scenario modeling',   description: 'Compared courses of action',       summary: 'Weighed alternative responses and their outcomes before recommending one.' },
-  candidateRanking:   { name: 'Candidate ranking',   description: 'Ordered the qualified pool',       summary: 'Ranked qualified workers by fit so the strongest options surfaced first.' },
-  riskAssessment:     { name: 'Risk assessment',     description: 'Judged severity and exposure',     summary: 'Assessed how serious the issue was and what was exposed if left unaddressed.' },
-};
-const DATA: Record<string, UsageEntry> = {
-  workerContacts:   { name: 'Worker contacts',   description: 'Phone and notification channels', summary: 'Used current contact and channel preferences to reach matched workers.' },
-  shiftDetails:     { name: 'Shift details',     description: 'Role, time, location, rate',      summary: 'Pulled the shift’s particulars to populate the offer and the assignment.' },
-  shiftRecords:     { name: 'Shift records',     description: 'The schedule of record',          summary: 'Read the canonical shift records to confirm coverage and write changes.' },
-  punchHistory:     { name: 'Punch history',     description: 'Clock-in / clock-out log',        summary: 'Reviewed the punch log to verify attendance against the schedule.' },
-  workerProfiles:   { name: 'Worker profiles',   description: 'Skills, credentials, availability', summary: 'Drew on worker profiles to judge qualification and availability.' },
-  payRates:         { name: 'Pay rates',         description: 'Current and historical rates',    summary: 'Referenced pay rates to model the cost of the fill.' },
-  budgetHeadroom:   { name: 'Budget headroom',   description: 'Remaining labor budget',          summary: 'Checked remaining budget to bound any incentive.' },
-  historicalFills:  { name: 'Historical fills',  description: 'Past last-minute fills',          summary: 'Compared against past fills to calibrate the forecast.' },
-  staffingLevels:   { name: 'Staffing levels',   description: 'Coverage vs. minimums',           summary: 'Measured current staffing against minimums to size the risk.' },
-  availability:     { name: 'Availability',      description: 'Who can work when',               summary: 'Used availability windows to find workers who could take the shift.' },
-  policyRules:      { name: 'Policy rules',      description: 'Active scheduling policies',      summary: 'Evaluated the active policy rules that govern the action.' },
-  staffingMinimums: { name: 'Staffing minimums', description: 'Required coverage floors',        summary: 'Checked required minimums to confirm the shift can’t go uncovered.' },
+/* Shared entry library — defined once and referenced across icons so a capability
+   that recurs (e.g. the Schedule API) carries identical detail everywhere and
+   dedupes cleanly when several activities are aggregated into one group toolkit. */
+const ENTRY: Record<string, UsageEntry> = {
+  replacementMatching: { icon: 'search',    name: 'Replacement matching',    description: 'Ranked qualified workers by skill, location, and availability', query: 'match.rank(role=target, by=["skill","location","availability"])', summary: 'Ranked the qualified pool so the strongest replacements surfaced first.' },
+  staffMessaging:      { icon: 'message',   name: 'Staff messaging',         description: 'Sent the shift offer to matched workers',                       query: 'message.send(template="shift_offer", to=matched)',                summary: 'Delivered the personalized offer to each matched worker with role, time, location, and rate filled in.' },
+  policyCompliance:    { icon: 'policy',    name: 'Policy compliance check', description: 'Validated candidates against active policies',                  query: 'policy.validate(subject=target, policies="active")',              summary: 'Checked overtime, rest windows, and licensing against active policies and reported any violations.' },
+  credentialCheck:     { icon: 'shield',    name: 'Credential verification', description: 'Checked license and ICU certification',                         query: 'credentials.verify(worker, ["license","icu_cert"])',              summary: 'Confirmed each candidate held a valid license and the certifications the shift requires.' },
+  scheduleWrite:       { icon: 'schedule',  name: 'Schedule API',            description: 'Read and wrote shift assignments',                              query: 'schedule.query(shift=target) · schedule.assign(worker)',          summary: 'Pulled the affected shift, checked its coverage, and wrote the assignment back once a worker confirmed.' },
+  incentiveAnalysis:   { icon: 'analytics', name: 'Incentive analysis',      description: 'Compared to past last-minute fills',                            query: 'compare_fills(site=target, window="last_minute")',                summary: 'Recent last-minute fills at the site closed without a bonus — no incentive recommended for this shift.' },
+  attendanceCheck:     { icon: 'clock',     name: 'Time clock',              description: 'Checked punches against the schedule',                          query: 'timeclock.punches(shift=target, window="±15m")',                  summary: 'Compared expected vs. actual punches around the shift window to confirm the attendance gap.' },
+  shiftMonitoring:     { icon: 'monitor',   name: 'Shift monitoring',        description: 'Watched the shift for coverage risk',                                                                                                     summary: 'Tracked the shift’s coverage and attendance signals to catch the issue as it surfaced.' },
 };
 
 const USAGE_BY_ICON: Record<WorkingIcon, ActivityUsage> = {
-  send:  { tools: [TOOL.messaging, TOOL.push],  skills: [SKILL.outreachDrafting, SKILL.recipientTargeting], data: [DATA.workerContacts, DATA.shiftDetails] },
-  clock: { tools: [TOOL.scheduleApi, TOOL.timeClock], skills: [SKILL.shiftMonitoring],                       data: [DATA.shiftRecords, DATA.punchHistory] },
-  done:  { tools: [TOOL.scheduleApi],           skills: [SKILL.shiftAssignment],                            data: [DATA.shiftRecords, DATA.workerProfiles] },
-  rate:  { tools: [TOOL.payEngine],             skills: [SKILL.rateOptimization],                           data: [DATA.payRates, DATA.budgetHeadroom] },
-  chart: { tools: [TOOL.analyticsEngine],       skills: [SKILL.demandForecasting, SKILL.scenarioModeling],  data: [DATA.historicalFills, DATA.staffingLevels] },
-  edit:  { tools: [TOOL.scheduleApi],           skills: [SKILL.candidateRanking],                           data: [DATA.workerProfiles, DATA.availability] },
-  alert: { tools: [TOOL.policyEngine],          skills: [SKILL.riskAssessment],                             data: [DATA.policyRules, DATA.staffingMinimums] },
+  send:  [ENTRY.replacementMatching, ENTRY.staffMessaging],
+  clock: [ENTRY.policyCompliance, ENTRY.credentialCheck],
+  done:  [ENTRY.scheduleWrite, ENTRY.incentiveAnalysis],
+  rate:  [ENTRY.incentiveAnalysis, ENTRY.policyCompliance],
+  chart: [ENTRY.incentiveAnalysis, ENTRY.shiftMonitoring],
+  edit:  [ENTRY.replacementMatching, ENTRY.scheduleWrite],
+  alert: [ENTRY.policyCompliance, ENTRY.shiftMonitoring],
 };
 
-/** The tools / skills / data an activity used, derived from its icon (kind). */
+/** The capabilities an activity used, derived from its icon (kind). */
 export const activityUsage = (icon: WorkingIcon): ActivityUsage => USAGE_BY_ICON[icon] ?? USAGE_BY_ICON.clock;
 
-/** The combined, deduped usage across several activities — the full set of tools,
- *  skills, and data that applied to ALL activities in a group. Surfaced once,
- *  under the group's last activity, so it reads as the group's whole toolkit
- *  rather than a single step's. Deduped by name; order follows first appearance. */
+/** The combined, deduped capabilities across several activities — the full set
+ *  that applied to ALL activities in a group. Surfaced once, under the group's
+ *  last activity, so it reads as the group's whole toolkit rather than a single
+ *  step's. Deduped by name; order follows first appearance. */
 export const aggregateUsage = (icons: WorkingIcon[]): ActivityUsage => {
-  const merge = (pick: (u: ActivityUsage) => UsageEntry[]) => {
-    const seen = new Set<string>();
-    const out: UsageEntry[] = [];
-    for (const i of icons) for (const e of pick(activityUsage(i))) {
-      if (!seen.has(e.name)) { seen.add(e.name); out.push(e); }
-    }
-    return out;
-  };
-  return {
-    tools: merge(u => u.tools),
-    skills: merge(u => u.skills),
-    data: merge(u => u.data),
-  };
+  const seen = new Set<string>();
+  const out: UsageEntry[] = [];
+  for (const i of icons) for (const e of activityUsage(i)) {
+    if (!seen.has(e.name)) { seen.add(e.name); out.push(e); }
+  }
+  return out;
 };
 
 // ── Live landing — incoming signal stream ──────────────────────────────────

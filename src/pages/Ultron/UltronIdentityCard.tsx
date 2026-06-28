@@ -19,35 +19,34 @@ const STATUS_MESSAGES = [
 
 const STATUS_INTERVAL_MS = 2800;
 
-/** `hideActivity` drops the cycling "what Ultron is doing" status line — used on
- *  the Live landing, where that presence is already shown by the page itself. */
-export function UltronIdentityCard({ hideActivity }: { hideActivity?: boolean }) {
+/** Identity row for the Ultron secondary nav: the mark plus the cycling "what
+ *  Ultron is doing" status line. The status always shows and the mark is a fixed
+ *  size, so the card keeps the same height whether or not the Live view is the
+ *  selected page (no jump on navigation). */
+export function UltronIdentityCard() {
   const [i, setI] = useState(0);
 
   useEffect(() => {
-    if (hideActivity) return;
     const t = setInterval(() => setI(x => (x + 1) % STATUS_MESSAGES.length), STATUS_INTERVAL_MS);
     return () => clearInterval(t);
-  }, [hideActivity]);
+  }, []);
 
   return (
     <Card>
       <Content>
-        {/* On the Live landing (activity line hidden) the card collapses to a
-            compact identity row, so the mark shrinks to keep the header short. */}
-        <AgentMark mark="circle" size={hideActivity ? 36 : 48} tone="auto" state="active" aria-label="Ultron" />
+        {/* Fixed mark size in every state so the card's height never changes when
+            the Live view becomes (or stops being) the selected page. */}
+        <AgentMark mark="circle" size={40} tone="auto" state="active" aria-label="Ultron" />
         <TextGroup>
           <Name>Ultron</Name>
-          {!hideActivity && (
-            <Status role="status" aria-live="polite">
-              {/* Text + dots share one keyed line so they slide up + fade in
-                  together on each swap; the dots keep their own blink inside. */}
-              <StatusLine key={i}>
-                <StatusText>{STATUS_MESSAGES[i]}</StatusText>
-                <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>
-              </StatusLine>
-            </Status>
-          )}
+          <Status role="status" aria-live="polite">
+            {/* Text + dots share one keyed line so they slide up + fade in
+                together on each swap; the dots keep their own blink inside. */}
+            <StatusLine key={i}>
+              <StatusText>{STATUS_MESSAGES[i]}</StatusText>
+              <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>
+            </StatusLine>
+          </Status>
         </TextGroup>
       </Content>
     </Card>
