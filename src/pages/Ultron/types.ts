@@ -26,6 +26,10 @@ export type ThreadSeverity = 'high' | 'medium' | 'low' | 'none';
 export interface ChatMessage {
   role: 'operator' | 'ultron';
   text: string;
+  /** Special-cased Ultron replies that render as a card rather than prose. Today:
+   *  `workflow_saved` — a "Workflow saved" confirmation with a link to the saved
+   *  workflow, the reply to the operator saving the resolved play. */
+  kind?: 'workflow_saved';
 }
 
 /** One step in the case timeline (detected → assessment → recommendation → …). */

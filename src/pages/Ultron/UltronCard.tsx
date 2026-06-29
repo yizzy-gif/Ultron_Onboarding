@@ -15,7 +15,7 @@ import type { ChatMessage, ThreadItem } from './types';
 import {
   THREAD_SUBJECTS, threadAvatarUrl, avatarUrl, THREAD_PROMPTS, threadDisplayTitle, threadMeta,
   THREAD_FOLLOWUPS, THREAD_RECORDS, activityForThread, analyzingSteps,
-  WORKING_ACTIVITIES, THREAD_TASKS, casePlan, THREAD_FLAGS, actionAck,
+  WORKING_ACTIVITIES, THREAD_TASKS, casePlan, THREAD_FLAGS, actionAck, RESOLVE_OUTCOMES,
 } from './fixtures';
 import type { ActivityMilestone, WorkingMilestone, PlanTask, AnalyzingStep, EventFlag } from './fixtures';
 import { RecordCard } from './RecordCard';
@@ -231,12 +231,12 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
                 <Button
                   variant="secondary" size="sm"
                   leadingArtwork={<CheckIcon size={14} />}
-                  trailingArtwork={<LinkExternal01Icon size={14} />}
-                  onClick={() => onSaveWorkflow(thread)}
                 >
                   Saved
                 </Button>
               ) : (
+                /* One-shot: posts "Save as workflow" into the thread (operator turn
+                   + Ultron ack), then settles to Saved. */
                 <Button
                   variant="secondary" size="sm"
                   leadingArtwork={<Save01Icon size={14} />}
@@ -264,10 +264,17 @@ interface UltronActionCardProps {
   onAction: (threadId: string, label: string) => void;
   onRefinement: (label: string) => void;
   onSaveWorkflow: (thread: ThreadItem) => void;
+  /** Whether this thread's play has already been saved as a workflow — derived from
+   *  the store (its chat carries a `workflow_saved` reply), so the saved state
+   *  persists across remounts (navigating away and back). */
+  saved?: boolean;
 }
 
-export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow }: UltronActionCardProps) {
-  const [savedWorkflow, setSavedWorkflow] = useState(false);
+export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow, saved = false }: UltronActionCardProps) {
+  const [savedLocal, setSavedLocal] = useState(false);
+  // Saved if the store already recorded it OR the operator just clicked here.
+  const savedWorkflow = saved || savedLocal;
+  const setSavedWorkflow = setSavedLocal;
   const { actionable, onFollowUp, prompt, records, primaryLabel, purple } = deriveCase(thread, stage);
 
   // Cases with a task breakdown render their plan as discrete step cards (the
@@ -293,6 +300,73 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
   // avatar rides the card's top-right corner instead of a full record card.
   const person = actionable && !(tasks && tasks.length > 0) && records.length > 0 ? records[0] : undefined;
 
+  // Pure save-offer (resolved / workflow-ready rows — not a live decision). Reads as
+  // a plain-text turn (no bordered card): a short, sharp recap of how the event
+  // resolved, then — on the last line — the offer to save the play as a workflow,
+  // with the Save CTA beneath. Once saved, the Save CTA gives way to the operator's
+  // "Save as workflow" + "Workflow saved" chat bubbles, so the turn reads as a
+  // conversation.
+  if (offerWorkflow && !actionable) {
+    const resolution = RESOLVE_OUTCOMES[thread.id];
+    return (
+      <OfferTurn>
+        {resolution && <OfferLine>{resolution}</OfferLine>}
+        <OfferLine>Want me to save this as a reusable workflow?</OfferLine>
+        {!savedWorkflow && (
+          <Actions>
+            {/* Low-emphasis peek at the play before committing it (demo affordance —
+                no standalone workflow preview surface yet). */}
+            <Pill variant="tertiary" size="sm" onClick={() => {}}>
+              Preview workflow
+            </Pill>
+            <Pill
+              variant="primary" size="sm"
+              leadingArtwork={<Save01Icon size={14} />}
+              onClick={() => { onSaveWorkflow(thread); setSavedWorkflow(true); }}
+            >
+              Save as workflow
+            </Pill>
+          </Actions>
+        )}
+      </OfferTurn>
+    );
+  }
+
+  // Follow-up decisions (a second ask after the first action ran) read as a plain
+  // -text turn with pill choices — only the FIRST prompt gets the bordered decision
+  // card. Keeps the thread feeling like a conversation: card to open, then plain
+  // back-and-forth.
+  if (actionable && onFollowUp) {
+    return (
+      <OfferTurn>
+        <OfferLine>{prompt}</OfferLine>
+        <Actions>
+          {primaryLabel && (
+            <Pill variant="primary" size="sm" onClick={() => trigger(AFFIRMATIVE_LABEL)}>
+              {AFFIRMATIVE_LABEL}
+            </Pill>
+          )}
+          <Pill variant="tertiary" size="sm" onClick={() => onRefinement('No')}>
+            No
+          </Pill>
+          <OtherPill variant="tertiary" size="sm" onClick={() => onRefinement('Other')}>
+            Other
+          </OtherPill>
+          <SaveWorkflowPill
+            $trailing
+            variant="ghost" size="sm"
+            aria-pressed={savedWorkflow}
+            data-on={savedWorkflow || undefined}
+            leadingArtwork={savedWorkflow ? <CheckIcon size={14} /> : <Save01Icon size={14} />}
+            onClick={() => { if (!savedWorkflow) { onSaveWorkflow(thread); setSavedWorkflow(true); } }}
+          >
+            {savedWorkflow ? 'Saved' : 'Save as future workflow'}
+          </SaveWorkflowPill>
+        </Actions>
+      </OfferTurn>
+    );
+  }
+
   return (
     <ActionCard data-tone={toneFor(thread)}>
       {actionable && (
@@ -305,9 +379,6 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
           )}
         </ActionHeader>
       )}
-      {/* Workflow-ready / resolved rows aren't a decision — they just offer to
-          save the resolved play. Ask for it explicitly above the Save button. */}
-      {offerWorkflow && !actionable && <Prompt>Want me to save this as a reusable workflow?</Prompt>}
       {tasks && tasks.length > 0 ? (
         <PlanTaskList tasks={tasks} />
       ) : null}
@@ -337,20 +408,11 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
             aria-pressed={savedWorkflow}
             data-on={savedWorkflow || undefined}
             leadingArtwork={savedWorkflow ? <CheckIcon size={14} /> : <Save01Icon size={14} />}
-            onClick={() => setSavedWorkflow(on => { if (!on) onSaveWorkflow(thread); return !on; })}
+            /* One-shot: posts "Save as workflow" into the thread (operator turn +
+               Ultron ack), then settles to Saved — no un-send on re-click. */
+            onClick={() => { if (!savedWorkflow) { onSaveWorkflow(thread); setSavedWorkflow(true); } }}
           >
-            Save as future workflow
-          </SaveWorkflowPill>
-        )}
-        {offerWorkflow && !actionable && (
-          <SaveWorkflowPill
-            variant="ghost" size="sm"
-            aria-pressed={savedWorkflow}
-            data-on={savedWorkflow || undefined}
-            leadingArtwork={savedWorkflow ? <CheckIcon size={14} /> : <Save01Icon size={14} />}
-            onClick={() => setSavedWorkflow(on => { if (!on) onSaveWorkflow(thread); return !on; })}
-          >
-            {savedWorkflow ? 'Saved' : 'Save as workflow'}
+            {savedWorkflow ? 'Saved' : 'Save as future workflow'}
           </SaveWorkflowPill>
         )}
       </Actions>
@@ -762,9 +824,10 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
       <ActivityTrailCards
         milestones={g.milestones}
         typingIndex={gi === lastActsIdx && typingOn ? g.milestones.length - 1 : undefined}
-        /* Every group opens expanded by default so the operator sees the steps
-           without a click; the header still toggles it shut. */
-        collapsed={false}
+        /* The latest activity group stays open; once a newer activity group follows
+           (new work triggered), earlier ones auto-collapse to their "Thought for X"
+           summary — one-way, so the operator can still reopen them. */
+        collapsed={gi < lastActsIdx}
         workingIndex={markIndex}
         settled={settled}
         hideActions={hideActions}
@@ -805,11 +868,16 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
     ? (lastChat.role === 'ultron' || replying)
     : (!!lastUnit && lastUnit.kind === 'response' && !(actionCard && lastUnit.gi >= 0));
 
-  // Ultron's identity mark lives at the foot of the thread for the pre-reply
-  // states (reasoning, plan, work-in-flight) — it animates while Ultron runs work
-  // and rests idle otherwise. Once a response set trails the thread, that set
-  // carries the mark instead, so this one stands down.
-  const showFootMark = revealed.length > 0 && !analyzing && !trailingHasMark;
+  // While the latest activity group is actively running (analysis or work in
+  // flight), the mark lives on THAT group's header (the running "Thinking…/
+  // Bridging…" label carries the leading Lines mark) — so the foot mark stands
+  // down to avoid doubling. Mirrors renderActivity's `running` condition.
+  const latestGroupRunning = (analyzing || thread.status === 'in_progress') && lastActsIdx >= 0;
+  // Ultron's identity mark drops to the foot of the thread once work completes
+  // (resolved/monitoring) — the resting presence below the last output. Once a
+  // response set trails the thread, that set carries the mark instead, so this
+  // one stands down.
+  const showFootMark = revealed.length > 0 && !latestGroupRunning && !trailingHasMark;
   const footActive = replying || executing;
 
   // The decision / save-as-workflow surface sits directly under the LATEST activity
@@ -873,8 +941,10 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
               // — active while the case is still executing/monitoring. When this set
               // carries the trailing decision card, its mark stands down so the single
               // foot mark sits below the card (after the last Ultron output).
-              active={footActive && isThreadTail && !streamingGroup && !trailingCard}
-              showMark={isThreadTail && !streamingGroup && !trailingCard}
+              // While the latest group is still running, its header carries the
+              // mark — so the set's trailing mark stands down until work completes.
+              active={footActive && isThreadTail && !streamingGroup && !trailingCard && !latestGroupRunning}
+              showMark={isThreadTail && !streamingGroup && !trailingCard && !latestGroupRunning}
             />
             {trailingCard}
             {trailingCard && <SessionActions time={synthClock(workMilestones)} />}
@@ -888,7 +958,7 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
           a response set carrying its own. */}
       {showFootMark && (
         <ChatFootMark role={footActive ? 'status' : 'img'} aria-label={replying ? 'Ultron is replying' : footActive ? 'Ultron is working' : 'Ultron'}>
-          <AgentMark mark="circle" size={28} tone="auto" state={footActive ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
+          <AgentMark mark="magnetic2d" size={24} tone="auto" state={footActive ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
         </ChatFootMark>
       )}
       {/* Fallback: if there's no activity trail to anchor under, the card trails. */}
@@ -904,11 +974,14 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
 // reply and free-text chat replies — so a generated reply always arrives as one
 // coherent unit rather than scattered pieces (a global foot mark, feedback buried
 // in the activity group, a bare text bubble).
-function UltronResponse({ activity, text, feedbackTime, active = false, showMark = true }: {
+function UltronResponse({ activity, text, body, feedbackTime, active = false, showMark = true }: {
   /** Ultron activity group — the "Thought for X" trail (an <ActivityTrailCards>). */
   activity?: ReactNode;
   /** Text message — Ultron's prose reply. */
   text?: ReactNode;
+  /** Rendered response body in place of the (hidden) prose — used for structured
+   *  replies like the "Workflow saved" confirmation card. */
+  body?: ReactNode;
   /** Timestamp for the feedback row; omit to drop the action buttons. */
   feedbackTime?: string;
   /** Mark animates + shows typing dots while the reply is still composing. */
@@ -921,13 +994,15 @@ function UltronResponse({ activity, text, feedbackTime, active = false, showMark
     <ResponseSet>
       {activity}
       {/* Reply prose is no longer shown — the activity trail + action buttons carry
-          the response. The feedback group (thumbs up/down + rerun) trails the set. */}
+          the response. Structured replies pass an explicit `body` instead. The
+          feedback group (thumbs up/down + rerun) trails the set. */}
+      {body}
       {feedbackTime && <SessionActions time={feedbackTime} />}
       {/* Agent mark — trails the set so the response carries its own presence
           rather than borrowing a single thread-level foot mark. */}
       {showMark && (
         <ResponseMark role={active ? 'status' : 'img'} aria-label={active ? 'Ultron is working' : 'Ultron'}>
-          <AgentMark mark="circle" size={28} tone="auto" state={active ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
+          <AgentMark mark="magnetic2d" size={24} tone="auto" state={active ? 'active' : 'idle'} coreHalo={false} aria-hidden="true" />
         </ResponseMark>
       )}
     </ResponseSet>
@@ -1031,6 +1106,16 @@ export function UltronChatThread({ messages, replying = false }: { messages: Cha
               <OutboundText>{m.text}</OutboundText>
             </OutboundBubble>
           </OutboundRow>
+        ) : m.kind === 'workflow_saved' ? (
+          // Save-as-workflow confirmation: no "thinking" group — a plain "Workflow
+          // saved" line + a View-workflow pill, with the feedback row and trailing
+          // mark trailing the set like any other reply.
+          <UltronResponse
+            key={i}
+            body={<WorkflowSavedCard />}
+            feedbackTime={synthClock(chatReplyMilestones())}
+            showMark={!replying && i === lastUltronIdx}
+          />
         ) : (
           <UltronResponse
             key={i}
@@ -1047,6 +1132,41 @@ export function UltronChatThread({ messages, replying = false }: { messages: Cha
     </ChatList>
   );
 }
+
+/** Ultron's confirmation after the operator saves the resolved play — a plain-text
+ *  "Workflow saved" line (green check) over a pill that links to the saved workflow.
+ *  The link is a demo affordance (no standalone workflow surface yet). */
+function WorkflowSavedCard() {
+  return (
+    <SavedTurn>
+      <SavedHeader>
+        <span>Workflow saved</span>
+      </SavedHeader>
+      <Pill variant="tertiary" size="sm" trailingArtwork={<LinkExternal01Icon size={14} />} onClick={() => {}}>
+        View workflow
+      </Pill>
+    </SavedTurn>
+  );
+}
+
+/* The saved-workflow confirmation — plain inbound text + its View-workflow pill,
+   left-aligned (Ultron's voice), no bordered card. */
+const SavedTurn = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+`;
+
+const SavedHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-content-primary);
+`;
 
 // The answered prompt, collapsed to its question text. Once the operator responds,
 // the interactive card (plan steps + CTAs) gives way to just the question Ultron
@@ -1600,22 +1720,40 @@ const SaveWorkflowPill = styled(Button)<{ $trailing?: boolean }>`
   }
 `;
 
-/* The answered prompt's residual question text — left-aligned (Ultron's voice) as
-   an outlined pill, muted to read as resolved context rather than a live ask. Same
-   text size as the operator's outbound bubble, so the asked/answered pair matches. */
-const AskedQuestion = styled.p`
-  width: fit-content;
+/* The save-offer turn — Ultron's plain-text resolution recap + the save offer,
+   stacked left-aligned with its Save CTA, so it reads as a message turn rather than
+   a bordered decision card. */
+const OfferTurn = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+`;
+
+/* One plain prose line in the offer turn — Ultron's voice, matching the inbound
+   plan/asked-question text (no bubble chrome). */
+const OfferLine = styled.p`
+  margin: 0;
   max-width: 80%;
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-border-opaque);
-  border-radius: 16px;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-normal);
-  color: var(--color-content-secondary);
+  color: var(--color-content-primary);
+`;
+
+/* The answered prompt's residual question text — left-aligned (Ultron's voice) as
+   plain inbound prose, matching the plan/inbound text that follows (no bubble
+   chrome) so the resolved thread reads as a continuous transcript. */
+const AskedQuestion = styled.p`
+  max-width: 80%;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+  letter-spacing: var(--tracking-normal);
+  color: var(--color-content-primary);
 `;
 
 /* Outbound (sent) messages — right-aligned chat bubbles, stacked below the

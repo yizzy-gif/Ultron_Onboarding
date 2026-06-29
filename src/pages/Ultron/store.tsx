@@ -292,9 +292,30 @@ export function useUltronStore(): UltronStore {
     setReplyingIds(prev => prev.filter(id => id !== threadId));
   };
 
-  // Refinement and save-workflow are demo stubs with no surface yet — no-ops.
+  // Refinement is a demo stub with no surface yet — a no-op.
   const refine = (_label: string) => {};
-  const saveWorkflow = (_thread: ThreadItem) => {};
+  // Saving the play posts it into the thread as an operator message (so it reads
+  // as a turn in the conversation); Ultron then confirms with a "Workflow saved"
+  // card linking to the saved workflow (the `workflow_saved` reply kind), rather
+  // than a generic prose reply.
+  const saveWorkflow = (thread: ThreadItem) => {
+    const threadId = thread.id;
+    setSelectedId(threadId);
+    setChatByThread(prev => ({
+      ...prev,
+      [threadId]: [...(prev[threadId] ?? []), { role: 'operator', text: 'Save as workflow' }],
+    }));
+    setReplyingIds(prev => (prev.includes(threadId) ? prev : [...prev, threadId]));
+    const timer = window.setTimeout(() => {
+      setChatByThread(prev => ({
+        ...prev,
+        [threadId]: [...(prev[threadId] ?? []), { role: 'ultron', text: 'Workflow saved', kind: 'workflow_saved' }],
+      }));
+      setReplyingIds(prev => prev.filter(id => id !== threadId));
+      delete replyTimers.current[threadId];
+    }, REPLY_DELAY_MS);
+    replyTimers.current[threadId] = timer;
+  };
 
   return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, sendMessage, stopReply, refine, saveWorkflow };
 }

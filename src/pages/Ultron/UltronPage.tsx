@@ -307,6 +307,7 @@ export function UltronPage({
                         onAction={onAction}
                         onRefinement={onRefinement}
                         onSaveWorkflow={onSaveWorkflow}
+                        saved={(chatByThread[dockThread.id] ?? []).some(m => m.kind === 'workflow_saved')}
                       />
                     ) : undefined}
                   />

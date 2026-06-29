@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-export type AgentMarkKind = 'orbit' | 'circle' | 'lines' | 'magnetic' | 'pulse' | 'bands';
+export type AgentMarkKind = 'orbit' | 'orbit2d' | 'circle' | 'lines' | 'magnetic' | 'magnetic2d' | 'pulse' | 'bands';
 /** `auto` (default) follows the page theme: the light palette (dark cells, no
  *  glow) on light surfaces, the dark palette (glowing light cells) on dark
  *  ones. The explicit tones force a fixed palette regardless of theme. */
@@ -275,6 +275,56 @@ function drawOrbit(e: Ctx, T: number, P: Pal) {
   ctx.restore();
 }
 
+// Orbit 2D — the flat-on variant of the orbit mark: a single concentric ring seen
+// head-on, the cell circling in-plane (no globe tilt). Reads cleaner than the
+// tilted globe at tiny sizes and in dense rows. Ported from the "Agent marks for
+// UI" study. Palette-driven (P), so it honours light/dark + color overrides.
+function drawOrbit2d(e: Ctx, T: number, P: Pal) {
+  const { ctx, w: W, h: H } = e, cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.39;
+  const active = e.state !== 'idle';
+  const ringR = [R * 0.92];                          // single flat ring
+  const rings = ringR.length;
+  const perRing = 1;                                 // one head per ring
+  const cspd = active ? 0.9 : 0.3;
+  const NT = e.size >= 24 ? 56 : 36;
+  ctx.save();
+  ctx.globalCompositeOperation = P.glow ? 'lighter' : 'source-over';
+  for (let i = 0; i < rings; i++) {
+    const rad = ringR[i];
+    const dir = i % 2 ? 1 : -1;                       // adjacent rings spin opposite ways
+    const gapAng = 6.2832 / perRing;
+    const span = Math.min(5.6, gapAng * 0.92);
+    for (let j = 0; j < perRing; j++) {
+      const head = i * 2.0 + dir * T * cspd + j * gapAng;
+      const hx = cx + Math.cos(head) * rad, hy = cy + Math.sin(head) * rad;
+      // fading trail along the ring (source-over butt segments, quadratic falloff)
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = Math.max(1.2, R * 0.05);
+      let px = hx, py = hy;
+      for (let s = 1; s <= NT; s++) {
+        const f = s / NT, la = 0.62 * (1 - f) * (1 - f);
+        const a = head - dir * f * span;
+        const x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+        if (la > 0.004) { ctx.strokeStyle = 'rgba(' + P.dot + ',' + la + ')'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke(); }
+        px = x; py = y;
+      }
+      ctx.restore();
+      const r = Math.max(0.9, R * 0.062 * cellK(e.size));
+      if (P.glow) {
+        const bg = ctx.createRadialGradient(hx, hy, 0, hx, hy, r * 4.5);
+        bg.addColorStop(0, 'rgba(' + P.accent + ',0.3)'); bg.addColorStop(1, 'rgba(' + P.accent + ',0)');
+        ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(hx, hy, r * 4.5, 0, 6.2832); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(' + P.dot + ',1)';
+      ctx.beginPath(); ctx.arc(hx, hy, r, 0, 6.2832); ctx.fill();
+    }
+  }
+  drawCore(e, T, P);
+  ctx.restore();
+}
+
 function drawCircle(e: Ctx, T: number, P: Pal) {
   const { ctx, w, h, dpr } = e, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.39;
   const active = e.state !== 'idle';
@@ -490,13 +540,50 @@ function drawMagnetic(e: Ctx, T: number, P: Pal) {
   ctx.restore();
 }
 
+// Magnetic 2D — the flat-on variant of the magnetic mark: a single ring of cells
+// circling the core head-on, swelling as two roving field points sweep past (no
+// globe tilt, so no cells hide behind the sphere). Ported from the "Agent marks
+// for UI" study. Palette-driven (P).
+function drawMagnetic2d(e: Ctx, T: number, P: Pal) {
+  const { ctx, w: W, h: H } = e, cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.39;
+  const active = e.state !== 'idle';
+  const N = e.size >= 32 ? 8 : (e.size >= 20 ? 6 : 5);
+  const rad = R * 0.9;                               // one layer outside the core
+  const sp = active ? 1 : 0.4;
+  const rove = T * (active ? 0.3 : 0.12);            // the cells themselves rove around the core
+  // two magnetic field points sweeping around the ring at their own pace
+  const f1 = T * 1.0 * sp, f2 = -T * 0.7 * sp + 2.2;
+  const sig = 0.72;                                  // angular reach of the field
+  const angDist = (a: number, x: number) => { const d = (((a - x + Math.PI) % 6.2832) + 6.2832) % 6.2832 - Math.PI; return Math.abs(d); };
+  ctx.save();
+  ctx.globalCompositeOperation = P.glow ? 'lighter' : 'source-over';
+  for (let k = 0; k < N; k++) {
+    const a = k / N * 6.2832 + rove;
+    let inf = Math.exp(-(angDist(a, f1) ** 2) / (2 * sig * sig)) + Math.exp(-(angDist(a, f2) ** 2) / (2 * sig * sig));
+    inf = clamp(inf, 0, 1);
+    const ex = smooth01(inf);
+    const x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+    const r = Math.max(0.6, R * (0.05 + 0.07 * ex) * cellK(e.size));
+    const al = 0.38 + 0.62 * ex;
+    if (P.glow && ex > 0.25) {
+      const bg = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
+      bg.addColorStop(0, 'rgba(' + P.accent + ',' + (0.24 * ex) + ')'); bg.addColorStop(1, 'rgba(' + P.accent + ',0)');
+      ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(x, y, r * 4, 0, 6.2832); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(' + P.dot + ',' + al + ')';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+  }
+  drawCore(e, T, P);
+  ctx.restore();
+}
+
 // Pulse — waiting / ready: only the breathing core, no cells or trails.
 function drawPulse(e: Ctx, T: number, P: Pal) {
   drawCore(e, T, P);
 }
 
 const DRAW: Record<AgentMarkKind, (e: Ctx, T: number, P: Pal) => void> = {
-  orbit: drawOrbit, circle: drawCircle, lines: drawLines, magnetic: drawMagnetic, pulse: drawPulse, bands: drawCircle,
+  orbit: drawOrbit, orbit2d: drawOrbit2d, circle: drawCircle, lines: drawLines, magnetic: drawMagnetic, magnetic2d: drawMagnetic2d, pulse: drawPulse, bands: drawCircle,
 };
 
 export function AgentMark({

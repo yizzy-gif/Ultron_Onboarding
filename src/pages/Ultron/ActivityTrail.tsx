@@ -195,6 +195,13 @@ function ActivitySession({ milestones, typingIndex, workingIndex, settled, hideA
   return (
     <SessionShell>
       <SessionHeader type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        {/* While the group is actively running, a small Lines mark leads the live
+            status — Ultron's working presence beside the "Thinking…/Bridging…" verb. */}
+        {running && (
+          <RunningMark aria-hidden="true">
+            <AgentMark mark="lines" size={16} tone="auto" state="active" coreHalo={false} />
+          </RunningMark>
+        )}
         <SummaryText $running={running}>{running ? <RunningLabel /> : summary}</SummaryText>
         <Chevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></Chevron>
       </SessionHeader>
@@ -670,6 +677,15 @@ const SessionHeader = styled.button`
     box-shadow: 0 0 0 2px var(--color-border-focus);
     border-radius: var(--radius-sm);
   }
+`;
+
+/* Leading slot for the live Lines mark in a running session header — trims the
+   header's gap so the mark sits tight to the status verb as one pair. */
+const RunningMark = styled.span`
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: calc(-1 * var(--space-2));
 `;
 
 /* The live running label pulses (a soft opacity blink) so it reads as active,
@@ -1170,7 +1186,11 @@ const StatusMark = styled.svg<{ $loading?: boolean }>`
     stroke-dashoffset: ${p => (p.$loading ? RING_C * 0.7 : 0)};
     stroke: ${p => (p.$loading ? 'var(--color-content-tertiary)' : 'var(--color-success-content)')};
     animation: ${spin} 0.75s linear infinite;
-    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
+    /* Arc closes + warms on one eased settle curve (easeOutCubic) over the same
+       duration, so the ring glides shut rather than braking abruptly. */
+    transition:
+      stroke-dashoffset 0.55s cubic-bezier(0.33, 1, 0.68, 1),
+      stroke 0.55s cubic-bezier(0.33, 1, 0.68, 1);
   }
 
   .check {
@@ -1180,9 +1200,20 @@ const StatusMark = styled.svg<{ $loading?: boolean }>`
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-dasharray: 15;
-    /* undrawn while loading; draws in just after the ring closes */
+    /* undrawn + slightly shrunk + transparent while loading; on done it draws on
+       while fading + settling to full scale, so the check eases in rather than
+       popping. transform-box keeps the scale centred on the glyph itself. */
     stroke-dashoffset: ${p => (p.$loading ? 15 : 0)};
-    transition: stroke-dashoffset 0.3s ease 0.25s;
+    opacity: ${p => (p.$loading ? 0 : 1)};
+    transform: ${p => (p.$loading ? 'scale(0.7)' : 'scale(1)')};
+    transform-box: fill-box;
+    transform-origin: center;
+    /* Starts ~0.42s in — as the ring finishes closing — so the two motions hand
+       off cleanly instead of overlapping. */
+    transition:
+      stroke-dashoffset 0.4s cubic-bezier(0.33, 1, 0.68, 1) 0.42s,
+      opacity 0.26s ease 0.42s,
+      transform 0.42s cubic-bezier(0.34, 1.4, 0.64, 1) 0.42s;
   }
 
   @media (prefers-reduced-motion: reduce) {

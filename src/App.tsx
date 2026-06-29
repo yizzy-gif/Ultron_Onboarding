@@ -200,7 +200,7 @@ export default function App() {
               // mark (orange while unresolved, muted once settled).
               icon: childSection === 'new'
                 ? (t.status === 'analyzing'
-                    ? <AgentMark mark="orbit" size={32} tone="auto" state="active" aria-label="Analyzing" />
+                    ? <AgentMark mark="orbit2d" size={32} tone="auto" state="active" aria-label="Analyzing" />
                     : <AgentMark mark="pulse" size={32} tone="auto" state="active" color="var(--color-orange-content-tertiary)" aria-label="Needs attention" />)
                 : childSection === 'working'
                 ? <AgentMark mark="lines" size={32} tone="auto" state={t.status === 'in_progress' ? 'active' : 'idle'} aria-label="Working" />
