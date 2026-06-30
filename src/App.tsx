@@ -293,6 +293,9 @@ export default function App() {
           onAction={ultron.commit}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
+          pendingWorkflowIds={ultron.pendingWorkflowIds}
+          onToggleSaveWorkflow={ultron.toggleWorkflowSave}
+          savedWorkflowIds={ultron.savedWorkflowIds}
           onSend={ultron.sendMessage}
           replyingIds={ultron.replyingIds}
           onStop={ultron.stopReply}

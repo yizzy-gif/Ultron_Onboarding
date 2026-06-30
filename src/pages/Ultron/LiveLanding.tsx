@@ -446,8 +446,8 @@ const Feed = styled.div`
   flex-direction: column;
   overflow: hidden;
   text-align: left;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 80%, transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 12%, #000 62%, transparent 100%);
   /* Rises in just after the hero (slight stagger) so the orbit leads and the
      list follows on the landing's entrance. */
   animation: ${landingIn} var(--duration-slow, 420ms) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) both;

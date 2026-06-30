@@ -5,17 +5,17 @@
    list / labeled check list).
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, useRef, useLayoutEffect, type ReactNode, type ComponentType } from 'react';
+import { useState, useEffect, useRef, type ReactNode, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import styled, { keyframes } from 'styled-components';
+import styled, { keyframes, css } from 'styled-components';
 import {
   Avatar, Button, ChevronRightIcon, XCloseIcon,
   AIMessageActions, ThumbsUpIcon, ThumbsDownIcon, RefreshCw04Icon,
   SearchMdIcon, MessageCircle02Icon, TriangleUpIcon, CheckVerified01Icon,
-  Edit01Icon, LineChartUp01Icon, ClockIcon, EyeIcon,
+  Edit01Icon, LineChartUp01Icon, ClockIcon, EyeIcon, CheckIcon, Bell01Icon,
 } from 'alloy-design-system';
 import type { ActivityMilestone, RecordRef, ActivityUsage, UsageEntry, UsageIconKey } from './fixtures';
-import { avatarUrl, aggregateUsage } from './fixtures';
+import { avatarUrl } from './fixtures';
 
 /** Maps a usage entry's icon key to its Alloy glyph — each capability fronts its
  *  Run-details row with an icon that reads its kind at a glance. */
@@ -29,15 +29,9 @@ const USAGE_ICONS: Record<UsageIconKey, UsageIcon> = {
   analytics: LineChartUp01Icon,
   clock: ClockIcon,
   monitor: EyeIcon,
+  bell: Bell01Icon,
 };
-import { AgentMark } from './AgentMark';
 import { RecordCard } from './RecordCard';
-
-/* The live agent mark's footprint (36px) and the gap it leaves below the last
-   step when it settles into its resting magnetic state. Used both to position
-   the floating mark (computed transforms) and to reserve room for it. */
-const MARK_PX = 36;
-const REST_GAP_PX = 8; // var(--space-2)
 
 export function ActivityTrail({ milestones }: { milestones: ActivityMilestone[] }) {
   return (
@@ -61,12 +55,10 @@ export function ActivityTrail({ milestones }: { milestones: ActivityMilestone[] 
  *  below the last step and morphs it into the resting magnetic mark once the work
  *  is done; `collapsed` starts the session shut (used for reasoning the operator
  *  has already acted past — the active session streams open). */
-export function ActivityTrailCards({ milestones, typingIndex, collapsed, workingIndex, settled, hideActions, running }: {
+export function ActivityTrailCards({ milestones, typingIndex, collapsed, hideActions, running, animateIn }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   collapsed?: boolean;
-  workingIndex?: number;
-  settled?: boolean;
   /** Suppress the group's own feedback row — used when the group sits inside an
    *  <UltronResponse> set, which lifts the feedback below the reply text instead. */
   hideActions?: boolean;
@@ -74,110 +66,39 @@ export function ActivityTrailCards({ milestones, typingIndex, collapsed, working
    *  live status (Thinking → Bridging → … → Crossing) instead of the settled
    *  "Thought for X" recap. */
   running?: boolean;
+  /** Whether to play the card's slide-in entrance. False when the group merely folds
+   *  into a response set after it already streamed in standalone, so the already-shown
+   *  trail doesn't replay its entrance and blink. Defaults to true. */
+  animateIn?: boolean;
 }) {
   return (
     <ActivitySession
       milestones={milestones}
       typingIndex={typingIndex}
-      workingIndex={workingIndex}
-      settled={settled}
       hideActions={hideActions}
       running={running}
       defaultCollapsed={collapsed}
+      animateIn={animateIn}
     />
   );
 }
 
-function ActivitySession({ milestones, typingIndex, workingIndex, settled, hideActions, running, defaultCollapsed }: {
+function ActivitySession({ milestones, typingIndex, hideActions, running, defaultCollapsed, animateIn = true }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
-  workingIndex?: number;
-  settled?: boolean;
   hideActions?: boolean;
   running?: boolean;
   defaultCollapsed?: boolean;
+  animateIn?: boolean;
 }) {
   const [open, setOpen] = useState(!defaultCollapsed);
   // Once the operator acts past a session it settles shut — one-way, so they can
   // still reopen it; the active session stays open as it streams.
   useEffect(() => { if (defaultCollapsed) setOpen(false); }, [defaultCollapsed]);
 
-  // ── Live agent mark ──
-  // A single persistent mark rides the icon column rather than swapping between
-  // per-step icon slots: it parks over the active step's icon and, because its
-  // position animates, glides down to the next step as each one completes. When
-  // the work settles it leaves the icons behind, dropping just below the last
-  // step where it morphs from the working "lines" mark into a resting "magnetic"
-  // field. We measure the live geometry (icons + last row) so the glide lands
-  // exactly on the icon centers regardless of how tall each step renders.
-  const showMark = open && workingIndex != null;
-  const activeRow = workingIndex ?? -1;
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const iconRefs = useRef<(HTMLElement | null)[]>([]);
-  const rowRefs = useRef<(HTMLElement | null)[]>([]);
-  // The feedback row, when shown — the settled mark rests just below it (rather
-  // than below the last step, which the feedback row now sits under).
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const [markPos, setMarkPos] = useState<{ x: number; y: number; ready: boolean }>({ x: 0, y: 0, ready: false });
-
-  // Keep the mark mounted briefly after it should hide (the work caught up and
-  // the resting magnetic mark takes over below) so it fades out in place rather
-  // than vanishing — the two cross-fade. It holds its last measured position
-  // while fading since the measure effect bails when showMark is false.
-  const [linger, setLinger] = useState(false);
-  useEffect(() => {
-    if (showMark) { setLinger(true); return; }
-    if (!linger) return;
-    const t = setTimeout(() => setLinger(false), 280);
-    return () => clearTimeout(t);
-  }, [showMark]); // eslint-disable-line react-hooks/exhaustive-deps
-  const renderMark = showMark || linger;
-
-  // The mark's first appearance should just fade in at its spot — not glide in
-  // from the corner (its pre-measure 0,0 origin). So the gliding transform
-  // transition stays OFF for the initial placement and switches ON one frame
-  // after the mark is first positioned, leaving step-to-step moves animated.
-  const [glide, setGlide] = useState(false);
-  useEffect(() => {
-    if (!renderMark) { setGlide(false); return; }
-    if (!markPos.ready) return;
-    const r = requestAnimationFrame(() => setGlide(true));
-    return () => cancelAnimationFrame(r);
-  }, [renderMark, markPos.ready]);
-
-  useLayoutEffect(() => {
-    const body = bodyRef.current;
-    if (!body || !showMark) return;
-    const measure = () => {
-      const bRect = body.getBoundingClientRect();
-      const lastIcon = iconRefs.current[milestones.length - 1] ?? iconRefs.current.find(Boolean) ?? null;
-      const refIcon = settled ? lastIcon : iconRefs.current[activeRow];
-      const ic = refIcon?.getBoundingClientRect();
-      // Horizontal: center on the icon column (the same x whether riding a step
-      // or resting below the trail).
-      const x = ic ? ic.left - bRect.left + ic.width / 2 : MARK_PX / 2;
-      // Vertical: the active icon's center, or — when settled — a small gap below
-      // the last step's full height.
-      let y: number;
-      if (settled) {
-        // Rest just below the trail's full content — beneath the feedback row when
-        // it's present, else the last step — so the mark glides down to the foot in
-        // one continuous move rather than landing on top of the feedback row.
-        const anchor = actionsRef.current ?? rowRefs.current[milestones.length - 1];
-        const ar = anchor?.getBoundingClientRect();
-        y = (ar ? ar.bottom - bRect.top : 0) + REST_GAP_PX + MARK_PX / 2;
-      } else {
-        y = ic ? ic.top - bRect.top + ic.height / 2 : 0;
-      }
-      setMarkPos({ x, y, ready: true });
-    };
-    measure();
-    // Re-measure when a step expands/collapses or the card reflows, so the glide
-    // (and the resting position) track the live layout.
-    const ro = new ResizeObserver(measure);
-    ro.observe(body);
-    return () => ro.disconnect();
-  }, [showMark, settled, activeRow, milestones.length, open]);
+  // The group's live working indicator no longer rides the trail — Ultron's single
+  // presence mark lives in the fixed slot above the composer (see UltronActivityCards'
+  // footSlot), morphing Lines → Magnetic as the work goes from running to settled.
 
   // The session header is identical whether open or shut: a meta summary of the
   // activities — how many, and how long Ultron "thought" — plus a trailing
@@ -193,23 +114,16 @@ function ActivitySession({ milestones, typingIndex, workingIndex, settled, hideA
   // settles to the completed "Thought for X" recap.
 
   return (
-    <SessionShell>
+    <SessionShell $animate={animateIn}>
       <SessionHeader type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}>
-        {/* While the group is actively running, a small Lines mark leads the live
-            status — Ultron's working presence beside the "Thinking…/Bridging…" verb. */}
-        {running && (
-          <RunningMark aria-hidden="true">
-            <AgentMark mark="lines" size={16} tone="auto" state="active" coreHalo={false} />
-          </RunningMark>
-        )}
         <SummaryText $running={running}>{running ? <RunningLabel /> : summary}</SummaryText>
         <Chevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></Chevron>
       </SessionHeader>
 
       {open && (
-        <SessionBody ref={bodyRef} $reserve={!!settled}>
+        <SessionBody>
           {milestones.map((m, i) => (
-            <RowAnchor key={i} ref={el => { rowRefs.current[i] = el; }}>
+            <RowAnchor key={i}>
               {i < milestones.length - 1 && <SessionConnector aria-hidden="true" />}
               <MilestoneContent
                 milestone={m}
@@ -218,20 +132,14 @@ function ActivitySession({ milestones, typingIndex, workingIndex, settled, hideA
                    a chevron that reveals the step's supplemental line. */
                 collapsible
                 typing={i === typingIndex}
-                /* The run's "tools used" trigger lives under the LAST activity's
-                   expanded content — revealed only when the operator opens that
-                   step — once the group has settled. Its toolkit is derived from
-                   the group's own activities, so it fits the work that was done. */
-                extra={i === milestones.length - 1 && (workingIndex == null || settled)
-                  ? <UsageSummary usage={aggregateUsage(milestones.map(m => m.icon))} />
-                  : undefined}
+                /* Each executed step carries its own "tools used" trigger — the
+                   actual tools that step drove (Policy Engine, Engage), with detail
+                   normalized to this case — revealed when the operator opens the step.
+                   Steps that drove no tool (reasoning, record-only edits) carry none. */
+                extra={m.usage?.length ? <UsageSummary usage={m.usage} title={m.headline} /> : undefined}
                 icon={
                   <MilestoneIcon
                     icon={m.icon}
-                    slotRef={el => { iconRefs.current[i] = el; }}
-                    /* The icon the mark is currently riding hides behind it so it
-                       reappears (as the completed step's icon) once the mark glides on. */
-                    hidden={showMark && !settled && i === activeRow}
                     /* The step Ultron is mid-thought on spins; settled steps check. */
                     loading={typingIndex === i}
                   />
@@ -240,32 +148,8 @@ function ActivitySession({ milestones, typingIndex, workingIndex, settled, hideA
             </RowAnchor>
           ))}
           {/* Feedback row for the whole group — thumbs up/down, rerun, and a
-              timestamp. Shown once the group is no longer actively streaming (no
-              live mark riding it), so it reads as actions on a finished response. */}
-          {!hideActions && (workingIndex == null || settled) && (
-            <div ref={actionsRef}><SessionActions time={synthClock(milestones)} /></div>
-          )}
-          {renderMark && (
-            <FloatingMark
-              role="img"
-              aria-label={settled ? 'Ultron monitoring' : 'Ultron is working'}
-              $glide={glide}
-              style={{
-                transform: `translate(${markPos.x - MARK_PX / 2}px, ${markPos.y - MARK_PX / 2}px)`,
-                opacity: showMark && markPos.ready ? 1 : 0,
-              }}
-            >
-              <AgentMark
-                mark={settled ? 'magnetic' : 'lines'}
-                size={MARK_PX}
-                tone="auto"
-                state="active"
-                motionSpeed={settled ? 1.2 : 2}
-                coreHalo={false}
-                aria-hidden="true"
-              />
-            </FloatingMark>
-          )}
+              timestamp (revealed on hover of the group). */}
+          {!hideActions && <SessionActions time={synthClock(milestones)} />}
         </SessionBody>
       )}
     </SessionShell>
@@ -316,7 +200,7 @@ export function SessionActions({ time }: { time: string }) {
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const toggle = (v: 'up' | 'down') => setVote(c => (c === v ? null : v));
   return (
-    <ActionsRow>
+    <ActionsRow data-feedback-actions>
       <AIMessageActions visibility="always" time={time}>
         <RateButton
           variant="ghost" size="xs" iconOnly
@@ -342,15 +226,13 @@ export function SessionActions({ time }: { time: string }) {
   );
 }
 
-/** A trigger summarising what a group's activities drew on — "{N} tools used" —
- *  that opens the Run details drawer on the right. The toolkit is derived from
- *  the group's own activities (their kinds), so each group surfaces the
- *  capabilities that actually applied to its work rather than a fixed canned set. */
-function UsageSummary({ usage }: { usage: ActivityUsage }) {
+/** A trigger summarising what a single step drew on — "{N} tools used" — that
+ *  opens the run-details drawer on the right, scoped to that step. The toolkit is
+ *  derived from the step's own kind, so each step surfaces the actual tools it drove
+ *  (Policy Engine, Engage) rather than a fixed canned set. `title` is the step's
+ *  headline, shown as the drawer title above the tool summary. */
+function UsageSummary({ usage, title }: { usage: ActivityUsage; title?: string }) {
   const [open, setOpen] = useState(false);
-  // Single-open accordion: only one row's detail is expanded at a time. Tracks the
-  // open row's index (null = all collapsed) so opening one collapses the others.
-  const [openIdx, setOpenIdx] = useState<number | null>(null);
 
   // Close the drawer on Escape while it's open.
   useEffect(() => {
@@ -369,7 +251,7 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
         trailingArtwork={<ChevronRightIcon size={12} />}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => { setOpen(true); setOpenIdx(null); }}
+        onClick={() => setOpen(true)}
       >
         {usage.length} {usage.length === 1 ? 'tool' : 'tools'} used
       </Button>
@@ -379,7 +261,10 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
           <UsageDrawer>
             <UsageDrawerHeader>
               <UsageDrawerHeadings>
-                <UsageDrawerTitle>Run details</UsageDrawerTitle>
+                <UsageDrawerTitle>{title ?? 'Run details'}</UsageDrawerTitle>
+                <UsageDrawerSubtitle>
+                  {usage.length} {usage.length === 1 ? 'tool' : 'tools'} used · {usage.map(u => u.name).join(', ')}
+                </UsageDrawerSubtitle>
               </UsageDrawerHeadings>
               <UsageClose type="button" aria-label="Close" onClick={() => setOpen(false)}>
                 <XCloseIcon size={18} />
@@ -388,13 +273,7 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
             <UsageDrawerBody>
               <ToolList>
                 {usage.map((it, i) => (
-                  <UsageRow
-                    key={it.name}
-                    entry={it}
-                    first={i === 0}
-                    open={openIdx === i}
-                    onToggle={() => setOpenIdx(cur => (cur === i ? null : i))}
-                  />
+                  <UsageRow key={it.name} entry={it} first={i === 0} />
                 ))}
               </ToolList>
             </UsageDrawerBody>
@@ -406,14 +285,21 @@ function UsageSummary({ usage }: { usage: ActivityUsage }) {
   );
 }
 
-/** One capability row in the Run details drawer — a compact line (icon + name +
- *  description) that expands to reveal the query it ran (when there is one) and a
- *  plain-language summary of what it returned. */
-function UsageRow({ entry, first, open, onToggle }: { entry: UsageEntry; first: boolean; open: boolean; onToggle: () => void }) {
+/** One tool row in the run-details drawer — a compact line (icon + name +
+ *  description) that expands into a detail shaped to the tool: the Policy Engine
+ *  shows the policies it evaluated and the eligible workers it returned; Engage
+ *  shows the message threads it opened. */
+function UsageRow({ entry, first }: { entry: UsageEntry; first: boolean }) {
   const Icon = USAGE_ICONS[entry.icon];
+  const { policies, eligible, threads, notification } = entry;
+  const eligibleMore = eligible ? eligible.total - eligible.items.length : 0;
+  const threadsMore = threads ? threads.total - threads.items.length : 0;
+  // Each tool's detail starts expanded — the drawer shows every tool's work at a
+  // glance — and can be collapsed independently of the others.
+  const [open, setOpen] = useState(true);
   return (
     <ToolRow data-first={first || undefined}>
-      <ToolHeader type="button" aria-expanded={open} onClick={onToggle}>
+      <ToolHeader type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}>
         <ToolTile aria-hidden="true"><Icon size={16} /></ToolTile>
         <ToolHeadings>
           <ToolName>{entry.name}</ToolName>
@@ -423,16 +309,71 @@ function UsageRow({ entry, first, open, onToggle }: { entry: UsageEntry; first: 
       </ToolHeader>
       {open && (
         <ToolDetail>
-          {entry.query && (
+          {/* Policy Engine — the policies it checked against, each a green tick. */}
+          {policies && (
             <ToolField>
-              <ToolFieldLabel>Query</ToolFieldLabel>
-              <ToolQuery>{entry.query}</ToolQuery>
+              <ToolFieldLabel>Policies evaluated · {policies.total}</ToolFieldLabel>
+              <PolicyList>
+                {policies.items.map((p, k) => (
+                  <li key={k}><PolicyCheck aria-hidden="true"><CheckIcon size={14} /></PolicyCheck><span>{p}</span></li>
+                ))}
+              </PolicyList>
             </ToolField>
           )}
-          <ToolField>
-            <ToolFieldLabel>Summary</ToolFieldLabel>
-            <ToolSummary>{entry.summary}</ToolSummary>
-          </ToolField>
+          {/* Policy Engine — the eligible workers it returned, ranked by match. */}
+          {eligible && (
+            <ToolField>
+              <ToolFieldLabel>Returned · {eligible.total} {eligible.unit}</ToolFieldLabel>
+              <CandidateList>
+                {eligible.items.map((c, k) => (
+                  <CandidateRow key={k}>
+                    <CandidateName>{c.name}</CandidateName>
+                    <CandidateMeta>{c.match} · {c.distance}</CandidateMeta>
+                  </CandidateRow>
+                ))}
+              </CandidateList>
+              {eligibleMore > 0 && <MoreLine>+{eligibleMore} more {eligible.moreNoun}</MoreLine>}
+            </ToolField>
+          )}
+          {/* Engage — the message threads it opened, one row per recipient. */}
+          {threads && (
+            <ToolField>
+              <ToolFieldLabel>Threads · {threads.total}</ToolFieldLabel>
+              <ThreadList>
+                {threads.items.map((t, k) => (
+                  <ThreadRow key={k}>
+                    <Avatar size="md" src={avatarUrl(t.seed)} name={t.name} alt="" />
+                    <ThreadBody>
+                      <ThreadName>{t.name}</ThreadName>
+                      <ThreadPreview>{t.preview}</ThreadPreview>
+                    </ThreadBody>
+                    <ThreadStatus $tone={t.tone}>{t.status}</ThreadStatus>
+                    <ThreadChevron aria-hidden="true"><ChevronRightIcon size={16} /></ThreadChevron>
+                  </ThreadRow>
+                ))}
+              </ThreadList>
+              {threadsMore > 0 && <MoreLine>+{threadsMore} more {threads.moreNoun}</MoreLine>}
+            </ToolField>
+          )}
+          {/* Engage notification — a single recipient and the message body sent. */}
+          {notification && (
+            <>
+              <ToolField>
+                <ToolFieldLabel>Recipient</ToolFieldLabel>
+                <ThreadRow>
+                  <Avatar size="md" src={avatarUrl(notification.seed)} name={notification.name} alt="" />
+                  <ThreadBody>
+                    <ThreadName>{notification.name}</ThreadName>
+                    <ThreadPreview>{notification.role} · {notification.channel}</ThreadPreview>
+                  </ThreadBody>
+                </ThreadRow>
+              </ToolField>
+              <ToolField>
+                <ToolFieldLabel>Message</ToolFieldLabel>
+                <MessageBox>{notification.message}</MessageBox>
+              </ToolField>
+            </>
+          )}
         </ToolDetail>
       )}
     </ToolRow>
@@ -650,13 +591,28 @@ const cardIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
+/* Shared reveal: a message group fades its feedback row in while hovered or
+   focus-within. Applied by SessionShell, ResponseSet, and the decision turn. */
+export const revealFeedbackOnHover = css`
+  &:hover [data-feedback-actions],
+  &:focus-within [data-feedback-actions] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+`;
+
 /* A session — one collapsible run of activities, sitting flush in the feed (no
    padded card frame) so its header and steps line up with the rest of the trail. */
-const SessionShell = styled.div`
+const SessionShell = styled.div<{ $animate?: boolean }>`
   display: flex;
   flex-direction: column;
   font-family: var(--font-sans);
   animation: ${cardIn} var(--duration-base) var(--ease-out);
+  /* Skip the entrance when the group is merely folding into a response set after it
+     already streamed in — replaying it would blink the already-shown trail. */
+  ${p => p.$animate === false && 'animation: none;'}
+
+  ${revealFeedbackOnHover}
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
@@ -677,15 +633,6 @@ const SessionHeader = styled.button`
     box-shadow: 0 0 0 2px var(--color-border-focus);
     border-radius: var(--radius-sm);
   }
-`;
-
-/* Leading slot for the live Lines mark in a running session header — trims the
-   header's gap so the mark sits tight to the status verb as one pair. */
-const RunningMark = styled.span`
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  margin-right: calc(-1 * var(--space-2));
 `;
 
 /* The live running label pulses (a soft opacity blink) so it reads as active,
@@ -719,25 +666,16 @@ const SummaryText = styled.span<{ $running?: boolean }>`
    don't need their own sequential animation. */
 const Ellipsis = styled.span``;
 
-/* Condensed activity stack inside an expanded session. Positioned so the live
-   agent mark can be absolutely placed over the icon column; when the mark settles
-   it rests below the last step, so we reserve room for it (animated, so the trail
-   eases open rather than jumping). */
-const SessionBody = styled.div<{ $reserve?: boolean }>`
+/* Condensed activity stack inside an expanded session. */
+const SessionBody = styled.div`
   position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   padding-top: var(--space-3);
-  /* space-8 (mark) + space-2 (rest gap), via the same calc the mark box uses. */
-  padding-bottom: ${p => (p.$reserve ? 'calc(var(--space-8) + var(--space-2) + var(--space-1))' : '0')};
-  transition: padding-bottom var(--duration-slow) var(--ease-out);
-
-  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
-/* Wraps each step so the floating mark can measure the step's full extent (to
-   land its resting position just below the last one). */
+/* Wraps each step (positioning context for its connector). */
 const RowAnchor = styled.div`
   min-width: 0;
   position: relative;
@@ -758,32 +696,6 @@ const SessionConnector = styled.span`
   pointer-events: none;
 `;
 
-/* The single live agent mark. Absolutely placed within the session body and
-   moved via a transform that animates, so it glides from step to step and then
-   down to its resting spot. 36px = space-8 + space-1. */
-const FloatingMark = styled.span<{ $glide?: boolean }>`
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: calc(var(--space-8) + var(--space-1));
-  height: calc(var(--space-8) + var(--space-1));
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  /* Gentle ease-in-out so the glide between steps accelerates and settles
-     smoothly rather than snapping; a softer opacity fade lets it cross-fade with
-     the resting magnetic mark on handoff. The transform transition is withheld
-     for the first placement ($glide false) so the mark fades in where it belongs
-     instead of sliding in from the corner. */
-  transition: ${p => (p.$glide ? 'transform 460ms cubic-bezier(0.4, 0, 0.2, 1), ' : '')}opacity 260ms var(--ease-out);
-  will-change: transform, opacity;
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: opacity 200ms var(--ease-out);
-  }
-`;
-
 /* The group's feedback footer — sits below the last activity with quiet top
    spacing so it reads as a trailing action row rather than another step. Hung
    under the headline (clears the inline icon column like Blocks/Usage) so the
@@ -795,15 +707,25 @@ const ActionsRow = styled.div`
   /* Sit on the group's left rail — flush with the session summary and the
      activity icon column — rather than indented onto the content rail. */
 
-  /* Size the action buttons (thumbs up/down + rerun) to a 32px tap target,
+  /* Hidden at rest — the enclosing message group reveals it on hover/focus (the
+     reveal rule is shared by SessionShell, ResponseSet, and the decision turn).
+     Opacity (not display) keeps the row's layout box, so the resting agent mark
+     still anchors below it. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--ease-out);
+
+  /* Size the action buttons (thumbs up/down + rerun) to a 24px tap target,
      keeping their icons centered. The min-width override beats the design
      system's icon-only width rule. */
   & button {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
     padding: 0;
   }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 /* Usage summary — a quiet trigger sitting under a group's last activity that
@@ -864,11 +786,11 @@ const UsageDrawer = styled.div`
 const UsageDrawerHeader = styled.div`
   flex-shrink: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  height: 48px;
-  padding: 0 var(--space-3);
+  min-height: 48px;
+  padding: var(--space-3);
   border-bottom: 1px solid var(--color-border-opaque);
 `;
 
@@ -885,6 +807,17 @@ const UsageDrawerTitle = styled.h2`
   font-weight: var(--font-weight-semibold);
   line-height: var(--line-height-snug);
   color: var(--color-content-primary);
+`;
+
+/* Tools summary beneath the drawer title — "{N} tools used · Policy Engine, Engage",
+   the names of the tools the step actually drove. */
+const UsageDrawerSubtitle = styled.p`
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-tertiary);
 `;
 
 const UsageClose = styled.button`
@@ -1046,23 +979,161 @@ const ToolFieldLabel = styled.span`
   color: var(--color-content-tertiary);
 `;
 
-/* The tool's query, in a code block. */
-const ToolQuery = styled.pre`
+/* ── Policy Engine detail ──────────────────────────────────────────────────── */
+
+/* The evaluated-policies list — each line a green tick + the policy it checked. */
+const PolicyList = styled.ul`
   margin: 0;
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: var(--line-height-normal);
-  color: var(--color-content-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+
+  & li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: var(--line-height-snug);
+    color: var(--color-content-primary);
+  }
 `;
 
-/* Plain-language result summary. */
-const ToolSummary = styled.p`
-  margin: 0;
+/* The leading green tick on a policy line. */
+const PolicyCheck = styled.span`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-success-content);
+`;
+
+/* The returned eligible workers — a ranked column of name + match/distance rows. */
+const CandidateList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+`;
+
+/* One eligible-worker row — name on the left, match score + distance trailing. */
+const CandidateRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+`;
+
+const CandidateName = styled.span`
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-primary);
+`;
+
+const CandidateMeta = styled.span`
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-tertiary);
+  white-space: nowrap;
+`;
+
+/* "+N more …" overflow line beneath a returned/threads list. */
+const MoreLine = styled.div`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-tertiary);
+`;
+
+/* ── Engage detail ─────────────────────────────────────────────────────────── */
+
+/* The message-thread list — one row per recipient, hairline-separated. */
+const ThreadList = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+/* One thread row: avatar + name/preview stack + status chip + chevron. A divider
+   separates each from the last (inset to start under the name, like the tool rows). */
+const ThreadRow = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+
+  &:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    border-top: 1px solid var(--color-border-opaque);
+  }
+`;
+
+/* The name + latest-line stack — takes the row's flexible width. */
+const ThreadBody = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+`;
+
+const ThreadName = styled.span`
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-primary);
+`;
+
+/* The latest line in the thread — their reply, or the delivery state. Truncates so
+   a long reply keeps the row to two lines. */
+const ThreadPreview = styled.span`
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: var(--line-height-snug);
+  color: var(--color-content-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+/* Status chip — a warm reply ("Interested"/"Read") reads green; a still-delivered
+   thread reads quiet. */
+const ThreadStatus = styled.span<{ $tone: 'positive' | 'muted' }>`
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: ${p => (p.$tone === 'positive' ? 'var(--font-weight-medium)' : 'var(--font-weight-regular)')};
+  line-height: var(--line-height-snug);
+  white-space: nowrap;
+  color: ${p => (p.$tone === 'positive' ? 'var(--color-success-content)' : 'var(--color-content-tertiary)')};
+`;
+
+/* Trailing chevron on a thread row — hints the thread opens. */
+const ThreadChevron = styled.span`
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--color-content-tertiary);
+`;
+
+/* The message body of an Engage notification — the text Ultron sent, in a quiet
+   bordered card so it reads as the verbatim message rather than UI copy. */
+const MessageBox = styled.div`
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   line-height: var(--line-height-normal);
@@ -1078,7 +1149,7 @@ const RateButton = styled(Button)`
 /* Types a string out character-by-character with a blinking caret. The full
    text is always laid out (the un-typed tail is rendered transparent) so the
    line never re-wraps as it fills in — the reveal stays smooth and jump-free. */
-function Typewriter({ text, onDone, speed = 30 }: { text: string; onDone?: () => void; speed?: number }) {
+export function Typewriter({ text, onDone, speed = 30 }: { text: string; onDone?: () => void; speed?: number }) {
   const [n, setN] = useState(0);
   useEffect(() => { setN(0); }, [text]);
   useEffect(() => {
@@ -1383,7 +1454,7 @@ const Blocks = styled.div<{ $indent?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding-top: var(--space-1);
+  padding-top: var(--space-2);
   /* Card layout: hang the sub-context under the title by clearing the inline
      icon column (icon width --space-8 + header gap --space-3). */
   padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-3))' : '0')};

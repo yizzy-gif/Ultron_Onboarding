@@ -131,6 +131,17 @@ export interface UltronStore {
   stopReply: (threadId: string) => void;
   refine: (label: string) => void;
   saveWorkflow: (thread: ThreadItem) => void;
+  /** Threads flagged (from the decision card) to save as a workflow once they
+   *  resolve — the deferred-save intent, committed automatically on resolution. */
+  pendingWorkflowIds: string[];
+  /** Toggle a thread's save-as-workflow intent on/off (before it resolves). */
+  toggleWorkflowSave: (threadId: string) => void;
+  /** Threads whose play has been saved inline (the deferred toggle, auto-saved on
+   *  resolve) — drives the inline "Workflow saved" confirmation in the resolution
+   *  turn rather than a separate chat reply. */
+  savedWorkflowIds: string[];
+  /** Mark a thread's play saved inline (used by the deferred toggle on resolve). */
+  markWorkflowSaved: (threadId: string) => void;
 }
 
 export function useUltronStore(): UltronStore {
@@ -199,6 +210,24 @@ export function useUltronStore(): UltronStore {
   // Pending reply timers, so a stop can cancel the in-flight answer.
   const replyTimers = useRef<Record<string, number>>({});
 
+  // Threads the operator has flagged (from the decision card) to save as a workflow
+  // once they resolve. The save isn't posted at click time — it's deferred until the
+  // event resolves, then committed automatically (see commit's resolve branch). The
+  // toggle is intent only, so the operator can switch it back off before resolution.
+  const [pendingWorkflowIds, setPendingWorkflowIds] = useState<string[]>([]);
+  const toggleWorkflowSave = (threadId: string) => {
+    setPendingWorkflowIds(prev =>
+      prev.includes(threadId) ? prev.filter(id => id !== threadId) : [...prev, threadId],
+    );
+  };
+  // Threads whose play has been saved INLINE — the deferred toggle auto-saved on
+  // resolve, so the resolution turn (the OfferTurn) shows the confirmation off this
+  // flag rather than posting a separate chat reply.
+  const [savedWorkflowIds, setSavedWorkflowIds] = useState<string[]>([]);
+  const markWorkflowSaved = (threadId: string) => {
+    setSavedWorkflowIds(prev => (prev.includes(threadId) ? prev : [...prev, threadId]));
+  };
+
   // A risk surfaced on the Live landing → Ultron opens a case. Lands a fresh
   // analyzing case at the top of New (orbit/working mark + typing title in the
   // sidebar). The user stays on the Live landing; the New badge ticks up.
@@ -220,6 +249,9 @@ export function useUltronStore(): UltronStore {
     const stage = stageById[threadId] ?? 0;
     const followUp = THREAD_FOLLOWUPS[threadId];
     const hasFollowUp = stage === 0 && !!followUp;
+    // Did the operator flag this play to be saved as a workflow? If so, the save is
+    // committed once the case resolves (below), not at click time.
+    const wantsWorkflowSave = pendingWorkflowIds.includes(threadId);
 
     // Keep the view anchored on this case as it travels Working → Done (or back
     // to Needs attention for a follow-up); the sidebar selection follows it.
@@ -248,6 +280,14 @@ export function useUltronStore(): UltronStore {
         dispatch({ type: 'reopen', threadId });
       } else {
         dispatch({ type: 'resolve', threadId });
+        // The play was flagged for saving during the decision — now that it's
+        // resolved, mark it saved inline (the resolution turn shows the confirmation),
+        // once. (The explicit "Save as workflow" button takes the conversational path
+        // instead — see saveWorkflow.)
+        if (wantsWorkflowSave) {
+          markWorkflowSaved(threadId);
+          setPendingWorkflowIds(prev => prev.filter(id => id !== threadId));
+        }
       }
     }, delay);
   };
@@ -294,10 +334,10 @@ export function useUltronStore(): UltronStore {
 
   // Refinement is a demo stub with no surface yet — a no-op.
   const refine = (_label: string) => {};
-  // Saving the play posts it into the thread as an operator message (so it reads
-  // as a turn in the conversation); Ultron then confirms with a "Workflow saved"
-  // card linking to the saved workflow (the `workflow_saved` reply kind), rather
-  // than a generic prose reply.
+  // Explicitly saving the play from the offer's "Save as workflow" button reads as a
+  // conversation: the operator's click lands as a "Save as workflow" sent bubble, then
+  // Ultron confirms with a "Workflow saved" reply a beat later. (The deferred toggle
+  // takes the inline path instead — see markWorkflowSaved.)
   const saveWorkflow = (thread: ThreadItem) => {
     const threadId = thread.id;
     setSelectedId(threadId);
@@ -317,5 +357,5 @@ export function useUltronStore(): UltronStore {
     replyTimers.current[threadId] = timer;
   };
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, sendMessage, stopReply, refine, saveWorkflow };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved };
 }

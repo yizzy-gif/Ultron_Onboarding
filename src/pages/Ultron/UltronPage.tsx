@@ -62,6 +62,12 @@ interface UltronPageProps {
   onAction: (threadId: string, label: string) => void;
   onRefinement: (label: string) => void;
   onSaveWorkflow: (thread: ThreadItem) => void;
+  /** Threads flagged to save as a workflow once they resolve (deferred-save intent). */
+  pendingWorkflowIds: string[];
+  /** Toggle a thread's deferred save-as-workflow intent (from the decision card). */
+  onToggleSaveWorkflow: (threadId: string) => void;
+  /** Threads whose play has been saved as a workflow (drives the inline confirmation). */
+  savedWorkflowIds: string[];
   /** Send a free-text chat message to Ultron from the composer at the page foot. */
   onSend: (threadId: string, text: string) => void;
   /** Threads where Ultron is mid-reply — flips the composer into a stop control. */
@@ -79,7 +85,7 @@ interface UltronPageProps {
 const CLOSE_MS = 280;
 
 export function UltronPage({
-  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, onSend, replyingIds, onStop, onClose, onDetectRisk,
+  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectRisk,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
   // we hand off to the parent, which swaps the page to the Live landing.
@@ -111,6 +117,10 @@ export function UltronPage({
   // activities/messages appear, keep the latest in view (above the docked prompt).
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // The fixed slot above the composer that Ultron's thread-level presence mark
+  // portals into (see UltronActivityCards' footSlot). State (not a ref) so the
+  // portal target propagates once the slot mounts.
+  const [footSlot, setFootSlot] = useState<HTMLElement | null>(null);
   // The last selection we scrolled to. Seeded on first run with the initial
   // selection so the feed opens at the top (the Ultron identity card — the
   // entry point) instead of jumping to the default case. Comparing values
@@ -299,6 +309,7 @@ export function UltronPage({
                     chat={chatByThread[thread.id] ?? []}
                     replying={replyingIds.includes(thread.id)}
                     analyzing={analyzing}
+                    footSlot={footSlot}
                     actionCard={dockThread && dockThread.id === thread.id ? (
                       <UltronActionCard
                         key={`action-${dockThread.id}`}
@@ -307,7 +318,10 @@ export function UltronPage({
                         onAction={onAction}
                         onRefinement={onRefinement}
                         onSaveWorkflow={onSaveWorkflow}
-                        saved={(chatByThread[dockThread.id] ?? []).some(m => m.kind === 'workflow_saved')}
+                        saveIntent={pendingWorkflowIds.includes(dockThread.id)}
+                        onToggleSaveWorkflow={onToggleSaveWorkflow}
+                        saved={savedWorkflowIds.includes(dockThread.id)}
+                        savedConversationally={(chatByThread[dockThread.id] ?? []).some(m => m.kind === 'workflow_saved')}
                       />
                     ) : undefined}
                   />
@@ -350,6 +364,10 @@ export function UltronPage({
       {paged && pagedCurrentId && pagedThread && (
         <ActionDock>
           <ActionDockInner>
+            {/* Ultron's thread-level presence mark pins here, just above the composer
+                — the activity thread portals it in (footSlot). Empty (collapsed) when
+                no mark is showing. */}
+            <FootMarkSlot ref={setFootSlot} />
             {/* The decision / save-as-workflow surface now flows inline at the foot
                 of the activity thread (see UltronActivityCards' actionCard slot),
                 so the dock holds only the analyzing trigger + composer. */}
@@ -467,6 +485,14 @@ const ActionDockInner = styled.div`
   gap: var(--space-3);
   max-width: 720px;
   margin: 0 auto;
+`;
+
+/* Slot holding Ultron's presence mark just above the composer. Portaled into from
+   the activity thread; collapses to nothing (no gap) while empty so it doesn't pad
+   the composer when no mark is showing. */
+const FootMarkSlot = styled.div`
+  display: flex;
+  &:empty { display: none; }
 `;
 
 /* Vertical feed column — centered, comfortable reading width. A small bottom

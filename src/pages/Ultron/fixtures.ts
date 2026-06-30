@@ -712,6 +712,10 @@ export interface WorkingMilestone {
   icon: WorkingIcon;
   headline: string;
   detail: string;
+  /** Concrete specifics shown as a bulleted list beneath the detail when the step
+   *  is expanded — the "what exactly" behind the one-line summary (criteria used,
+   *  names/counts, checks run), so the collapsed detail reads thorough. */
+  bullets?: string[];
   /** Running progress beats shown as a sub-row under the headline: while the step
    *  is live they cycle one-by-one (each pops in as it replaces the last); the
    *  final entry is the settled result, shown in the success tone once the step
@@ -720,105 +724,112 @@ export interface WorkingMilestone {
   /** Avatar seeds for the people this step reached/matched — rendered as a small
    *  overlapping group at the trailing end of the progress result line. */
   avatars?: string[];
+  /** Which tools this specific step drove — overrides the per-icon default in
+   *  DEFAULT_TOOLS. Use it when a step's kind doesn't match what it actually ran
+   *  (e.g. a record-only edit drove no tool → [], or a notify-only send drove just
+   *  Engage → ['engage']). Each tool still renders only if the case supplies its
+   *  context (see THREAD_USAGE). */
+  tools?: UsageToolKind[];
 }
 
 export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   shift_drop_maria: [
-    { icon: 'send',  headline: 'Messaged the top replacements', detail: 'Sent the shift details to the best-matched RNs.', progress: ['Reaching out to Aisha Karim…', 'Reaching out to Renee Wallace…', 'Reached 9/20 matched RNs…', 'Reached 16/20 matched RNs…', 'Reached all 20 matched RNs'], avatars: ['aisha_karim', 'renee_wallace', 'carl_jensen', 'tina_boyd', 'marcus_idris'] },
-    { icon: 'clock', headline: 'Collecting confirmations', detail: 'Tracking replies for the first qualified yes.', progress: ['Waiting on replies…', '3 RNs replied — checking fit…', 'Aisha Karim confirmed for the shift'], avatars: ['aisha_karim'] },
-    { icon: 'done',  headline: 'Shift filled', detail: 'Assigned the first qualified RN and notified the scheduler.', progress: ['Assigning the 2:00 PM ICU shift…', 'Aisha Karim assigned · scheduler notified'] },
+    { icon: 'send',  headline: 'Messaged the top replacements', detail: 'Pushed the full shift brief to the 20 best-matched RNs at once. This close to start time an urgent fill lands faster blasted in parallel than worked one name at a time, so I skipped the ranked one-by-one outreach.', bullets: ['Matched on ICU credential, distance from Riverside, and reliability score', 'All 20 reached on their preferred channel (SMS or in-app)', 'No bonus incentive attached yet — the qualified pool is deep enough to fill without it'], progress: ['Reaching out to Aisha Karim…', 'Reaching out to Renee Wallace…', 'Reached 9/20 matched RNs…', 'Reached 16/20 matched RNs…', 'Reached all 20 matched RNs'], avatars: ['aisha_karim', 'renee_wallace', 'carl_jensen', 'tina_boyd', 'marcus_idris'] },
+    { icon: 'clock', headline: 'Collecting confirmations', detail: 'Watched the replies land and ran each one against the shift’s policy gates before locking anyone in, so the first yes I take is one that actually clears.', bullets: ['3 RNs replied in the first few minutes', 'Aisha Karim is the first clean yes — ICU-cleared, no overtime or double-booking conflict', 'Kept the other repliers warm as backup in case she falls through'], progress: ['Waiting on replies…', '3 RNs replied — checking fit…', 'Aisha Karim confirmed for the shift'], avatars: ['aisha_karim'] },
+    { icon: 'done',  headline: 'Shift filled', detail: 'Assigned Aisha to the 2:00–10:00 PM ICU shift and pushed the change everywhere it needs to land so the record stays honest.', bullets: ['Aisha Karim assigned · ICU credential re-checked at assignment', 'Calendar and her timesheet updated', 'Riverside’s scheduler notified the gap is closed'], progress: ['Assigning the 2:00 PM ICU shift…', 'Aisha Karim assigned · scheduler notified'] },
+    { icon: 'send',  headline: 'Notify the location manager', detail: 'Sent the Riverside location manager a heads-up on the reassignment so the floor lead has the change without needing to chase it — informational only, no action on their side.', bullets: ['Dana Brooks notified — Riverside location manager', 'Sent over push + email', 'Flagged as no action needed'], progress: ['Notifying the location manager…', 'Dana Brooks notified'], avatars: ['scheduler_dana'], tools: ['notify'] },
   ],
   timeoff_sofia: [
-    { icon: 'done',  headline: 'Approved Thursday', detail: 'PTO balance confirmed and the Thursday shift is covered.', progress: ['Checking the PTO balance…', 'Thursday approved · coverage holds'] },
-    { icon: 'edit',  headline: 'Held Friday for you', detail: 'Flagged the thin coverage with the one available backup.', progress: ['Scanning Friday coverage…', '1 backup available — held for review'] },
-    { icon: 'send',  headline: 'Sofia notified', detail: 'Confirmed Thursday and that Friday is pending your call.', progress: ['Messaging Sofia…', 'Sofia notified'], avatars: ['timeoff_sofia'] },
+    { icon: 'done',  headline: 'Approved Thursday', detail: 'Thursday clears on its own — her PTO balance covers it and the one shift inside is already backfilled, so I approved it outright rather than routing it for review.', bullets: ['PTO balance checked — enough to cover the day', 'Thursday’s single shift already has coverage', 'Approved without escalation'], progress: ['Checking the PTO balance…', 'Thursday approved · coverage holds'] },
+    { icon: 'edit',  headline: 'Held Friday for you', detail: 'Friday’s coverage is thin enough that I won’t auto-approve it — only one backup is available, so I held it for your call rather than risk an uncovered shift.', bullets: ['Friday coverage scanned — only 1 backup free', 'Approving would leave little margin', 'Held pending your decision, not denied'], progress: ['Scanning Friday coverage…', '1 backup available — held for review'] },
+    { icon: 'send',  headline: 'Sofia notified', detail: 'Closed the loop with Sofia so she knows Thursday is locked and Friday is still pending — no ambiguity about which days she can plan around.', bullets: ['Told her Thursday is approved', 'Flagged Friday as pending your review', 'Sent on her preferred channel'], progress: ['Messaging Sofia…', 'Sofia notified'], avatars: ['timeoff_sofia'], tools: ['engage'] },
   ],
   document_kenji: [
-    { icon: 'edit',  headline: 'Filed as a CPR cert', detail: 'Set the document type and saved the expiry.', progress: ['Reading the document…', 'Filed as CPR cert · expiry saved'] },
-    { icon: 'done',  headline: 'Marked the credential verified', detail: 'Updated his profile.', progress: ['Updating his profile…', 'Credential verified'] },
-    { icon: 'alert', headline: 'Flagged the renewal', detail: 'It expires in 3 weeks — surfaced for planning.', progress: ['Checking the expiry window…', 'Renewal due in 3 weeks — flagged'] },
+    { icon: 'edit',  headline: 'Filed as a CPR cert', detail: 'Read the upload, recognized it as a CPR certification, and filed it on Kenji’s profile with the expiry captured — a loose document doesn’t protect anyone until it’s typed and dated.', bullets: ['Classified as CPR certification', 'Expiry date parsed and saved', 'Attached to Kenji Tanaka’s profile'], progress: ['Reading the document…', 'Filed as CPR cert · expiry saved'] },
+    { icon: 'done',  headline: 'Marked the credential verified', detail: 'The cert is valid and current, so I marked the credential verified on his profile — his CPR-gated shifts now read as compliant rather than unconfirmed.', bullets: ['Document checks out as valid', 'Credential status set to verified', 'CPR-gated shifts now clear compliance'], progress: ['Updating his profile…', 'Credential verified'] },
+    { icon: 'alert', headline: 'Flagged the renewal', detail: 'It expires in 3 weeks — I surfaced it now so the renewal can be planned with runway instead of scrambling once the cert lapses and his shifts go at-risk.', bullets: ['Expiry window checked — 3 weeks out', 'Flagged ahead of the lapse, not after', 'Gives time to renew before shifts are blocked'], progress: ['Checking the expiry window…', 'Renewal due in 3 weeks — flagged'] },
   ],
   application_priya: [
-    { icon: 'edit',  headline: 'Marked Priya qualified', detail: 'Updated the application status.', progress: ['Reviewing her application…', 'Marked qualified · 92% match'] },
-    { icon: 'send',  headline: 'Sent a warm intro', detail: 'Confirmed interest and asked the two screening questions.', progress: ['Drafting the intro…', 'Intro sent · 2 screening questions asked'], avatars: ['application_priya'] },
-    { icon: 'done',  headline: 'Moved to the recruiter queue', detail: 'Ready once she replies.', progress: ['Handing off to the recruiter…', 'In the recruiter queue'] },
+    { icon: 'edit',  headline: 'Marked Priya qualified', detail: 'Her application clears the bar at a 92% match, so I set the status to qualified — strong enough to move forward rather than sit in the unscreened pile.', bullets: ['Scored 92% against the CNA role', 'Credentials and availability check out', 'Application status set to qualified'], progress: ['Reviewing her application…', 'Marked qualified · 92% match'] },
+    { icon: 'send',  headline: 'Sent a warm intro', detail: 'Reached out to confirm she’s still interested and asked the two screening questions up front, so the recruiter inherits a screened lead rather than a cold one.', bullets: ['Confirmed her interest in the role', 'Asked both screening questions', 'Sent on her preferred channel'], progress: ['Drafting the intro…', 'Intro sent · 2 screening questions asked'], avatars: ['application_priya'], tools: ['engage'] },
+    { icon: 'done',  headline: 'Moved to the recruiter queue', detail: 'Handed her to the recruiter queue so the moment she answers, a human can pick her up without re-doing the qualifying work.', bullets: ['Placed in the recruiter queue', 'Match score and screening attached', 'Will advance once she replies'], progress: ['Handing off to the recruiter…', 'In the recruiter queue'] },
   ],
   new_shift_forklift: [
-    { icon: 'send',  headline: 'Offered to the top matches', detail: 'Sent the shift in ranked order.', progress: ['Ranking the matches…', 'Offered to the top 12 in order'], avatars: ['forklift_dane', 'forklift_omar', 'forklift_priya', 'forklift_luis', 'forklift_nina'] },
-    { icon: 'clock', headline: 'Tracking claims', detail: 'Watching for the first claim that clears policy.', progress: ['Watching for claims…', '2 claims in — checking policy…', 'First clean claim found'] },
-    { icon: 'done',  headline: 'Shift claimed', detail: 'Assigned the first qualified claim and updated the calendar.', progress: ['Assigning the claim…', 'Shift claimed · calendar updated'] },
+    { icon: 'send',  headline: 'Offered to the top matches', detail: 'Sent the Bay 4 shift to the best-matched certified operators in ranked order. Supply is deep and the shift is far enough out that a ranked offer-and-claim fills it cleanly without widening the net.', bullets: ['Certified-only pool, ranked by proximity to Bay 4 and reliability', 'Offered to the top 12 of 11+ eligible, claim-first', 'No incentive added — first clean claim takes it'], progress: ['Ranking the matches…', 'Offered to the top 12 in order'], avatars: ['forklift_dane', 'forklift_omar', 'forklift_priya', 'forklift_luis', 'forklift_nina'] },
+    { icon: 'clock', headline: 'Tracking claims', detail: 'Held the offer open and checked each claim against policy as it came in, so the shift goes to the first one that actually clears rather than just the fastest tap.', bullets: ['2 claims in within the first window', 'Checked forklift certification currency and no overlapping shift', 'First clean claim cleared all gates'], progress: ['Watching for claims…', '2 claims in — checking policy…', 'First clean claim found'] },
+    { icon: 'done',  headline: 'Shift claimed', detail: 'Assigned the first qualified claim and locked the rest of the offer so no one else can claim a filled slot.', bullets: ['Operator assigned · certification verified', 'Calendar updated and the open offer closed', 'Remaining matches released'], progress: ['Assigning the claim…', 'Shift claimed · calendar updated'] },
   ],
   new_user_luis: [
-    { icon: 'send',  headline: 'Sent Luis a welcome', detail: 'Kicked off the candidate onboarding.', progress: ['Drafting the welcome…', 'Welcome sent · onboarding started'], avatars: ['new_user_luis'] },
-    { icon: 'edit',  headline: 'Assigned intake tasks', detail: 'Added the 5 required tasks.', progress: ['Building the intake list…', '5 intake tasks assigned'] },
-    { icon: 'done',  headline: 'Following up', detail: 'Tracking each task through to completion.', progress: ['Setting reminders…', 'Tracking all 5 tasks to done'] },
+    { icon: 'send',  headline: 'Sent Luis a welcome', detail: 'Kicked off Luis’s onboarding with a welcome the moment his record landed — momentum is highest right after a new hire signs on, so I didn’t let it sit.', bullets: ['Welcome sent to Luis Mendez', 'Onboarding flow started', 'Delivered on his preferred channel'], progress: ['Drafting the welcome…', 'Welcome sent · onboarding started'], avatars: ['new_user_luis'] },
+    { icon: 'edit',  headline: 'Assigned intake tasks', detail: 'Built out his intake list with the 5 required tasks so nothing’s left to memory — every step he owes is on the record from day one.', bullets: ['5 required intake tasks assigned', 'Each set against Luis’s profile', 'Covers the full pre-start checklist'], progress: ['Building the intake list…', '5 intake tasks assigned'] },
+    { icon: 'done',  headline: 'Following up', detail: 'Set reminders and I’ll track each of the 5 tasks through to done, so a stalled item surfaces instead of quietly blocking his start.', bullets: ['Reminders set on all 5 tasks', 'Tracking each to completion', 'Will flag any that stall'], progress: ['Setting reminders…', 'Tracking all 5 tasks to done'] },
   ],
   missed_clockin_james: [
-    { icon: 'send',  headline: 'Texted James', detail: 'Asked whether he’s on his way.', progress: ['Texting James…', 'Message delivered'], avatars: ['missed_clockin_james'] },
-    { icon: 'clock', headline: 'Awaiting his reply', detail: 'Will update the shift’s confirmation status from it.', progress: ['Waiting on his reply…', 'James replied — 15 min out'] },
-    { icon: 'done',  headline: 'Shift updated', detail: 'Flagged the scheduling inbox in case of a no-show.', progress: ['Updating the shift…', 'Marked confirmed-late · inbox flagged'] },
+    { icon: 'send',  headline: 'Texted James', detail: 'Reached out on SMS — his preferred channel — before treating the gap as a no-show, since it’s early enough that he may just be running late.', bullets: ['Sent to his preferred channel (SMS)', 'Asked if he’s on his way and an ETA', 'No time-off or release on file, so the shift still reads as his'], progress: ['Texting James…', 'Message delivered'], avatars: ['missed_clockin_james'] },
+    { icon: 'clock', headline: 'Awaiting his reply', detail: 'Held the shift open and watched for his response, ready to reflect whatever he says straight onto the record.', bullets: ['James replied — about 15 minutes out', 'Reads as a late start, not an absence', 'Will mark the shift from his reply rather than guess'], progress: ['Waiting on his reply…', 'James replied — 15 min out'] },
+    { icon: 'done',  headline: 'Shift updated', detail: 'Marked the shift confirmed-late from his reply and flagged the scheduling inbox so there’s a fallback if he still doesn’t show.', bullets: ['Shift status set to confirmed-late', 'Scheduling inbox flagged as a no-show safety net', 'No replacement search opened — coverage holds'], progress: ['Updating the shift…', 'Marked confirmed-late · inbox flagged'] },
   ],
   thread_cancel_wed: [
-    { icon: 'edit',  headline: 'Recorded the release', detail: 'Logged the Wed shift as released on her behalf.', progress: ['Filing the release…', 'Wed shift released'] },
-    { icon: 'send',  headline: 'Acknowledged her', detail: 'Confirmed she’s off the shift.', progress: ['Messaging her…', 'Confirmed she’s off the shift'], avatars: ['thread_cancel_wed'] },
-    { icon: 'done',  headline: 'Replacement search started', detail: 'Opened a fill for the Wed 7:00 AM shift.', progress: ['Opening a fill…', 'Search live for Wed 7:00 AM'] },
+    { icon: 'edit',  headline: 'Recorded the release', detail: 'Logged the Wed 7:00 AM shift as released on her behalf so the record stops showing it as covered when it isn’t — an informal “I can’t make it” doesn’t move the schedule on its own.', bullets: ['Release filed against her Pier 9 · Wed 7:00 AM shift', 'Reason noted as a worker-initiated cancellation', 'Shift now reads open, not covered'], progress: ['Filing the release…', 'Wed shift released'], tools: [] },
+    { icon: 'send',  headline: 'Acknowledged her', detail: 'Replied to close the loop so she knows the cancellation registered and she’s officially off — no ambiguity about whether she’s still expected.', bullets: ['Confirmed she’s released from the Wed shift', 'Thanked her for the heads-up', 'Left the channel open for a reschedule'], progress: ['Messaging her…', 'Confirmed she’s off the shift'], avatars: ['thread_cancel_wed'], tools: ['engage'] },
+    { icon: 'done',  headline: 'Replacement search started', detail: 'Opened a fill immediately rather than waiting — it’s tomorrow’s shift, so every hour of lead time matters for coverage.', bullets: ['Fill opened for Pier 9 · Wed 7:00 AM', 'Matching the qualified, available pool now', 'Will surface the first clean claim for your call'], progress: ['Opening a fill…', 'Search live for Wed 7:00 AM'] },
   ],
   payroll_acme_invoice: [
-    { icon: 'edit',  headline: 'Adding the line item', detail: 'Posting the approved shift to Acme’s open invoice.', progress: ['Posting the shift…', 'Line item added to Acme’s invoice'] },
-    { icon: 'rate',  headline: 'Recalculating the total', detail: 'Updating the invoice total and net terms.', progress: ['Recalculating…', 'Total and net terms updated'] },
-    { icon: 'done',  headline: 'Draft ready', detail: 'Kept ready for your end-of-week review.', progress: ['Saving the draft…', 'Draft ready for review'] },
+    { icon: 'edit',  headline: 'Adding the line item', detail: 'Posted the approved shift to Acme’s open invoice as a new line — billable work belongs on the invoice the moment it’s approved, not at month-end when details get fuzzy.', bullets: ['Only the approved shift posted', 'Added to Acme’s current open invoice', 'Hours and rate carried from the timesheet'], progress: ['Posting the shift…', 'Line item added to Acme’s invoice'] },
+    { icon: 'rate',  headline: 'Recalculating the total', detail: 'Rolled the new line into the invoice total and re-applied Acme’s net terms, so the draft reflects what they actually owe rather than a stale figure.', bullets: ['Invoice total recomputed with the new line', 'Net payment terms re-applied', 'Due date adjusted accordingly'], progress: ['Recalculating…', 'Total and net terms updated'] },
+    { icon: 'done',  headline: 'Draft ready', detail: 'Saved it as a draft rather than sending — kept ready for your end-of-week review so you sign off before it reaches the client.', bullets: ['Held as a draft, not sent', 'Queued for your end-of-week review', 'Nothing leaves until you approve'], progress: ['Saving the draft…', 'Draft ready for review'] },
   ],
   job_event_staff: [
-    { icon: 'send',  headline: 'Inviting the top 40 matches', detail: 'Sent slot invitations in ranked order.', progress: ['Ranking the matches…', 'Invited the top 40 in order'], avatars: ['event_jamal', 'event_sara', 'event_dmitri', 'event_lena', 'event_kofi'] },
-    { icon: 'clock', headline: 'Tracking responses', detail: 'Filling the 20 openings first-come.', progress: ['Watching responses…', '14 of 20 slots filled…', 'All 20 openings filled'] },
-    { icon: 'done',  headline: 'Standby list kept', detail: 'Will notify you at 80% filled.', progress: ['Building the standby list…', 'Standby list kept'] },
+    { icon: 'send',  headline: 'Inviting the top 40 matches', detail: 'Sent slot invitations to the 40 best-matched workers in ranked order — inviting double the 20 openings gives enough headroom to fill cleanly even with the usual drop-off.', bullets: ['Ranked by event-skill match and availability', 'Top 40 invited for the 20 openings', 'Claim-first — best fits hear about it first'], progress: ['Ranking the matches…', 'Invited the top 40 in order'], avatars: ['event_jamal', 'event_sara', 'event_dmitri', 'event_lena', 'event_kofi'] },
+    { icon: 'clock', headline: 'Tracking responses', detail: 'Held the invites open and filled the 20 openings first-come as acceptances landed, so the slots go to whoever commits rather than waiting on a full ranked pass.', bullets: ['20 openings filled first-come', 'Watched acceptances roll in past the halfway mark', 'Closed each slot as it was claimed'], progress: ['Watching responses…', '14 of 20 slots filled…', 'All 20 openings filled'] },
+    { icon: 'done',  headline: 'Standby list kept', detail: 'Kept the workers I didn’t place on a standby list and I’ll ping you at 80% filled, so there’s instant backup for the inevitable last-minute drop.', bullets: ['Unplaced invitees parked on standby', 'Alert set to fire at 80% filled', 'Ready to backfill cancellations fast'], progress: ['Building the standby list…', 'Standby list kept'] },
   ],
   missed_clockout_bianca: [
-    { icon: 'send',  headline: 'Texted Bianca', detail: 'Asked her to confirm her actual end time.', progress: ['Texting Bianca…', 'Asked her to confirm her end time'], avatars: ['missed_clockout_bianca'] },
-    { icon: 'edit',  headline: 'Updating the timesheet', detail: 'Will apply her confirmed end time.', progress: ['Standing by for her reply…', 'Timesheet ready to update'] },
-    { icon: 'alert', headline: 'Holding for payroll', detail: 'Will flag payroll if she doesn’t reply before the run.', progress: ['Watching the payroll cutoff…', 'Holding — will flag if no reply'] },
+    { icon: 'send',  headline: 'Texted Bianca', detail: 'She left without clocking out, so I texted her to confirm her actual end time rather than guess — a wrong end time on the timesheet costs either her hours or the client’s money.', bullets: ['No clock-out on the open timesheet', 'Asked her to confirm her real end time', 'Geofence shows her off-site around 6:05 PM'], progress: ['Texting Bianca…', 'Asked her to confirm her end time'], avatars: ['missed_clockout_bianca'] },
+    { icon: 'edit',  headline: 'Updating the timesheet', detail: 'Staged the timesheet so the moment she confirms, I apply her real end time and close the entry — no manual re-keying, no delay into the payroll run.', bullets: ['Timesheet held open, ready to update', 'Will write her confirmed end time on reply', 'Closes the entry once corrected'], progress: ['Standing by for her reply…', 'Timesheet ready to update'] },
+    { icon: 'alert', headline: 'Holding for payroll', detail: 'Kept the entry out of payroll until it’s right — if she doesn’t reply before the cutoff I’ll flag payroll rather than let an unverified end time pay out.', bullets: ['Held back from the current payroll run', 'Watching the cutoff time', 'Will escalate to payroll if no reply lands'], progress: ['Watching the payroll cutoff…', 'Holding — will flag if no reply'] },
   ],
   schedule_published: [
-    { icon: 'send',  headline: 'Messaging workers to confirm', detail: 'Asked everyone to confirm next week’s shifts.', progress: ['Messaging the team…', 'Confirmation request sent to all'], avatars: ['sched_amy', 'sched_ben', 'sched_chloe', 'sched_dev', 'sched_eli'] },
-    { icon: 'clock', headline: 'Chasing the unconfirmed', detail: 'Sending reminders to the 22 outstanding.', progress: ['Tracking confirmations…', 'Reminders sent to the 22 outstanding'] },
-    { icon: 'done',  headline: 'Readiness summary queued', detail: 'A Monday-readiness summary lands by end of day.', progress: ['Queuing the summary…', 'Readiness summary lands by EOD'] },
+    { icon: 'send',  headline: 'Messaging workers to confirm', detail: 'The schedule went live, so I asked every worker to confirm their shifts — an unconfirmed shift is a no-show risk I’d rather catch this week than Monday morning.', bullets: ['Confirmation request sent to the whole team', 'Each message lists that worker’s shifts', 'Sent on each worker’s preferred channel'], progress: ['Messaging the team…', 'Confirmation request sent to all'], avatars: ['sched_amy', 'sched_ben', 'sched_chloe', 'sched_dev', 'sched_eli'] },
+    { icon: 'clock', headline: 'Chasing the unconfirmed', detail: 'Tracked the replies and sent reminders to the 22 still outstanding, so the silent ones get a nudge before they quietly become Monday’s gaps.', bullets: ['22 workers still unconfirmed', 'Reminder sent to each holdout', 'Confirmed ones left alone'], progress: ['Tracking confirmations…', 'Reminders sent to the 22 outstanding'], tools: ['engage'] },
+    { icon: 'done',  headline: 'Readiness summary queued', detail: 'Queued a Monday-readiness summary for end of day so you get one clear picture of who’s confirmed and where the gaps are before the week starts.', bullets: ['Summary lands by end of day', 'Rolls up confirmed vs. outstanding', 'Highlights any uncovered shifts'], progress: ['Queuing the summary…', 'Readiness summary lands by EOD'] },
   ],
   shift_release_jenny: [
-    { icon: 'send',  headline: 'Messaged the best matches', detail: 'Reached out to the qualified caregivers.', progress: ['Drafting the offer…', 'Reached the qualified caregivers'], avatars: ['renee_wallace', 'carl_jensen', 'tina_boyd', 'jenny_park'] },
-    { icon: 'clock', headline: 'Collecting confirmations', detail: 'Waiting on the first qualified yes.', progress: ['Waiting on replies…', 'Renee Wallace confirmed'] },
-    { icon: 'done',  headline: 'Shift filled', detail: 'Assigned the replacement and updated the schedule.', progress: ['Assigning the shift…', 'Renee Wallace assigned · schedule updated'] },
+    { icon: 'send',  headline: 'Messaged the best matches', detail: 'Sent the released shift to the qualified caregivers in ranked order, so the strongest fits hear about it first rather than blasting the whole pool.', bullets: ['Ranked by credential match, proximity, and reliability', 'Reached the top qualified caregivers on their preferred channel', 'Held the wider pool in reserve'], progress: ['Drafting the offer…', 'Reached the qualified caregivers'], avatars: ['renee_wallace', 'carl_jensen', 'tina_boyd', 'jenny_park'] },
+    { icon: 'clock', headline: 'Collecting confirmations', detail: 'Tracked replies and checked each against policy, taking the first qualified yes rather than the first reply.', bullets: ['Renee Wallace is the first clean yes', 'Credential and availability re-checked before locking in', 'Other repliers kept as backup'], progress: ['Waiting on replies…', 'Renee Wallace confirmed'] },
+    { icon: 'done',  headline: 'Shift filled', detail: 'Assigned Renee and pushed the change to the schedule so the released shift no longer reads as a gap.', bullets: ['Renee Wallace assigned · credential verified', 'Schedule and timesheet updated', 'Open offer closed and remaining matches released'], progress: ['Assigning the shift…', 'Renee Wallace assigned · schedule updated'] },
   ],
   birthday_tomas: [
-    { icon: 'send',  headline: 'Sent the birthday note', detail: 'A warm message from the team via in-app chat.', progress: ['Writing the note…', 'Birthday note sent'], avatars: ['birthday_tomas'] },
+    { icon: 'send',  headline: 'Sent the birthday note', detail: 'Sent Tomas a warm birthday note from the team over in-app chat — small recognition like this is cheap to do and lands better same-day than a belated one.', bullets: ['Personalized note from the team', 'Delivered via in-app chat', 'Sent on the day, not after'], progress: ['Writing the note…', 'Birthday note sent'], avatars: ['birthday_tomas'] },
   ],
   weekly_fill_report: [
-    { icon: 'send',  headline: 'Published the report', detail: 'Posted next week’s fill-rate report to the Home dashboard.', progress: ['Compiling the numbers…', 'Report published to Home'] },
-    { icon: 'alert', headline: 'Flagged the at-risk shifts', detail: 'Surfaced the 22 under-target shifts to the scheduling team.', progress: ['Scanning the week…', '22 under-target shifts flagged'] },
-    { icon: 'done',  headline: 'Scheduling notified', detail: 'Sent the Mon–Tue gaps so they can act before the week starts.', progress: ['Notifying scheduling…', 'Mon–Tue gaps sent'] },
+    { icon: 'send',  headline: 'Published the report', detail: 'Compiled next week’s fill-rate numbers and posted the report to the Home dashboard, so the whole team sees the same coverage picture in one place.', bullets: ['Fill rate computed across next week', 'Published to the Home dashboard', 'Broken down by day and location'], progress: ['Compiling the numbers…', 'Report published to Home'] },
+    { icon: 'alert', headline: 'Flagged the at-risk shifts', detail: 'Pulled out the 22 shifts sitting under target and surfaced them to scheduling — a fill-rate average hides the specific shifts that’ll actually go uncovered.', bullets: ['22 shifts below the fill target', 'Each flagged to the scheduling team', 'Sorted worst-coverage first'], progress: ['Scanning the week…', '22 under-target shifts flagged'] },
+    { icon: 'done',  headline: 'Scheduling notified', detail: 'Sent scheduling the Mon–Tue gaps specifically — those land first, so acting on them now buys the most lead time before the week opens.', bullets: ['Mon–Tue gaps sent to scheduling', 'Prioritized for earliest impact', 'Time to fill before the week starts'], progress: ['Notifying scheduling…', 'Mon–Tue gaps sent'] },
   ],
   clockin_devon: [
-    { icon: 'edit',  headline: 'Confirmed the punch', detail: 'Re-checked the geofence and required fields.', progress: ['Re-checking the geofence…', 'Punch confirmed · fields clean'] },
-    { icon: 'done',  headline: 'Approved for payroll', detail: 'Released the clean clock-in into the payroll run.', progress: ['Releasing to payroll…', 'Approved for the payroll run'] },
+    { icon: 'edit',  headline: 'Confirmed the punch', detail: 'Re-ran Devon’s clock-in against the geofence and the required fields and it checks out clean — verifying before payroll beats clawing back a bad punch after.', bullets: ['Punch location inside the geofence', 'All required fields present', 'No edits or overrides on the entry'], progress: ['Re-checking the geofence…', 'Punch confirmed · fields clean'] },
+    { icon: 'done',  headline: 'Approved for payroll', detail: 'With the punch clean, I released it straight into the payroll run — no reason to hold a verified clock-in for manual review.', bullets: ['Clean entry approved automatically', 'Released into the current payroll run', 'No manual review needed'], progress: ['Releasing to payroll…', 'Approved for the payroll run'] },
   ],
   phone_aisha: [
-    { icon: 'send',  headline: 'Sent a verification ping', detail: 'Texted the new number to confirm it reaches her.', progress: ['Texting the new number…', 'Ping delivered'], avatars: ['phone_aisha'] },
-    { icon: 'edit',  headline: 'Updated the contact', detail: 'Set the verified number as her notification contact.', progress: ['Verifying the reply…', 'Contact updated'] },
-    { icon: 'done',  headline: 'Alerts confirmed', detail: 'Shift notifications now route to the new number.', progress: ['Re-routing alerts…', 'Alerts now reach the new number'] },
+    { icon: 'send',  headline: 'Sent a verification ping', detail: 'Texted the new number first to prove it actually reaches her — swapping her contact to an unverified number could black out every shift alert she gets.', bullets: ['Test ping sent to the new number', 'Confirms it’s reachable before the swap', 'Old number left active until verified'], progress: ['Texting the new number…', 'Ping delivered'], avatars: ['phone_aisha'] },
+    { icon: 'edit',  headline: 'Updated the contact', detail: 'Her reply confirmed the line, so I set the verified number as her notification contact — only swapping once I knew it lands.', bullets: ['Reply confirmed the number works', 'Set as her notification contact', 'Old number retired'], progress: ['Verifying the reply…', 'Contact updated'] },
+    { icon: 'done',  headline: 'Alerts confirmed', detail: 'Re-routed her shift notifications to the new number and confirmed they land, so she won’t miss an offer or an urgent fill.', bullets: ['Shift alerts now route to the new number', 'Delivery confirmed end-to-end', 'No gap in coverage during the switch'], progress: ['Re-routing alerts…', 'Alerts now reach the new number'] },
   ],
   fill_confirmed_maria: [
-    { icon: 'edit',  headline: 'Confirmed Sarah Quinn', detail: 'Assigned her to Maria’s open RN shift.', progress: ['Assigning the shift…', 'Sarah Quinn confirmed'], avatars: ['sarah_quinn'] },
-    { icon: 'clock', headline: 'Updated the roster', detail: 'Posted the change so the schedule reflects it.', progress: ['Posting the change…', 'Roster updated'] },
-    { icon: 'done',  headline: 'Scheduler notified', detail: 'Coverage confirmed and the scheduler is in the loop.', progress: ['Notifying the scheduler…', 'Coverage confirmed'] },
+    { icon: 'edit',  headline: 'Confirmed Sarah Quinn', detail: 'Locked Sarah into Maria’s open RN shift — she was the strongest match and a clean fit, so I assigned rather than re-opening the search.', bullets: ['Re-checked RN credential and ICU clearance at assignment', 'No overtime or double-booking conflict', 'Highest-ranked of the available matches'], progress: ['Assigning the shift…', 'Sarah Quinn confirmed'], avatars: ['sarah_quinn'] },
+    { icon: 'clock', headline: 'Updated the roster', detail: 'Posted the assignment to the live schedule so every downstream view reflects the fill, not the gap.', bullets: ['Calendar and roster updated', 'Sarah’s timesheet opened for the shift', 'The original open slot closed'], progress: ['Posting the change…', 'Roster updated'] },
+    { icon: 'done',  headline: 'Scheduler notified', detail: 'Closed the loop with the scheduler so they don’t double-fill or chase coverage that’s already handled.', bullets: ['Scheduler notified the shift is covered', 'Confirmation sent to Sarah', 'Case marked resolved'], progress: ['Notifying the scheduler…', 'Coverage confirmed'], tools: ['engage'] },
   ],
   invoice_paid_4821: [
-    { icon: 'rate',  headline: 'Reconciled the payment', detail: 'Matched the amount against #4821’s open balance.', progress: ['Matching the payment…', 'Reconciled against #4821'] },
-    { icon: 'edit',  headline: 'Closed the invoice', detail: 'Marked it paid-in-full once the balance cleared.', progress: ['Clearing the balance…', 'Invoice marked paid-in-full'] },
-    { icon: 'done',  headline: 'Ledger updated', detail: 'Billing now reflects the recorded payment.', progress: ['Updating the ledger…', 'Ledger updated'] },
+    { icon: 'rate',  headline: 'Reconciled the payment', detail: 'The client paid #4821 outside Teambridge, so I matched the amount against its open balance to confirm it’s the same invoice before touching anything.', bullets: ['Payment matched to invoice #4821', 'Amount ties out to the open balance', 'Confirmed as an off-platform payment'], progress: ['Matching the payment…', 'Reconciled against #4821'] },
+    { icon: 'edit',  headline: 'Closed the invoice', detail: 'With the balance fully covered, I marked #4821 paid-in-full — leaving a settled invoice open just invites a duplicate chase.', bullets: ['Balance cleared to zero', 'Status set to paid-in-full', 'Payment date recorded'], progress: ['Clearing the balance…', 'Invoice marked paid-in-full'] },
+    { icon: 'done',  headline: 'Ledger updated', detail: 'Posted the payment to the ledger so billing reflects reality and the client doesn’t show an outstanding balance they’ve already settled.', bullets: ['Payment posted to the ledger', 'Client balance now reads settled', 'No open AR remaining on #4821'], progress: ['Updating the ledger…', 'Ledger updated'] },
   ],
   cred_expired_nadia: [
-    { icon: 'alert', headline: 'Flagged the 3 shifts at-risk', detail: 'Marked the CPR-gated shifts.', progress: ['Scanning her schedule…', '3 CPR-gated shifts flagged'] },
-    { icon: 'edit',  headline: 'Assigned a renewal task', detail: 'Added the upload step for Nadia.', progress: ['Creating the task…', 'Renewal task assigned to Nadia'] },
-    { icon: 'done',  headline: 'Backfills lined up', detail: 'Offered to cover the shifts she can’t legally work.', progress: ['Finding backfills…', 'Backfills lined up'], avatars: ['carl_jensen', 'tina_boyd', 'marcus_idris'] },
+    { icon: 'alert', headline: 'Flagged the 3 shifts at-risk', detail: 'Scanned Nadia’s upcoming schedule and flagged every shift her lapsed CPR cert now blocks her from legally working, so nothing slips through staffed-but-non-compliant.', bullets: ['3 of her upcoming shifts are CPR-gated', 'Each marked at-risk pending renewal', 'Compliance can’t clear them until the cert is current'], progress: ['Scanning her schedule…', '3 CPR-gated shifts flagged'] },
+    { icon: 'edit',  headline: 'Assigned a renewal task', detail: 'Created a renewal task on Nadia’s profile with the upload step, so the path back to compliant is explicit and tracked rather than left to memory.', bullets: ['Task assigned to Nadia with a CPR-cert upload step', 'Due before her next gated shift', 'Auto-clears the flags once a valid cert is verified'], progress: ['Creating the task…', 'Renewal task assigned to Nadia'], tools: [] },
+    { icon: 'done',  headline: 'Backfills lined up', detail: 'Lined up qualified backfills for the shifts she can’t cover, so the renewal can take its time without leaving the shifts exposed.', bullets: ['Offered the 3 gated shifts to CPR-current workers', 'Ranked by proximity and reliability', 'Will assign on confirmation, or release if Nadia renews first'], progress: ['Finding backfills…', 'Backfills lined up'], avatars: ['carl_jensen', 'tina_boyd', 'marcus_idris'], tools: ['policy', 'engage'] },
   ],
 };
 
@@ -849,9 +860,9 @@ export const THREAD_FOLLOWUPS: Record<string, ThreadFollowUp> = {
     prompt: 'James says he’s 15 minutes out. Update the shift as confirmed-late?',
     actions: ['Review', 'Confirm late'],
     working: [
-      { icon: 'edit',  headline: 'Updating the shift', detail: 'Marking James confirmed, arriving ~15 min late.', progress: ['Updating the shift…', 'Marked confirmed-late'] },
-      { icon: 'send',  headline: 'Notifying the site', detail: 'Letting the location know to expect him shortly.', progress: ['Messaging the site…', 'Site notified'] },
-      { icon: 'done',  headline: 'Shift updated', detail: 'No replacement needed — coverage holds.', progress: ['Closing it out…', 'Coverage holds — no replacement needed'] },
+      { icon: 'edit',  headline: 'Updating the shift', detail: 'James says he’s about 15 minutes out, so I marked the shift confirmed-late from his own word rather than logging a no-show that isn’t one.', bullets: ['Status set to confirmed-late', 'Based on his SMS, ~15 min out', 'No-show flag cleared'], progress: ['Updating the shift…', 'Marked confirmed-late'] },
+      { icon: 'send',  headline: 'Notifying the site', detail: 'Gave the location a heads-up to expect him shortly, so they’re not scrambling to backfill a shift that’s about to be covered.', bullets: ['Site told to expect him ~15 min late', 'Heads off an unnecessary backfill', 'Sent to the site’s point of contact'], progress: ['Messaging the site…', 'Site notified'] },
+      { icon: 'done',  headline: 'Shift updated', detail: 'Closed it out with no replacement search — he’s on his way, so coverage holds and there’s nothing left to chase.', bullets: ['Coverage holds — no replacement needed', 'No fill opened', 'Case resolved'], progress: ['Closing it out…', 'Coverage holds — no replacement needed'] },
     ],
     record: { eyebrow: 'Worker', title: 'James Okoro', meta: ['On his way', '~15 min late', 'Replied via SMS'], avatarSeed: 'missed_clockin_james' },
   },
@@ -859,9 +870,9 @@ export const THREAD_FOLLOWUPS: Record<string, ThreadFollowUp> = {
     prompt: 'Priya answered the screening questions and qualifies. Move her to the recruiter’s queue?',
     actions: ['Review', 'Move to queue'],
     working: [
-      { icon: 'edit',  headline: 'Moving Priya to the queue', detail: 'Handing her off to the recruiter as Qualified.', progress: ['Handing her off…', 'Moved to the recruiter queue'] },
-      { icon: 'send',  headline: 'Notifying the recruiter', detail: 'Sharing her answers and the 92% match.', progress: ['Sharing her answers…', 'Recruiter notified · 92% match'] },
-      { icon: 'done',  headline: 'In the recruiter’s queue', detail: 'Ready for the next step.', progress: ['Finalizing…', 'Ready for the next step'] },
+      { icon: 'edit',  headline: 'Moving Priya to the queue', detail: 'She answered the screening questions and qualifies, so I moved her into the recruiter queue as Qualified — a screened lead shouldn’t wait in the general pile.', bullets: ['Screening answers received and passed', 'Status set to Qualified', 'Placed in the recruiter queue'], progress: ['Handing her off…', 'Moved to the recruiter queue'] },
+      { icon: 'send',  headline: 'Notifying the recruiter', detail: 'Handed the recruiter her answers and the 92% match in one note, so they pick up a ready-to-act lead instead of re-screening from scratch.', bullets: ['Screening answers shared', '92% match score attached', 'Recruiter pinged directly'], progress: ['Sharing her answers…', 'Recruiter notified · 92% match'] },
+      { icon: 'done',  headline: 'In the recruiter’s queue', detail: 'She’s queued and fully briefed, so the recruiter can take the next step the moment they’re free — nothing left blocking her.', bullets: ['Sitting in the recruiter queue', 'Full context attached', 'Ready for the next step'], progress: ['Finalizing…', 'Ready for the next step'] },
     ],
     record: { eyebrow: 'CNA', title: 'Priya Raman', meta: ['92% match', 'Screened', 'Night Shift'], avatarSeed: 'application_priya' },
   },
@@ -1322,6 +1333,10 @@ export interface ActivityMilestone {
   progress?: string[];
   /** Matched-user avatar seeds (see WorkingMilestone.avatars) — carried over. */
   avatars?: string[];
+  /** The tools this step drove, with detail normalized to this event's context
+   *  (see usageForThread). Surfaced in the step's run-details drawer. Present on
+   *  executed steps; reasoning steps carry none. */
+  usage?: ActivityUsage;
 }
 
 const THREAD_ACTIVITY: Record<string, ActivityMilestone[]> = {
@@ -1398,19 +1413,69 @@ export function activityForThread(thread: ThreadItem): ActivityMilestone[] {
  *  data layer stays component-free. */
 export type UsageIconKey =
   | 'search' | 'message' | 'policy' | 'shield' | 'schedule'
-  | 'analytics' | 'clock' | 'monitor';
+  | 'analytics' | 'clock' | 'monitor' | 'bell';
 
-/** One capability an activity drew on — a tool Ultron ran, a skill it applied, or
- *  a data source it read. Surfaced in the Run details drawer as a collapsible row:
- *  icon + name + description, expanding to reveal the query Ultron ran (when there
- *  is one) and a plain-language summary of what it returned. `query` is omitted for
- *  capabilities with no invocation to show. */
+/** One eligible worker the Policy Engine returned — surfaced as a ranked row in
+ *  the Policy Engine detail (name + match score + distance from the site). */
+export interface UsageCandidate {
+  name: string;
+  /** Match score, e.g. "4.9 match". */
+  match: string;
+  /** Distance from the site, e.g. "3.2 mi". */
+  distance: string;
+}
+
+/** One Engage message thread — who it reached, the latest line in the thread, and
+ *  its current status. `tone` reads the status chip: `positive` (a warm reply)
+ *  shows green; `muted` (still delivered, no reply) shows quiet. */
+export interface UsageThread {
+  /** Avatar seed (see avatarUrl). */
+  seed: string;
+  name: string;
+  /** Latest line in the thread — their reply, or the delivery state. */
+  preview: string;
+  /** Status chip text, e.g. "Interested" / "Delivered". */
+  status: string;
+  tone: 'positive' | 'muted';
+}
+
+/** A one-way Engage notification — a single recipient (with their role + the
+ *  channel it went out on) and the message body Ultron sent. Used for FYI sends
+ *  (notify a manager / scheduler), where there's one addressee and no back-and-forth
+ *  rather than a multi-recipient outreach thread list. */
+export interface UsageNotification {
+  /** Avatar seed (see avatarUrl). */
+  seed: string;
+  name: string;
+  /** The recipient's role, e.g. "Location manager". */
+  role: string;
+  /** The channel(s) it went out on, e.g. "push + email". */
+  channel: string;
+  /** The message body Ultron sent. */
+  message: string;
+}
+
+/** One tool Ultron drove on a step. Surfaced in the run-details drawer as a
+ *  collapsible row (icon + name + description) that expands into a detail shaped to
+ *  the tool: the Policy Engine shows the policies it evaluated and the eligible
+ *  workers it returned; Engage shows either the message threads it opened (outreach)
+ *  or a single recipient + message (a notification). Each detail section is
+ *  optional, so an entry renders only the sections that apply to it. */
 export interface UsageEntry {
   name: string;
   description: string;
   icon: UsageIconKey;
-  query?: string;
-  summary: string;
+  /** Policy Engine — the policies it evaluated against (total count + the checked
+   *  list shown). */
+  policies?: { total: number; items: string[] };
+  /** Policy Engine — the eligible workers it returned (total count + the top ranked
+   *  rows shown; the remainder collapses into a "+N more {moreNoun}" line). */
+  eligible?: { total: number; unit: string; moreNoun: string; items: UsageCandidate[] };
+  /** Engage (outreach) — the message threads it opened (total count + the first rows
+   *  shown; the remainder collapses into a "+N more {moreNoun}" line). */
+  threads?: { total: number; moreNoun: string; items: UsageThread[] };
+  /** Engage (notification) — a single recipient + the message body sent. */
+  notification?: UsageNotification;
 }
 
 /** The capabilities an activity drew on, as one flat list. A single scannable set
@@ -1419,45 +1484,149 @@ export interface UsageEntry {
  *  plausible, relevant set without per-milestone authoring. */
 export type ActivityUsage = UsageEntry[];
 
-/* Shared entry library — defined once and referenced across icons so a capability
-   that recurs (e.g. the Schedule API) carries identical detail everywhere and
-   dedupes cleanly when several activities are aggregated into one group toolkit. */
-const ENTRY: Record<string, UsageEntry> = {
-  replacementMatching: { icon: 'search',    name: 'Replacement matching',    description: 'Ranked qualified workers by skill, location, and availability', query: 'match.rank(role=target, by=["skill","location","availability"])', summary: 'Ranked the qualified pool so the strongest replacements surfaced first.' },
-  staffMessaging:      { icon: 'message',   name: 'Staff messaging',         description: 'Sent the shift offer to matched workers',                       query: 'message.send(template="shift_offer", to=matched)',                summary: 'Delivered the personalized offer to each matched worker with role, time, location, and rate filled in.' },
-  policyCompliance:    { icon: 'policy',    name: 'Policy compliance check', description: 'Validated candidates against active policies',                  query: 'policy.validate(subject=target, policies="active")',              summary: 'Checked overtime, rest windows, and licensing against active policies and reported any violations.' },
-  credentialCheck:     { icon: 'shield',    name: 'Credential verification', description: 'Checked license and ICU certification',                         query: 'credentials.verify(worker, ["license","icu_cert"])',              summary: 'Confirmed each candidate held a valid license and the certifications the shift requires.' },
-  scheduleWrite:       { icon: 'schedule',  name: 'Schedule API',            description: 'Read and wrote shift assignments',                              query: 'schedule.query(shift=target) · schedule.assign(worker)',          summary: 'Pulled the affected shift, checked its coverage, and wrote the assignment back once a worker confirmed.' },
-  incentiveAnalysis:   { icon: 'analytics', name: 'Incentive analysis',      description: 'Compared to past last-minute fills',                            query: 'compare_fills(site=target, window="last_minute")',                summary: 'Recent last-minute fills at the site closed without a bonus — no incentive recommended for this shift.' },
-  attendanceCheck:     { icon: 'clock',     name: 'Time clock',              description: 'Checked punches against the schedule',                          query: 'timeclock.punches(shift=target, window="±15m")',                  summary: 'Compared expected vs. actual punches around the shift window to confirm the attendance gap.' },
-  shiftMonitoring:     { icon: 'monitor',   name: 'Shift monitoring',        description: 'Watched the shift for coverage risk',                                                                                                     summary: 'Tracked the shift’s coverage and attendance signals to catch the issue as it surfaced.' },
+/** A tool Ultron can drive on a step — the Policy Engine (eligibility + rules),
+ *  Engage outreach (worker messaging), or an Engage notification (a one-way FYI to a
+ *  single recipient). A step lists the kinds it drove; the detail for each is
+ *  normalized to the case via THREAD_USAGE. */
+export type UsageToolKind = 'policy' | 'engage' | 'notify';
+
+/* Compact constructors for the per-thread content below. */
+const cand = (name: string, match: string, distance: string): UsageCandidate => ({ name, match, distance });
+const thr = (seed: string, name: string, preview: string, status: string, tone: 'positive' | 'muted'): UsageThread =>
+  ({ seed, name, preview, status, tone });
+
+/* Reusable Policy Engine checklists by role — the headline gates a fill runs
+   against (policiesTotal counts the full active set; the list shows the top few). */
+const RN_POLICIES = ['Overtime limit (≤ 40h / week)', 'Rest window (≥ 8h between shifts)', 'Active RN license & ICU certification', 'Max consecutive shifts', 'Union seniority ordering'];
+const CAREGIVER_POLICIES = ['Overtime limit (≤ 40h / week)', 'Rest window (≥ 8h between shifts)', 'Active caregiver credential & CPR', 'Max consecutive shifts', 'Background check current'];
+const FORKLIFT_POLICIES = ['Overtime limit (≤ 40h / week)', 'Rest window (≥ 8h between shifts)', 'Forklift certification (current)', 'Max consecutive shifts', 'Site safety clearance'];
+const EVENT_POLICIES = ['Availability for the event window', 'No overlapping shift', 'Event-skill match', 'Max consecutive shifts', 'Right-to-work verified'];
+
+/** The tool detail for one case, normalized to its context — the policies Ultron's
+ *  Policy Engine evaluated (and any eligible pool it returned) and the Engage
+ *  threads it opened (channel + recipients). A case omits a tool it didn't use, so
+ *  a billing or timesheet case carries neither. Shared across that case's steps; a
+ *  step renders only the tools its `tools`/icon selects. */
+interface ThreadUsageContext {
+  policy?: {
+    description: string;
+    policies: string[];
+    policiesTotal: number;
+    eligible?: { total: number; unit: string; moreNoun: string; items: UsageCandidate[] };
+  };
+  engage?: { name: string; description: string; total: number; threads: UsageThread[] };
+  notify?: { description: string } & UsageNotification;
+}
+
+const THREAD_USAGE: Record<string, ThreadUsageContext> = {
+  shift_drop_maria: {
+    policy: { description: 'Evaluated scheduling policies, returned eligible RNs', policies: RN_POLICIES, policiesTotal: 24,
+      eligible: { total: 20, unit: 'eligible RNs', moreNoun: 'eligible candidates', items: [cand('Jordan Pierce', '4.9 match', '3.2 mi'), cand('Aisha Karim', '4.7 match', '5.1 mi'), cand('Marcus Lewis', '4.6 match', '6.8 mi')] } },
+    engage: { name: 'Engage: SMS', description: 'Sent the shift offer to 20 matched RNs', total: 20, threads: [thr('aisha_karim', 'Aisha Karim', '“Yes — I can take the 2pm.”', 'Interested', 'positive'), thr('jordan_pierce', 'Jordan Pierce', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('marcus_lewis', 'Marcus Lewis', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+    notify: { description: 'Notified the Riverside location manager', seed: 'scheduler_dana', name: 'Dana Brooks', role: 'Location manager', channel: 'push + email', message: 'Heads up — the 2:00pm ICU shift was reassigned to Aisha Karim after Maria Ellis dropped it. No action needed.' },
+  },
+  shift_release_jenny: {
+    policy: { description: 'Evaluated scheduling policies, returned eligible caregivers', policies: CAREGIVER_POLICIES, policiesTotal: 22,
+      eligible: { total: 5, unit: 'eligible caregivers', moreNoun: 'eligible caregivers', items: [cand('Renee Wallace', '4.9 match', '2.4 mi'), cand('Carl Jensen', '4.6 match', '4.1 mi'), cand('Tina Boyd', '4.4 match', '5.5 mi')] } },
+    engage: { name: 'Engage: SMS', description: 'Sent the shift offer to the qualified caregivers', total: 5, threads: [thr('renee_wallace', 'Renee Wallace', '“I can cover Lakeside.”', 'Interested', 'positive'), thr('carl_jensen', 'Carl Jensen', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('tina_boyd', 'Tina Boyd', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+  },
+  new_shift_forklift: {
+    policy: { description: 'Evaluated scheduling policies, returned eligible operators', policies: FORKLIFT_POLICIES, policiesTotal: 18,
+      eligible: { total: 11, unit: 'eligible operators', moreNoun: 'eligible operators', items: [cand('Dane Mercer', '4.8 match', '2.1 mi'), cand('Omar Reyes', '4.6 match', '3.7 mi'), cand('Nina Patel', '4.5 match', '4.4 mi')] } },
+    engage: { name: 'Engage: SMS', description: 'Offered the shift to the top 12 operators', total: 12, threads: [thr('forklift_dane', 'Dane Mercer', '“Claiming Bay 4.”', 'Interested', 'positive'), thr('forklift_omar', 'Omar Reyes', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('forklift_nina', 'Nina Patel', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+  },
+  job_event_staff: {
+    policy: { description: 'Evaluated scheduling policies, returned eligible workers', policies: EVENT_POLICIES, policiesTotal: 16,
+      eligible: { total: 54, unit: 'eligible workers', moreNoun: 'eligible workers', items: [cand('Jamal Carter', '4.7 match', '1.8 mi'), cand('Sara Lindqvist', '4.6 match', '2.9 mi'), cand('Dmitri Volkov', '4.5 match', '3.6 mi')] } },
+    engage: { name: 'Engage: SMS', description: 'Invited the top 40 matches to claim a slot', total: 40, threads: [thr('event_jamal', 'Jamal Carter', '“In — sign me up.”', 'Interested', 'positive'), thr('event_sara', 'Sara Lindqvist', '“Can do.”', 'Interested', 'positive'), thr('event_dmitri', 'Dmitri Volkov', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+  },
+  thread_cancel_wed: {
+    policy: { description: 'Evaluated scheduling policies, returned eligible workers', policies: ['Availability for Wed 7:00 AM', 'No overlapping shift', 'Site clearance for Pier 9', 'Rest window (≥ 8h between shifts)'], policiesTotal: 16,
+      eligible: { total: 8, unit: 'eligible workers', moreNoun: 'eligible workers', items: [cand('Theo Park', '4.7 match', '1.9 mi'), cand('Gina Holt', '4.5 match', '3.3 mi'), cand('Renata Cruz', '4.4 match', '5.0 mi')] } },
+    engage: { name: 'Engage: SMS', description: 'Acknowledged her cancellation', total: 1, threads: [thr('thread_cancel_wed', 'Mara Lindgren', '“Thanks for understanding.”', 'Read', 'positive')] },
+  },
+  cred_expired_nadia: {
+    policy: { description: 'Evaluated credential policies, flagged the at-risk shifts', policies: ['Active CPR certification', 'Credential current for gated shifts', 'Coverage available for each gap'], policiesTotal: 12,
+      eligible: { total: 6, unit: 'eligible backfills', moreNoun: 'eligible backfills', items: [cand('Carl Jensen', '4.7 match', '2.6 mi'), cand('Tina Boyd', '4.5 match', '3.9 mi'), cand('Marcus Idris', '4.4 match', '4.8 mi')] } },
+    engage: { name: 'Engage: SMS', description: 'Offered the 3 gated shifts to CPR-current workers', total: 6, threads: [thr('carl_jensen', 'Carl Jensen', '“Happy to pick one up.”', 'Interested', 'positive'), thr('tina_boyd', 'Tina Boyd', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('marcus_idris', 'Marcus Idris', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+  },
+  timeoff_sofia: {
+    policy: { description: 'Evaluated time-off policies, cleared the request', policies: ['PTO balance sufficient', 'No blackout period in the window', 'Coverage for the affected shifts', 'Notice period met'], policiesTotal: 9 },
+    engage: { name: 'Engage: in-app', description: 'Notified Sofia of the decision', total: 1, threads: [thr('timeoff_sofia', 'Sofia Marin', '“Thanks — understood.”', 'Read', 'positive')] },
+  },
+  document_kenji: {
+    policy: { description: 'Evaluated credential policies, verified compliance', policies: ['Recognized as a CPR certification', 'Name matches the profile', 'Credential currently valid', 'Expiry date captured'], policiesTotal: 6 },
+  },
+  application_priya: {
+    policy: { description: 'Scored the application against the CNA role', policies: ['Active CNA license', 'Availability fits Night Shift', 'Within commute range', 'References on file'], policiesTotal: 12 },
+    engage: { name: 'Engage: in-app', description: 'Sent Priya a screening intro', total: 1, threads: [thr('application_priya', 'Priya Raman', '“Yes, still interested!”', 'Interested', 'positive')] },
+  },
+  new_user_luis: {
+    engage: { name: 'Engage: in-app', description: 'Sent Luis a welcome', total: 1, threads: [thr('new_user_luis', 'Luis Mendez', '“Thanks — excited to start!”', 'Read', 'positive')] },
+  },
+  missed_clockin_james: {
+    engage: { name: 'Engage: SMS', description: 'Texted James to check on the missed start', total: 1, threads: [thr('missed_clockin_james', 'James Okoro', '“On my way — 15 min out.”', 'Interested', 'positive')] },
+  },
+  missed_clockout_bianca: {
+    engage: { name: 'Engage: SMS', description: 'Texted Bianca to confirm her end time', total: 1, threads: [thr('missed_clockout_bianca', 'Bianca Rossi', '“Left at 6:00 PM.”', 'Interested', 'positive')] },
+  },
+  birthday_tomas: {
+    engage: { name: 'Engage: in-app', description: 'Sent Tomas a birthday note', total: 1, threads: [thr('birthday_tomas', 'Tomas Greco', 'Delivered · birthday note', 'Delivered', 'muted')] },
+  },
+  phone_aisha: {
+    engage: { name: 'Engage: SMS', description: 'Sent a verification ping to the new number', total: 1, threads: [thr('phone_aisha', 'Aisha Karim', '“Yep, this is my number.”', 'Interested', 'positive')] },
+  },
+  schedule_published: {
+    engage: { name: 'Engage', description: 'Asked the team to confirm next week’s shifts', total: 31, threads: [thr('sched_amy', 'Amy Cho', '“Confirmed for all four.”', 'Confirmed', 'positive'), thr('sched_ben', 'Ben Ruiz', 'Reminder sent · no reply yet', 'Delivered', 'muted'), thr('sched_chloe', 'Chloe Tan', 'Reminder sent · no reply yet', 'Delivered', 'muted')] },
+  },
+  fill_confirmed_maria: {
+    policy: { description: 'Re-checked Sarah against scheduling policies', policies: RN_POLICIES, policiesTotal: 24 },
+    engage: { name: 'Engage: in-app', description: 'Confirmed the fill with Sarah and the scheduler', total: 2, threads: [thr('sarah_quinn', 'Sarah Quinn', '“See you at the shift.”', 'Read', 'positive'), thr('scheduler_dana', 'Dana Cole', 'Delivered · coverage confirmed', 'Delivered', 'muted')] },
+  },
 };
 
-const USAGE_BY_ICON: Record<WorkingIcon, ActivityUsage> = {
-  send:  [ENTRY.replacementMatching, ENTRY.staffMessaging],
-  clock: [ENTRY.policyCompliance, ENTRY.credentialCheck],
-  done:  [ENTRY.scheduleWrite, ENTRY.incentiveAnalysis],
-  rate:  [ENTRY.incentiveAnalysis, ENTRY.policyCompliance],
-  chart: [ENTRY.incentiveAnalysis, ENTRY.shiftMonitoring],
-  edit:  [ENTRY.replacementMatching, ENTRY.scheduleWrite],
-  alert: [ENTRY.policyCompliance, ENTRY.shiftMonitoring],
+const DEFAULT_TOOLS: Record<WorkingIcon, UsageToolKind[]> = {
+  send:  ['policy', 'engage'], // outreach — matched against policy, then messaged
+  clock: ['policy'],           // collecting / tracking — replies run against the gates
+  done:  ['policy'],           // filled / assigned — re-checked at assignment
+  edit:  ['policy'],           // filed / marked — eligibility + status
+  alert: ['policy'],
+  rate:  ['policy'],
+  chart: ['policy'],
 };
 
-/** The capabilities an activity used, derived from its icon (kind). */
-export const activityUsage = (icon: WorkingIcon): ActivityUsage => USAGE_BY_ICON[icon] ?? USAGE_BY_ICON.clock;
-
-/** The combined, deduped capabilities across several activities — the full set
- *  that applied to ALL activities in a group. Surfaced once, under the group's
- *  last activity, so it reads as the group's whole toolkit rather than a single
- *  step's. Deduped by name; order follows first appearance. */
-export const aggregateUsage = (icons: WorkingIcon[]): ActivityUsage => {
-  const seen = new Set<string>();
-  const out: UsageEntry[] = [];
-  for (const i of icons) for (const e of activityUsage(i)) {
-    if (!seen.has(e.name)) { seen.add(e.name); out.push(e); }
+/** Builds one tool entry for a kind from a case's context, or null when the case
+ *  didn't use that tool. */
+function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext): UsageEntry | null {
+  if (kind === 'policy' && ctx.policy) {
+    return { icon: 'shield', name: 'Policy Engine', description: ctx.policy.description,
+      policies: { total: ctx.policy.policiesTotal, items: ctx.policy.policies },
+      eligible: ctx.policy.eligible };
   }
-  return out;
-};
+  if (kind === 'engage' && ctx.engage) {
+    return { icon: 'message', name: ctx.engage.name, description: ctx.engage.description,
+      threads: { total: ctx.engage.total, moreNoun: 'threads', items: ctx.engage.threads } };
+  }
+  if (kind === 'notify' && ctx.notify) {
+    const { description, ...notification } = ctx.notify;
+    return { icon: 'bell', name: 'Engage: Notification', description, notification };
+  }
+  return null;
+}
+
+/** The tools a step drove, with detail normalized to its case — the entries shown
+ *  in that step's run-details drawer. `kinds` is the step's own selection (its
+ *  `tools` override, else the per-icon default); each renders only if the case
+ *  supplies that tool's context. Reasoning steps and tool-less cases yield []. */
+export function usageForThread(threadId: string, kinds: UsageToolKind[]): ActivityUsage {
+  const ctx = THREAD_USAGE[threadId];
+  if (!ctx) return [];
+  return kinds.map(k => usageEntry(k, ctx)).filter((e): e is UsageEntry => e !== null);
+}
+
+/** The tool kinds a working step drove — its explicit `tools` override, else the
+ *  per-icon default. */
+export const stepTools = (m: WorkingMilestone): UsageToolKind[] => m.tools ?? DEFAULT_TOOLS[m.icon] ?? ['policy'];
 
 // ── Live landing — incoming signal stream ──────────────────────────────────
 // The Live landing feed is a conveyor of incoming operational signals Ultron is
