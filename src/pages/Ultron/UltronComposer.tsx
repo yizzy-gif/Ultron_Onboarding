@@ -11,10 +11,16 @@
    DEMO ONLY — wiring lives in the shared store hook (sendMessage).
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useRef, useState } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import styled from 'styled-components';
 import { Button, ArrowNarrowUpIcon } from 'alloy-design-system';
+
+export interface UltronComposerHandle {
+  /** Focus the input — the prompt card's "Other" answer hands off here so the
+   *  operator can type their own answer. */
+  focus: () => void;
+}
 
 interface UltronComposerProps {
   /** Send the typed message. Returns nothing — the input clears on submit. */
@@ -44,10 +50,16 @@ function StopGlyph({ size = 20 }: { size?: number }) {
  *  thread off-screen — roughly six lines before the textarea starts scrolling. */
 const MAX_HEIGHT = 160;
 
-export function UltronComposer({ onSend, working = false, onStop, placeholder = 'Message Ultron…' }: UltronComposerProps) {
+export const UltronComposer = forwardRef<UltronComposerHandle, UltronComposerProps>(function UltronComposer(
+  { onSend, working = false, onStop, placeholder = 'Message Ultron…' }, ref,
+) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const canSend = value.trim().length > 0;
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }), []);
 
   // Auto-grow: reset to content height each keystroke, capped at MAX_HEIGHT.
   const resize = () => {
@@ -120,7 +132,7 @@ export function UltronComposer({ onSend, working = false, onStop, placeholder = 
       )}
     </Bar>
   );
-}
+});
 
 // ── Styled ───────────────────────────────────────────────────────────────────
 

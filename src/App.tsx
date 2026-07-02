@@ -61,9 +61,10 @@ const UltronNavCard = styled.button<{ $active: boolean }>`
   display: block;
   width: 100%;
   margin-bottom: var(--space-2);
-  /* Uniform padding in both states so the card keeps the same height whether or
-     not Live is the selected page — only the background marks the active state. */
-  padding: var(--space-2);
+  /* Same padding in both states so the card keeps the same height whether or
+     not Live is the selected page — only the background marks the active state.
+     12px sides align the text with the group rows below. */
+  padding: var(--space-2) var(--space-3);
   border: none;
   border-radius: var(--radius-md, 8px);
   background: ${p => (p.$active ? 'var(--color-bg-secondary, rgba(70, 108, 255, 0.06))' : 'transparent')};
@@ -371,6 +372,7 @@ export default function App() {
           selectedId={ultron.selectedId}
           onDecide={ultron.decide}
           onAction={ultron.commit}
+          onCompleteRun={ultron.completeRun}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
           pendingWorkflowIds={ultron.pendingWorkflowIds}

@@ -8,7 +8,6 @@
 
 import { useEffect, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { AgentMark } from './AgentMark';
 
 const STATUS_MESSAGES = [
   'Monitoring 142 active shifts',
@@ -19,10 +18,10 @@ const STATUS_MESSAGES = [
 
 const STATUS_INTERVAL_MS = 2800;
 
-/** Identity row for the Ultron secondary nav: the mark plus the cycling "what
- *  Ultron is doing" status line. The status always shows and the mark is a fixed
- *  size, so the card keeps the same height whether or not the Live view is the
- *  selected page (no jump on navigation). */
+/** Identity row for the Ultron secondary nav: the name plus the cycling "what
+ *  Ultron is doing" status line. The status always shows, so the card keeps the
+ *  same height whether or not the Live view is the selected page (no jump on
+ *  navigation). */
 export function UltronIdentityCard() {
   const [i, setI] = useState(0);
 
@@ -34,9 +33,6 @@ export function UltronIdentityCard() {
   return (
     <Card>
       <Content>
-        {/* Fixed mark size in every state so the card's height never changes when
-            the Live view becomes (or stops being) the selected page. */}
-        <AgentMark mark="circle" size={40} tone="auto" state="active" aria-label="Ultron" />
         <TextGroup>
           <Name>Ultron</Name>
           <Status role="status" aria-live="polite">
@@ -59,7 +55,7 @@ const Card = styled.div`
   font-family: var(--font-sans);
 `;
 
-/* Mark on the left, text column on the right — vertically centered. */
+/* The text column (name + status), no leading mark. */
 const Content = styled.div`
   display: flex;
   align-items: center;

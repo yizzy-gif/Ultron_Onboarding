@@ -8,10 +8,11 @@
 
 import { useEffect, useState, Fragment, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import styled, { keyframes } from 'styled-components';
+import styled, { keyframes, css } from 'styled-components';
 import {
-  Avatar, Button, Save01Icon, MinusIcon, ChevronSelectorVerticalIcon, ChevronRightIcon, CheckIcon, LinkExternal01Icon, AlertTriangleIcon,
+  Avatar, Button, MinusIcon, ChevronSelectorVerticalIcon, ChevronRightIcon, CheckIcon, LinkExternal01Icon, AlertTriangleIcon,
 } from 'alloy-design-system';
+import { AutomationIcon } from '../../components/PrimaryNav/NavIcons';
 import type { ChatMessage, ThreadItem } from './types';
 import {
   THREAD_SUBJECTS, threadAvatarUrl, avatarUrl, THREAD_PROMPTS, threadDisplayTitle, threadMeta,
@@ -241,7 +242,7 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
                    + Ultron ack), then settles to Saved. */
                 <Button
                   variant="secondary" size="sm"
-                  leadingArtwork={<Save01Icon size={14} />}
+                  leadingArtwork={<AutomationIcon size={14} />}
                   onClick={() => { onSaveWorkflow(thread); setSavedWorkflow(true); }}
                 >
                   Save as workflow
@@ -312,6 +313,14 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
   const [mountedSettled] = useState(() =>
     ['resolved', 'auto_resolved', 'workflow_available', 'unresolved'].includes(thread.status),
   );
+  // The operator clicked Save workflow here this session — settles the offer
+  // card's button to "Saved" immediately (the outbound bubble posts at once;
+  // Ultron's confirmation card lands a beat later).
+  const [savePending, setSavePending] = useState(false);
+  // Whether the play is saved from the offer card's point of view — via the
+  // deferred decision-card toggle, the conversational Save exchange, or the
+  // click just made this session.
+  const workflowSaved = saved || savedConversationally || savePending;
   const { actionable, onFollowUp, prompt, records, primaryLabel, purple } = deriveCase(thread, stage);
 
   // Cases with a task breakdown render their plan as discrete step cards (the
@@ -349,48 +358,46 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
     // no recap to type), so they land after Ultron has "spoken" its summary.
     const showOffer = recapDone || !resolution;
     return (
-      <OfferTurn>
+      <OfferTurn $divided>
         {resolution && (
           <OfferLine>
             <TypedText text={resolution} onDone={() => setRecapDone(true)} instant={mountedSettled} />
           </OfferLine>
         )}
-        {showOffer && (saved ? (
-          // Deferred toggle path — saved inline, shown as part of this resolution turn.
-          <>
-            <OfferLine><TypedText text="Workflow saved for future use. Click the link to see the details." onDone={() => setLineDone(true)} instant={mountedSettled} /></OfferLine>
+        {showOffer && (
+          /* The offer reads as a card row: leading automation glyph + question,
+             trailing Save workflow choice. The card STAYS after saving — it never
+             folds into plain text: the button settles to a disabled "Saved" (check
+             leading) and the card's hover lift stands down, while the confirmation
+             follows below (the "Save as workflow" bubble + Ultron's confirmation
+             card in the chat, or the inline card for a deferred save). */
+          <OfferCard $saved={workflowSaved} data-saved={workflowSaved || undefined}>
+            <OfferCardLead>
+              <OfferCardIcon aria-hidden="true"><AutomationIcon size={16} /></OfferCardIcon>
+              <OfferCardText><TypedText text="Want me to save this as a reusable workflow?" onDone={() => setLineDone(true)} instant={mountedSettled} /></OfferCardText>
+            </OfferCardLead>
+            {/* Held until the question finishes typing so the CTA lands after it. */}
             {lineDone && (
-              <Actions>
-                <Pill variant="tertiary" size="sm" trailingArtwork={<LinkExternal01Icon size={14} />} onClick={() => {}}>
-                  View saved workflow
-                </Pill>
-              </Actions>
+              <OfferCardActions>
+                {workflowSaved ? (
+                  <Pill variant="primary" size="sm" disabled leadingArtwork={<CheckIcon size={14} />}>
+                    Saved
+                  </Pill>
+                ) : (
+                  <Pill variant="primary" size="sm" onClick={() => { setSavePending(true); onSaveWorkflow(thread); }}>
+                    Save workflow
+                  </Pill>
+                )}
+              </OfferCardActions>
             )}
-          </>
-        ) : (
-          <>
-            <OfferLine><TypedText text="Want me to save this as a reusable workflow?" onDone={() => setLineDone(true)} instant={mountedSettled} /></OfferLine>
-            {/* Hidden once the operator clicks Save — the confirmation then reads as a
-                conversation (their "Save as workflow" bubble + Ultron's reply below).
-                Held until the question finishes typing so the CTA lands after it. */}
-            {!savedConversationally && lineDone && (
-              <Actions>
-                {/* Low-emphasis peek at the play before committing it (demo affordance —
-                    no standalone workflow preview surface yet). */}
-                <Pill variant="tertiary" size="sm" onClick={() => {}}>
-                  Preview workflow
-                </Pill>
-                <Pill
-                  variant="primary" size="sm"
-                  leadingArtwork={<Save01Icon size={14} />}
-                  onClick={() => onSaveWorkflow(thread)}
-                >
-                  Save as workflow
-                </Pill>
-              </Actions>
-            )}
-          </>
-        ))}
+          </OfferCard>
+        )}
+        {/* Deferred-toggle path (flagged on the decision card, committed on resolve):
+            no conversational exchange was posted, so the confirmation card renders
+            inline as part of this resolution turn instead. */}
+        {showOffer && saved && !savedConversationally && !savePending && (
+          <WorkflowSavedCard instant={mountedSettled} />
+        )}
       </OfferTurn>
     );
   }
@@ -462,7 +469,7 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
             variant="ghost" size="sm"
             aria-pressed={wantsSave}
             data-on={wantsSave || undefined}
-            leadingArtwork={wantsSave ? <CheckIcon size={14} /> : <Save01Icon size={14} />}
+            leadingArtwork={wantsSave ? <CheckIcon size={14} /> : <AutomationIcon size={14} />}
             /* A toggle, not a one-shot: clicking flags the play to be saved as a
                workflow (the button lights up on — a check leads, the label stays put).
                The save
@@ -482,11 +489,11 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
 // ── Plan tasks ──────────────────────────────────────────────────────────────
 // The decision's plan as a checklist of discrete tasks Ultron will run if
 // approved.
-function PlanTaskList({ tasks }: { tasks: PlanTask[] }) {
+function PlanTaskList({ tasks, interactive = true }: { tasks: PlanTask[]; interactive?: boolean }) {
   return (
     <TaskList>
       {tasks.map((task, i) => (
-        <PlanTaskRow key={i} task={task} first={i === 0} last={i === tasks.length - 1} />
+        <PlanTaskRow key={i} task={task} first={i === 0} last={i === tasks.length - 1} interactive={interactive} />
       ))}
     </TaskList>
   );
@@ -494,10 +501,12 @@ function PlanTaskList({ tasks }: { tasks: PlanTask[] }) {
 
 /** A single plan step. Collapsed to just its label by default; the chevron toggles
  *  open to reveal the secondary description (clamped to two lines). The leading
- *  rail threads a dot per step into one continuous vertical line. */
-function PlanTaskRow({ task, first, last }: { task: PlanTask; first: boolean; last: boolean }) {
+ *  rail threads a dot per step into one continuous vertical line. When
+ *  `interactive` is false (a settled/answered card) the row is a static record:
+ *  no chevron, no toggle — just the labelled step. */
+function PlanTaskRow({ task, first, last, interactive = true }: { task: PlanTask; first: boolean; last: boolean; interactive?: boolean }) {
   const [open, setOpen] = useState(false);
-  const hasDetail = !!task.detail;
+  const hasDetail = !!task.detail && interactive;
   return (
     <TaskRow>
       {/* Leading timeline rail: a dot per step threaded by one continuous
@@ -665,22 +674,22 @@ function workingToMilestone(w: WorkingMilestone, threadId: string): ActivityMile
   return { icon: w.icon, headline: w.headline, blocks: (w.detail || w.bullets) ? [{ text: w.detail || undefined, bullets: w.bullets }] : undefined, progress: w.progress, avatars: w.avatars, avatarsOnSettle: w.avatarsOnSettle, reached: w.reached, usage: usageForThread(threadId, stepTools(w)) };
 }
 
-/** Analyzing "thinking" steps carry a headline + detail; fold them into the
- *  accumulated trail as activity milestones so the analysis reads as part of the
- *  one event-activity stream (rather than a separate card above it). The detail
- *  rides along as the step's collapsible supplemental line (revealed per-step).
- *  The closing "Plan created and shared" beat (icon 'done') surfaces the tools the
- *  plan will draw on — the case's full toolkit (Policy Engine, Engage) — so the plan
- *  carries the same run-details affordance as the executed steps; earlier thinking
- *  beats carry none. */
-function analyzingToMilestone(s: AnalyzingStep, threadId: string): ActivityMilestone {
-  // The plan surfaces the full toolkit that produced it — the read-only analysis
-  // (match → policy → credential → incentive) plus the messaging it will run.
+/** The analysis folds into ONE trail line — "Analyzed the event and shared a plan"
+ *  — collapsed by default; expanding it reveals each thinking beat (Review… /
+ *  Determine… / Share plan) as a bullet carrying its full detail prose, so the
+ *  reasoning reads in depth on demand rather than as bare step names. It carries
+ *  the plan's toolkit — the read-only analysis (match → policy → credential →
+ *  incentive) plus the messaging it will run — so the plan keeps the same
+ *  run-details affordance as the executed steps. */
+function analysisMilestone(steps: AnalyzingStep[], threadId: string): ActivityMilestone {
   // usageForThread drops kinds the case didn't use, so simpler events show fewer.
-  const usage = s.icon === 'done'
-    ? usageForThread(threadId, ['match', 'policy', 'credential', 'incentive', 'engage', 'notify'], 'planning')
-    : undefined;
-  return { icon: s.icon, headline: s.headline, blocks: s.detail ? [{ text: s.detail }] : undefined, usage };
+  const usage = usageForThread(threadId, ['match', 'policy', 'credential', 'incentive', 'engage', 'notify'], 'planning');
+  return {
+    icon: 'done',
+    headline: 'Analyzed the event and shared a plan',
+    blocks: [{ bullets: steps.map(s => `${s.headline} — ${s.detail}`) }],
+    usage,
+  };
 }
 
 /** Build the chronological trail for a case. With no operator action yet (or a
@@ -692,13 +701,13 @@ function buildTrail(thread: ThreadItem, outbound: string[]): { items: TrailItem[
   const eventMilestones = activityForThread(thread);
   const doneCount = thread.timeline.filter(s => s.done).length;
   const eventCount = doneCount > 0 ? Math.min(doneCount, eventMilestones.length) : eventMilestones.length;
-  // The trail reads as a thinking sequence first — the analysis steps Ultron
-  // worked through (Reviewed… → Determine course of action → Plan created and
-  // shared) — followed by any executed work the case carries (the authored event
-  // milestones, e.g. messaged matches / assigned / outcome). Thinking before
-  // doing, so a resolved case reads think → plan → execute.
+  // The trail reads as a thinking sequence first — the analysis Ultron worked
+  // through, folded into a single line whose bullets are the thinking beats
+  // (Review… / Determine… / Share plan) — followed by any executed work the case
+  // carries (the authored event milestones, e.g. messaged matches / assigned /
+  // outcome). Thinking before doing, so a resolved case reads think → plan → execute.
   const milestones = [
-    ...analyzingSteps(thread.id).map(s => analyzingToMilestone(s, thread.id)),
+    analysisMilestone(analyzingSteps(thread.id), thread.id),
     ...eventMilestones.slice(0, eventCount),
   ];
   const reasoningCount = milestones.length;
@@ -747,7 +756,7 @@ function buildTrail(thread: ThreadItem, outbound: string[]): { items: TrailItem[
   return { items, reasoningCount };
 }
 
-export function UltronActivityCards({ thread, outbound = [], chat = [], replying = false, analyzing = false, actionCard, footSlot }: { thread: ThreadItem; outbound?: string[]; chat?: ChatMessage[]; replying?: boolean; analyzing?: boolean; actionCard?: ReactNode; footSlot?: HTMLElement | null }) {
+export function UltronActivityCards({ thread, outbound = [], chat = [], replying = false, analyzing = false, actionCard, footSlot, onCompleteRun }: { thread: ThreadItem; outbound?: string[]; chat?: ChatMessage[]; replying?: boolean; analyzing?: boolean; actionCard?: ReactNode; footSlot?: HTMLElement | null; onCompleteRun?: () => void }) {
   // `monitoring` (escalated Working case) reveals its full completed trail, like
   // an executing/resolved case rather than stalling at the reasoning steps.
   const executing = thread.status === 'in_progress' || thread.status === 'monitoring';
@@ -791,6 +800,22 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
     ? items.length
     : (executing || resolved ? items.length : reasoningCount);
 
+  // Operator-driven pacing: an operator-approved run (an answer clicked on the
+  // prompt card) no longer auto-advances. The first activity fires on its own a
+  // beat after the answer, then STAYS running — each press of the T key first
+  // steps the running activity through its own sub-beats (its progress line),
+  // then triggers the next activity, and a final T on the last one completes the
+  // run (the case resolves or asks its follow-up). Analysis streaming and
+  // autonomous working cases (no outbound answer) keep their timed cadence.
+  const stepGated = thread.status === 'in_progress' && outbound.length > 0;
+
+  // The running activity's sub-beat index (which line of its `progress` sequence
+  // is showing) while the run is T-stepped. A freshly-fired activity starts on
+  // its first beat; T advances it; it resets whenever the trail reveals a new
+  // item (the next activity starts back at its own first beat).
+  const [beat, setBeat] = useState(0);
+  useEffect(() => { setBeat(0); }, [count]);
+
   useEffect(() => {
     if (count >= target) return;
     const cur = items[count];
@@ -802,11 +827,16 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
       return () => clearTimeout(t);
     }
     // Ultron's trailing reply (and its feedback row) lands a short beat after the
-    // work has finished streaming.
+    // work has finished streaming. During a T-stepped run it holds — the final T
+    // completes the run (status leaves in_progress), and the reply lands then.
     if (cur?.kind === 'reply') {
+      if (stepGated) return;
       const t = setTimeout(() => setCount(c => c + 1), POST_REPLY_MS);
       return () => clearTimeout(t);
     }
+    // In a T-stepped run, only the FIRST work activity (right after the operator's
+    // message) fires on its own; every later one waits for the operator's T.
+    if (stepGated && prev?.kind !== 'message') return;
     // Activity steps stream in one at a time — each appears in its loading state
     // (spinner) and settles to a check as the next reveals. This drives both the
     // analysis reasoning and the post-approval work; the first work step follows
@@ -814,7 +844,36 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
     const delay = prev?.kind === 'message' ? POST_REPLY_MS : ACTIVITY_STEP_MS;
     const t = setTimeout(() => setCount(c => c + 1), delay);
     return () => clearTimeout(t);
-  }, [count, target]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [count, target, stepGated]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The T hotkey driving a gated run. Each press advances the smallest pending
+  // unit: first the running activity's own sub-beats (its progress line steps
+  // toward its final result), then — once that activity sits on its last beat —
+  // the next activity fires (starting on ITS first beat). When every activity is
+  // revealed and the last one has played out its beats, T completes the run —
+  // checks settle and the case moves on (resolve / follow-up). Ignored while
+  // typing in the composer or any other text field.
+  useEffect(() => {
+    if (!stepGated) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 't' && e.key !== 'T') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (el && el.closest('input, textarea, [contenteditable="true"]')) return;
+      // The running activity is the last revealed item; while its progress line
+      // hasn't reached the final beat, T steps the beat — not the trail.
+      const focused = items[count - 1];
+      const beats = focused?.kind === 'activity' ? (focused.milestone.progress?.length ?? 0) : 0;
+      if (focused?.kind === 'activity' && beat < beats - 1) { setBeat(b => b + 1); return; }
+      const cur = items[count];
+      // Fire the next activity and put it on its first beat in the same batch, so
+      // it never flashes the previous step's beat index for a frame.
+      if (cur?.kind === 'activity') { setCount(c => c + 1); setBeat(0); }
+      else onCompleteRun?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [stepGated, count, beat, onCompleteRun]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Group the revealed stream into runs of consecutive activity cards split by
   // message bubbles, so each run renders as one flush activity block and the
@@ -912,6 +971,9 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
       <ActivityTrailCards
         milestones={milestones}
         focusIndex={focusIndex}
+        /* T-stepped run: the focused step's progress line is driven by the
+           operator's beat index instead of its internal timer. */
+        focusBeat={running && stepGated ? beat : undefined}
         typingIndex={gi === fullLastActsIdx && typingOn ? g.milestones.length - 1 : undefined}
         /* The latest activity group stays open; once a newer activity group follows
            (new work triggered), earlier ones auto-collapse to their "Thought for X"
@@ -979,6 +1041,11 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
     return -1;
   })();
 
+  // The first question unit is the answered BASE decision — the one that was posed
+  // as the bordered prompt card. It stays a card (now read-only); later questions
+  // are follow-ups (posed as plain-text pills), so they stay plain text.
+  const firstQuestionIdx = units.findIndex(u => u.kind === 'question');
+
   // The feedback timestamp for a work/response unit — derived from its milestones.
   const unitFeedbackTime = (u: RenderUnit): string => {
     if (u.kind === 'acts') return synthClock((groups[u.gi] as { milestones: ActivityMilestone[] }).milestones);
@@ -1003,9 +1070,14 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
           // wrapper as work streams in (standalone <p> → DecisionTurn-wrapped) would
           // remount the question line at the same key and replay its entrance — the
           // stray second pop-in. Keeping the wrapper stable animates it exactly once.
+          // The base decision keeps its card (now read-only); follow-up asks stay
+          // as a plain question line.
+          const isBaseDecision = ui === firstQuestionIdx;
           return (
             <DecisionTurn key={`q${ui}`}>
-              <UltronAskedQuestion text={u.text} animate={!settled} />
+              {isBaseDecision
+                ? <UltronAnsweredDecision thread={thread} />
+                : <UltronAskedQuestion text={u.text} animate={!settled} />}
               {liftFeedback && <SessionActions time={unitFeedbackTime(prev)} />}
             </DecisionTurn>
           );
@@ -1275,15 +1347,29 @@ export function UltronChatThread({ messages, replying = false }: { messages: Cha
  *  confirmation message over a View-workflow link, rendered as a chat reply (no
  *  "thinking" group). The link is a demo affordance (no standalone surface yet). */
 function WorkflowSavedReply() {
+  return <WorkflowSavedCard />;
+}
+
+/** Confirmation card — "Workflow saved for future use." with a trailing primary
+ *  View workflow link-out. Mirrors the offer card's surface. Ultron's reply after
+ *  the operator clicks Save workflow; also rendered inline in the resolution turn
+ *  for a deferred save (flagged on the decision card, committed on resolve). */
+function WorkflowSavedCard({ instant = false }: { instant?: boolean }) {
+  const [done, setDone] = useState(false);
   return (
-    <>
-      <OfferLine><TypedText text="Workflow saved for future use. Click the link to see the details." /></OfferLine>
-      <Actions>
-        <Pill variant="tertiary" size="sm" trailingArtwork={<LinkExternal01Icon size={14} />} onClick={() => {}}>
-          View saved workflow
-        </Pill>
-      </Actions>
-    </>
+    <OfferCard>
+      <OfferCardLead>
+        <OfferCardIcon aria-hidden="true"><AutomationIcon size={16} /></OfferCardIcon>
+        <OfferCardText><TypedText text="Workflow saved for future use." onDone={() => setDone(true)} instant={instant} /></OfferCardText>
+      </OfferCardLead>
+      {done && (
+        <OfferCardActions>
+          <Pill variant="secondary" size="sm" trailingArtwork={<LinkExternal01Icon size={14} />} onClick={() => {}}>
+            View workflow
+          </Pill>
+        </OfferCardActions>
+      )}
+    </OfferCard>
   );
 }
 
@@ -1294,6 +1380,34 @@ function WorkflowSavedReply() {
 // conversation keeps the context of what was being decided.
 function UltronAskedQuestion({ text, animate = true }: { text: string; animate?: boolean }) {
   return <AskedQuestion $animate={animate}>{text}</AskedQuestion>;
+}
+
+/** The answered base decision. Once the operator picks an answer, the bordered
+ *  prompt card no longer collapses to a plain question line — it stays a card but
+ *  settles into a read-only record: its action buttons drop away, the drop shadow
+ *  lifts, the plan steps go static, and every line dims to the disabled tone. The
+ *  operator's answer still lands below it as a sent bubble. */
+function UltronAnsweredDecision({ thread }: { thread: ThreadItem }) {
+  // Stage 0 — the original base decision (never a follow-up), so the prompt and
+  // plan match what the live decision card offered.
+  const { prompt, records } = deriveCase(thread, 0);
+  const tasks = THREAD_TASKS[thread.id] ?? deriveStepLabels(prompt).map(label => ({ label }));
+  // The subject avatar rides the corner only when the decision isn't a plan (same
+  // rule as the live card).
+  const person = !(tasks && tasks.length > 0) && records.length > 0 ? records[0] : undefined;
+  return (
+    <AnsweredDecisionCard data-tone={toneFor(thread)}>
+      <ActionHeader>
+        <Prompt>{prompt}</Prompt>
+        {person && (
+          <CardAvatar>
+            <Avatar size="md" src={avatarUrl(person.avatarSeed)} name={person.title} alt={person.title} />
+          </CardAvatar>
+        )}
+      </ActionHeader>
+      {tasks && tasks.length > 0 ? <PlanTaskList tasks={tasks} interactive={false} /> : null}
+    </AnsweredDecisionCard>
+  );
 }
 
 // Outbound messages — the operator's replies in the thread. Each label the user
@@ -1366,6 +1480,19 @@ const ActionCard = styled.div`
   border: 1px solid var(--color-border-opaque);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-below-low);
+  /* Soft lift on hover — same treatment as the save-as-workflow offer card. */
+  transition: transform var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-below-md);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: box-shadow var(--duration-base) var(--ease-out);
+    &:hover { transform: none; }
+  }
 `;
 
 /* The prompt row: the question takes the lead, the subject's avatar (when the
@@ -1828,6 +1955,20 @@ const Pill = styled(Button)`
     color: var(--color-content-inverse-primary) !important;
   }
 
+  /* Disabled primary (the settled "Saved" state) drops to the neutral disabled
+     surface + muted content, rather than a dimmed inverse fill. */
+  &[data-variant='primary']:disabled {
+    background: var(--color-bg-disabled) !important;
+    color: var(--color-content-disabled) !important;
+  }
+
+  /* Secondary pill rides the neutral secondary surface with primary content — a
+     quieter fill than the inverse-primary CTA. */
+  &[data-variant='secondary'] {
+    background: var(--color-bg-secondary) !important;
+    color: var(--color-content-primary) !important;
+  }
+
   /* Outlined (secondary) pills get a strong dark border. */
   &[data-variant='tertiary'] {
     border-color: var(--color-content-primary);
@@ -1868,12 +2009,18 @@ const SaveWorkflowPill = styled(Button)<{ $trailing?: boolean }>`
 
 /* The save-offer turn — Ultron's plain-text resolution recap + the save offer,
    stacked left-aligned with its Save CTA, so it reads as a message turn rather than
-   a bordered decision card. */
-const OfferTurn = styled.div`
+   a bordered decision card. `$divided` draws a hairline above the turn — closing
+   off the activity group it follows — with 16px of air below the rule. */
+const OfferTurn = styled.div<{ $divided?: boolean }>`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
+
+  ${p => p.$divided && `
+    border-top: 1px solid var(--color-border-opaque);
+    padding-top: var(--space-4);
+  `}
 `;
 
 /* One plain prose line in the offer turn — Ultron's voice, matching the inbound
@@ -1886,6 +2033,123 @@ const OfferLine = styled.p`
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-normal);
   color: var(--color-content-primary);
+`;
+
+/* The save-offer as a card row: automation glyph + question leading, the
+   Preview / Save workflow choices trailing. Same surface treatment as the
+   docked decision card (solid, hairline border, small lift). Wraps on narrow
+   widths so the buttons drop below the question rather than crushing it. */
+const OfferCard = styled.div<{ $saved?: boolean }>`
+  align-self: stretch;
+  /* Extra air above the card, on top of the turn's 8px column gap — the card
+     sits 16px below the resolution recap it follows. */
+  margin-top: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-lg);
+  /* Once the play is saved the offer card goes fully inert (its button is
+     disabled) — no drop shadow and no hover lift. Every other state (the live
+     offer, the confirmation card) keeps the small lift shadow. */
+  box-shadow: ${p => (p.$saved ? 'none' : 'var(--shadow-below-low)')};
+  transition: transform var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
+
+  ${p => !p.$saved && css`
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-below-md);
+    }
+  `}
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: box-shadow var(--duration-base) var(--ease-out);
+    &:hover { transform: none; }
+  }
+`;
+
+const OfferCardLead = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+`;
+
+/* Leading automation glyph on a recessed neutral square (8px radius); the glyph
+   itself carries the workflow (purple) motif shared with the feed's purple rows.
+   Hovering the card cross-fades the square to the aurora gradient (an ::after
+   overlay, since background-image gradients can't transition directly) and flips
+   the glyph white for contrast over the saturated core. */
+const OfferCardIcon = styled.span`
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-purple-content-primary);
+  transition: color var(--duration-base) var(--ease-out);
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* Aurora gradient sampled from the design asset (Rectangle 3.svg) — raw hex
+       stops because this decorative art has no token equivalent. */
+    background:
+      radial-gradient(90% 90% at 88% 4%, #F1DB73 0%, rgba(241, 219, 115, 0) 60%),
+      radial-gradient(90% 90% at 90% 96%, #77BEEA 0%, rgba(119, 190, 234, 0) 60%),
+      radial-gradient(75% 75% at 50% 45%, #3BBF81 0%, rgba(59, 191, 129, 0) 100%),
+      #F8E9E0;
+    opacity: 0;
+    transition: opacity var(--duration-base) var(--ease-out);
+  }
+
+  /* Keep the glyph above the gradient overlay. */
+  & > svg { position: relative; z-index: 1; }
+
+  /* The hover cross-fade (glyph flips white, aurora gradient fades in) is
+     suppressed once the card is saved — a settled card no longer reacts. */
+  ${OfferCard}:not([data-saved]):hover & { color: var(--color-content-inverse); }
+  ${OfferCard}:not([data-saved]):hover &::after { opacity: 1; }
+
+  /* Saved (settled) card: the glyph quiets to the disabled tone alongside its
+     label and button. */
+  ${OfferCard}[data-saved] & { color: var(--color-content-disabled); }
+`;
+
+/* The offer question inside the card — set in Alloy's label/md type (14px,
+   medium weight, relaxed leading, wide tracking) so it reads as the card's
+   label rather than body prose. */
+const OfferCardText = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-relaxed);
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-content-primary);
+
+  /* Saved (settled) card: the label quiets to the disabled tone alongside the
+     glyph and button. */
+  ${OfferCard}[data-saved] & { color: var(--color-content-disabled); }
+`;
+
+/* Trailing choices in the offer card — same pop-in as the shared Actions row,
+   minus its top margin so the buttons stay vertically centered in the card. */
+const OfferCardActions = styled(Actions)`
+  margin-top: 0;
+  margin-left: auto;
+  flex-wrap: nowrap;
 `;
 
 /* As the operator answers, the bordered decision card is replaced by this plain
@@ -1914,6 +2178,31 @@ const AskedQuestion = styled.p<{ $animate?: boolean }>`
   ${p => p.$animate === false && 'animation: none;'}
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* The answered base decision — the bordered prompt card frozen into a read-only
+   record. Same surface as the live ActionCard (border, radius, padding) but the
+   drop shadow lifts and every line dims to the disabled tone, so it reads as
+   settled rather than still awaiting an answer. Its action buttons and the plan's
+   disclosure chevrons are gone (see UltronAnsweredDecision / PlanTaskList). */
+const AnsweredDecisionCard = styled.div`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  /* Slightly tighter bottom padding (12px) now the action buttons are gone, so
+     the settled record doesn't trail dead space below its last plan step. */
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+  /* No entrance animation — the card was already on screen as the live decision,
+     so answering settles it in place rather than popping it back in. */
+
+  /* Dim the prompt and plan labels to the settled/disabled tone. */
+  ${Prompt} { color: var(--color-content-disabled); }
+  ${TaskLabel} { color: var(--color-content-disabled); }
 `;
 
 /* Outbound (sent) messages — right-aligned chat bubbles, stacked below the

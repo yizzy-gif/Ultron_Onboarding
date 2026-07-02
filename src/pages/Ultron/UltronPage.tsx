@@ -15,6 +15,7 @@ import type { ChatMessage, ThreadItem, ThreadStatus } from './types';
 import { SEVERITY_RANK, isPurpleRow, composerPlaceholder } from './ultronShared';
 import { UltronCard, UltronActionCard, UltronActivityCards, UltronAnalyzingTrigger } from './UltronCard';
 import { UltronComposer } from './UltronComposer';
+import type { UltronComposerHandle } from './UltronComposer';
 import { LiveLanding } from './LiveLanding';
 import type { IncomingEvent } from './fixtures';
 
@@ -60,6 +61,9 @@ interface UltronPageProps {
   /** DEMO ONLY — advance an analyzing case to Needs approval. */
   onDecide: (threadId: string) => void;
   onAction: (threadId: string, label: string) => void;
+  /** Complete a T-stepped execution run — fired when the operator presses T on
+   *  the last activity (resolves the case or opens its follow-up question). */
+  onCompleteRun: (threadId: string) => void;
   onRefinement: (label: string) => void;
   onSaveWorkflow: (thread: ThreadItem) => void;
   /** Threads flagged to save as a workflow once they resolve (deferred-save intent). */
@@ -85,7 +89,7 @@ interface UltronPageProps {
 const CLOSE_MS = 280;
 
 export function UltronPage({
-  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectRisk,
+  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onCompleteRun, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectRisk,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
   // we hand off to the parent, which swaps the page to the Live landing.
@@ -113,6 +117,14 @@ export function UltronPage({
   const [expandedId, setExpandedId] = useState<string | null>(() => selectedId ?? null);
 
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // The docked chat composer — "Other" on a prompt card hands off to it: the
+  // canned answers didn't fit, so activate the free-text input for the
+  // operator to type their own.
+  const composerRef = useRef<UltronComposerHandle>(null);
+  const handleRefinement = (label: string) => {
+    if (label === 'Other') composerRef.current?.focus();
+    onRefinement(label);
+  };
   // The scroll viewport and its feed content — used to follow the stream: as new
   // activities/messages appear, keep the latest in view (above the docked prompt).
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -292,7 +304,7 @@ export function UltronPage({
                     onClose={handleClose}
                     onDecide={onDecide}
                     onAction={onAction}
-                    onRefinement={onRefinement}
+                    onRefinement={handleRefinement}
                     onSaveWorkflow={onSaveWorkflow}
                   />
                 </StickyEvent>
@@ -310,13 +322,14 @@ export function UltronPage({
                     replying={replyingIds.includes(thread.id)}
                     analyzing={analyzing}
                     footSlot={footSlot}
+                    onCompleteRun={() => onCompleteRun(thread.id)}
                     actionCard={dockThread && dockThread.id === thread.id ? (
                       <UltronActionCard
                         key={`action-${dockThread.id}`}
                         thread={dockThread}
                         stage={stageById[dockThread.id] ?? 0}
                         onAction={onAction}
-                        onRefinement={onRefinement}
+                        onRefinement={handleRefinement}
                         onSaveWorkflow={onSaveWorkflow}
                         saveIntent={pendingWorkflowIds.includes(dockThread.id)}
                         onToggleSaveWorkflow={onToggleSaveWorkflow}
@@ -378,6 +391,7 @@ export function UltronPage({
               <UltronAnalyzingTrigger thread={pagedThread} onDecide={onDecide} />
             )}
             <UltronComposer
+              ref={composerRef}
               key={`composer-${pagedCurrentId}`}
               onSend={text => onSend(pagedCurrentId, text)}
               working={replyingIds.includes(pagedCurrentId)}

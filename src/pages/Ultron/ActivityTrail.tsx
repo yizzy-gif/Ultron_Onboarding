@@ -38,7 +38,7 @@ export function ActivityTrail({ milestones }: { milestones: ActivityMilestone[] 
  *  below the last step and morphs it into the resting magnetic mark once the work
  *  is done; `collapsed` starts the session shut (used for reasoning the operator
  *  has already acted past — the active session streams open). */
-export function ActivityTrailCards({ milestones, typingIndex, focusIndex, collapsed, hideActions, running, animateIn, showConnectors }: {
+export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   /** While running, the index of the step Ultron is currently working. Every step
@@ -46,6 +46,13 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, collap
    *  completed before it) read at full opacity; steps past it render as dimmed,
    *  blank-icon/blank-label skeleton rows until the work reaches them. */
   focusIndex?: number;
+  /** Operator-controlled sub-beat for the focused step (a T-stepped demo run):
+   *  which line of its `progress` sequence is showing. When set, the focused
+   *  step's progress line tracks this index instead of its internal timer. */
+  focusBeat?: number;
+  /** A newer activity group has triggered below this one — the group is history.
+   *  Its step icons demote from the green disc+check to a single muted checkmark
+   *  (content-tertiary), so only the latest group carries the success accent. */
   collapsed?: boolean;
   /** Suppress the group's own feedback row — used when the group sits inside an
    *  <UltronResponse> set, which lifts the feedback below the reply text instead. */
@@ -69,6 +76,7 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, collap
       milestones={milestones}
       typingIndex={typingIndex}
       focusIndex={focusIndex}
+      focusBeat={focusBeat}
       hideActions={hideActions}
       running={running}
       defaultCollapsed={collapsed}
@@ -78,14 +86,17 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, collap
   );
 }
 
-function ActivitySession({ milestones, typingIndex, focusIndex, hideActions, running, animateIn = true, showConnectors = true }: {
+function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   focusIndex?: number;
+  focusBeat?: number;
   hideActions?: boolean;
   running?: boolean;
-  /** Accepted for API compatibility; the session no longer collapses, so it has no
-   *  effect — every activity group stays fully expanded. */
+  /** The group is history — a newer activity group has triggered below it. The
+   *  session stays fully expanded (it no longer collapses), but its settled step
+   *  icons demote to a single muted checkmark so the success accent stays with
+   *  the latest group. */
   defaultCollapsed?: boolean;
   animateIn?: boolean;
   showConnectors?: boolean;
@@ -138,6 +149,13 @@ function ActivitySession({ milestones, typingIndex, focusIndex, hideActions, run
                   placeholder={upcoming}
                   /* The currently-working step reads bolder than the settled ones. */
                   focused={isFocus}
+                  /* In a T-stepped run, the focused step's progress line is driven
+                     by the operator's beat index rather than its internal timer. */
+                  progressBeat={isFocus ? focusBeat : undefined}
+                  /* A superseded group (a newer activity group has triggered below
+                     it) quiets its settled sub-task lines to the disabled tone, so
+                     the success green stays with the latest group. */
+                  superseded={defaultCollapsed}
                   typing={i === typingIndex}
                   /* Each executed step carries its own "tools used" trigger — the
                      actual tools that step drove (Policy Engine, Engage), with detail
@@ -154,6 +172,10 @@ function ActivitySession({ milestones, typingIndex, focusIndex, hideActions, run
                          visibly advances down the list. */
                       loading={typingIndex === i || isFocus || (running && typeof focusIndex !== 'number' && i === milestones.length - 1)}
                       placeholder={upcoming}
+                      /* A superseded group demotes its settled checks to the muted
+                         content-tertiary mark, so the success accent stays with the
+                         latest group. */
+                      muted={defaultCollapsed}
                     />
                   }
                 />
@@ -162,7 +184,7 @@ function ActivitySession({ milestones, typingIndex, focusIndex, hideActions, run
           })}
           {/* Feedback row for the whole group — thumbs up/down, rerun, and a
               timestamp (revealed on hover of the group). */}
-          {!hideActions && <SessionActions time={synthClock(milestones)} />}
+          {!hideActions && !running && <SessionActions time={synthClock(milestones)} />}
       </SessionBody>
     </SessionShell>
   );
@@ -207,7 +229,9 @@ export function synthClock(milestones: ActivityMilestone[]): string {
 /** The AI action cluster beneath a finished activity group: a thumbs up/down
  *  rating, a rerun, and a trailing timestamp. The thumbs are a single toggle —
  *  picking one clears the other, clicking the active one clears it. Local,
- *  self-contained state (demo feedback only). */
+ *  self-contained state (demo feedback only). Only rendered once the group has
+ *  settled — a running group hides it entirely (there's nothing to rate or rerun
+ *  until the work is done). */
 export function SessionActions({ time }: { time: string }) {
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const toggle = (v: 'up' | 'down') => setVote(c => (c === v ? null : v));
@@ -308,7 +332,7 @@ function BlockRecords({ records, initial = 3 }: { records: RecordRef[]; initial?
   );
 }
 
-function MilestoneIcon({ slotRef, hidden, loading, placeholder }: {
+function MilestoneIcon({ slotRef, hidden, loading, placeholder, muted }: {
   icon: ActivityMilestone['icon'];
   slotRef?: (el: HTMLElement | null) => void;
   hidden?: boolean;
@@ -316,6 +340,10 @@ function MilestoneIcon({ slotRef, hidden, loading, placeholder }: {
   /** A not-yet-reached step: show an empty placeholder dot instead of the
    *  loader/check, so the row reads as queued until the work reaches it. */
   placeholder?: boolean;
+  /** The step belongs to a superseded group (a newer activity group has triggered
+   *  below it): the settled mark demotes from the green disc+check to a bare
+   *  checkmark in the muted content-tertiary tone. */
+  muted?: boolean;
 }) {
   // A step in progress shows a spinning ring; once it completes the ring closes
   // into a full circle and the checkmark draws on — one continuous SVG so the
@@ -331,7 +359,7 @@ function MilestoneIcon({ slotRef, hidden, loading, placeholder }: {
   }
   return (
     <IconBadge ref={slotRef} aria-hidden="true" $hidden={hidden} $loading={loading}>
-      <StatusMark viewBox="0 0 24 24" $loading={loading}>
+      <StatusMark viewBox="0 0 24 24" $loading={loading} $muted={muted && !loading}>
         <circle className="ring" cx="12" cy="12" r="9" />
         <path className="check" d="M7.5 12.4l3 3 6-6.4" />
       </StatusMark>
@@ -343,7 +371,7 @@ function MilestoneIcon({ slotRef, hidden, loading, placeholder }: {
  *  trail row and the standalone step card. While `typing`, the headline pulses
  *  (a live "thinking" blink) and the secondary text types out beneath it —
  *  Ultron mid-thought. */
-function MilestoneContent({ milestone, last, typing, icon, collapsible = true, extra, placeholder, focused }: { milestone: ActivityMilestone; last?: boolean; typing?: boolean; icon?: ReactNode; collapsible?: boolean; extra?: ReactNode; placeholder?: boolean; focused?: boolean }) {
+function MilestoneContent({ milestone, last, typing, icon, collapsible = true, extra, placeholder, focused, progressBeat, superseded }: { milestone: ActivityMilestone; last?: boolean; typing?: boolean; icon?: ReactNode; collapsible?: boolean; extra?: ReactNode; placeholder?: boolean; focused?: boolean; progressBeat?: number; superseded?: boolean }) {
   // A not-yet-reached step renders dull, with a blank leading icon — but it shows
   // its real label text so the operator can read what's queued; the icon fills in
   // (loader → check) once the work reaches it.
@@ -361,8 +389,10 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
   // Extra content hung under this step (the group's "tools used" trigger).
   const hasExtra = !!extra;
   // Collapsible steps start collapsed (an accordion the operator opens to reveal
-  // the supplemental line); always-on steps stay expanded.
-  const [open, setOpen] = useState(!collapsible);
+  // the supplemental line); always-on steps stay expanded. A step flagged
+  // `defaultOpen` (the folded analysis line, whose bullets are its content)
+  // starts open but stays collapsible.
+  const [open, setOpen] = useState(!collapsible || !!milestone.defaultOpen);
 
   // Whether this step CAN toggle (has hidden content to reveal). This drives the
   // element TYPE (button vs div) and stays stable across the step's lifecycle — it
@@ -418,6 +448,8 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
             avatarsOnSettle={milestone.avatarsOnSettle}
             reached={milestone.reached}
             live={!!(typing || focused)}
+            beat={progressBeat}
+            superseded={superseded}
             /* The trailing matched-user avatars show while the step is running (as the
                people are reached) and whenever it's expanded. Once it settles and
                collapses they tuck away, leaving just the status line — reopening the
@@ -466,9 +498,14 @@ const PROGRESS_BEAT_MS = 1350;
  *  and holds on the last (the settled result). Once not live, it shows the final
  *  result straight away. The terminal beat reads in the success tone (done),
  *  earlier beats in a muted "still working" tone. The matched-user avatars (when
- *  present) ride the trailing end of the row once the step settles. */
-function MilestoneProgress({ steps, avatars, avatarsOnSettle, reached, live, showAvatars }: { steps: string[]; avatars?: string[]; avatarsOnSettle?: boolean; reached?: number; live?: boolean; showAvatars?: boolean }) {
+ *  present) ride the trailing end of the row once the step settles.
+ *
+ *  `beat` switches the line to CONTROLLED mode (a T-stepped demo run): the shown
+ *  beat tracks that operator-driven index and the internal timer stands down —
+ *  the line only advances when the operator presses T. */
+function MilestoneProgress({ steps, avatars, avatarsOnSettle, reached, live, showAvatars, beat, superseded }: { steps: string[]; avatars?: string[]; avatarsOnSettle?: boolean; reached?: number; live?: boolean; showAvatars?: boolean; beat?: number; superseded?: boolean }) {
   const last = steps.length - 1;
+  const controlled = typeof beat === 'number';
   const [i, setI] = useState(live ? 0 : last);
 
   // Once the step goes live it plays through EVERY beat in order — so the status
@@ -482,12 +519,21 @@ function MilestoneProgress({ steps, avatars, avatarsOnSettle, reached, live, sho
   }, [live]);
 
   useEffect(() => {
-    if (!started.current || i >= last) return;
+    if (controlled || !started.current || i >= last) return;
     const t = setTimeout(() => setI(n => Math.min(n + 1, last)), PROGRESS_BEAT_MS);
     return () => clearTimeout(t);
-  }, [i, last]);
+  }, [i, last, controlled]);
 
-  const done = i >= last;
+  // Controlled mode keeps the internal index in step with the operator's beat, so
+  // when control releases (focus moves to the next activity / the run settles) the
+  // line holds where the operator left it — the final beat — instead of snapping
+  // back to an earlier one.
+  useEffect(() => {
+    if (typeof beat === 'number') setI(Math.min(beat, last));
+  }, [beat, last]);
+
+  const idx = typeof beat === 'number' ? Math.min(beat, last) : i;
+  const done = idx >= last;
   // The green "settled" tone waits until the step is no longer live (focused) — the
   // same moment the leading loader morphs into its checkmark — rather than the instant
   // the beats reach the last line. While the step is still running (`live`), even its
@@ -496,11 +542,11 @@ function MilestoneProgress({ steps, avatars, avatarsOnSettle, reached, live, sho
   const settled = done && !live;
   return (
     <ProgressRow>
-      <ProgressLine key={i} $done={settled} $live={live} aria-live="polite">
+      <ProgressLine key={idx} $done={settled} $live={live} $superseded={superseded} aria-live="polite">
         {/* While live, each beat types itself out (no caret) as it lands, rather than
             popping in whole — so the running status reads as being written in real
             time. A settled/historical line shows its final text straight away. */}
-        {live ? <Typewriter text={steps[i]} caret={false} speed={26} /> : steps[i]}
+        {live ? <Typewriter text={steps[idx]} caret={false} speed={26} /> : steps[idx]}
       </ProgressLine>
       {/* Show the matched-user cluster whenever the step is running (`live`) — not
           just once its beats reach the settled result — so multi-beat steps (whose
@@ -596,14 +642,17 @@ const SessionBody = styled.div`
   position: relative;
   display: flex;
   flex-direction: column;
+  /* Symmetric breathing room above and below the activity stack. */
   padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
 `;
 
 /* Wraps each step (positioning context for its connector). Carries the inter-row
    gap as a bottom margin. A connected group (the work group, which draws the vertical
    line) spaces generously so the line bridges cleanly: space-3 headline-only, space-5
    with a sub-context line. A group with no connector (the reasoning group above) packs
-   tight so the steps line up closely: space-1 / space-3. The last row drops it. */
+   flush — headline-only rows sit at their natural 32px pitch (0) — with space-3 only
+   after a row that shows a sub-context line. The last row drops it. */
 const RowAnchor = styled.div<{ $tight?: boolean; $last?: boolean; $connected?: boolean }>`
   min-width: 0;
   position: relative;
@@ -612,7 +661,7 @@ const RowAnchor = styled.div<{ $tight?: boolean; $last?: boolean; $connected?: b
       ? '0'
       : p.$connected
         ? (p.$tight ? 'var(--space-3)' : 'var(--space-5)')
-        : (p.$tight ? 'var(--space-1)' : 'var(--space-3)')};
+        : (p.$tight ? '0' : 'var(--space-3)')};
 `;
 
 /* A bright segment sweeps top → bottom on a loop, reading as the connection being
@@ -720,7 +769,7 @@ const UsageWrap = styled.div`
    the inline icon column so it lines up under the step headlines. */
 const ExtraSlot = styled.div<{ $indent?: boolean }>`
   padding-top: var(--space-2);
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-3))' : '0')};
+  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
 `;
 
 
@@ -848,7 +897,7 @@ const spin = keyframes`
 
 const RING_C = 56.5;
 
-const StatusMark = styled.svg<{ $loading?: boolean }>`
+const StatusMark = styled.svg<{ $loading?: boolean; $muted?: boolean }>`
   width: var(--space-4);
   height: var(--space-4);
   overflow: visible;
@@ -856,15 +905,16 @@ const StatusMark = styled.svg<{ $loading?: boolean }>`
   .ring {
     /* Loading: hollow (transparent) spinner arc. Done: the circle fills solid
        success green — a filled badge, not an outline. Transparent (not none) so
-       the fill eases in rather than popping. */
-    fill: ${p => (p.$loading ? 'transparent' : 'var(--color-success-fill)')};
+       the fill eases in rather than popping. Muted (a superseded group's settled
+       step): the disc fades out entirely, leaving just the bare check. */
+    fill: ${p => (p.$loading || p.$muted ? 'transparent' : 'var(--color-success-fill)')};
     stroke-width: 2;
     stroke-linecap: round;
     stroke-dasharray: ${RING_C};
     transform-origin: center;
     /* loading: leave ~30% of the circle drawn as the spinner arc */
     stroke-dashoffset: ${p => (p.$loading ? RING_C * 0.7 : 0)};
-    stroke: ${p => (p.$loading ? 'var(--color-content-tertiary)' : 'var(--color-success-fill)')};
+    stroke: ${p => (p.$loading ? 'var(--color-content-tertiary)' : p.$muted ? 'transparent' : 'var(--color-success-fill)')};
     /* A slow, patient spin (2s/rev) — the work behind a step can take 10–20 min in
        real life, so a calm rotation reads as steady progress rather than an
        about-to-finish quick spinner. */
@@ -879,8 +929,9 @@ const StatusMark = styled.svg<{ $loading?: boolean }>`
 
   .check {
     fill: none;
-    /* White check on the filled green disc. */
-    stroke: var(--color-content-inverse-primary);
+    /* White check on the filled green disc; a muted (superseded) step keeps just
+       the check glyph in the quiet content-tertiary tone. */
+    stroke: ${p => (p.$muted ? 'var(--color-content-tertiary)' : 'var(--color-content-inverse-primary)')};
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
@@ -894,11 +945,14 @@ const StatusMark = styled.svg<{ $loading?: boolean }>`
     transform-box: fill-box;
     transform-origin: center;
     /* Starts ~0.42s in — as the ring finishes closing — so the two motions hand
-       off cleanly instead of overlapping. */
+       off cleanly instead of overlapping. The stroke colour transitions with no
+       delay: it carries the white→tertiary demotion when a group is superseded,
+       easing alongside the ring's fade rather than waiting on the draw-on beat. */
     transition:
       stroke-dashoffset 0.4s cubic-bezier(0.33, 1, 0.68, 1) 0.42s,
       opacity 0.26s ease 0.42s,
-      transform 0.42s cubic-bezier(0.34, 1.4, 0.64, 1) 0.42s;
+      transform 0.42s cubic-bezier(0.34, 1.4, 0.64, 1) 0.42s,
+      stroke 0.55s cubic-bezier(0.33, 1, 0.68, 1);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -931,7 +985,9 @@ const Header = styled.div<{ $interactive?: boolean }>`
   all: unset;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  /* Tight 8px lead — the title hugs its loader/checkmark. The sub-content
+     indents (ProgressWrap / Blocks / ExtraSlot) mirror this value. */
+  gap: var(--space-2);
   width: 100%;
   box-sizing: border-box;
   cursor: ${p => (p.$interactive ? 'pointer' : 'default')};
@@ -943,15 +999,23 @@ const Header = styled.div<{ $interactive?: boolean }>`
 `;
 
 /* The step title — always static (no blink). The currently-working step reads
-   bolder; its live pulse is carried by the sub-context line, not the title. */
+   bolder; its live pulse is carried by the sub-context line, not the title.
+   Settled titles rest in the quieter tertiary tone and warm to full primary
+   when the operator hovers the step row; the focused (running) step holds
+   primary throughout. */
 const Headline = styled.span<{ $focused?: boolean }>`
   flex: 1;
   min-width: 0;
   text-align: left;
   font-size: var(--text-sm); /* 14px */
   font-weight: ${p => (p.$focused ? 'var(--font-weight-bold)' : 'var(--font-weight-medium)')};
-  color: var(--color-content-primary);
+  color: ${p => (p.$focused ? 'var(--color-content-primary)' : 'var(--color-content-tertiary)')};
   line-height: var(--line-height-snug);
+  transition: color var(--duration-base) var(--ease-out);
+
+  ${Header}:hover & { color: var(--color-content-primary); }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 /* Chevron points right when collapsed, rotates to point down when expanded. */
@@ -966,7 +1030,7 @@ const Chevron = styled.span`
    title (clears the inline icon column like Blocks) when the icon rides inline;
    in the connected trail the row is already offset so no indent is needed. */
 const ProgressWrap = styled.div<{ $indent?: boolean }>`
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-3))' : '0')};
+  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
 `;
 
 /* Holds the status line and the trailing matched-user avatar group on one row —
@@ -987,7 +1051,7 @@ const progressBlink = keyframes`
 
 /* The status line itself — Alloy paragraph / medium, in the muted content-tertiary
    tone for both the in-flight beats and the settled result. */
-const ProgressLine = styled.div<{ $done?: boolean; $live?: boolean }>`
+const ProgressLine = styled.div<{ $done?: boolean; $live?: boolean; $superseded?: boolean }>`
   flex: 1;
   min-width: 0;
   font-family: var(--font-sans);
@@ -996,8 +1060,10 @@ const ProgressLine = styled.div<{ $done?: boolean; $live?: boolean }>`
   line-height: var(--line-height-loose);
   letter-spacing: var(--tracking-normal);
   /* Settled (done) sub-text reads in the success green — matching the completed
-     step's check — while in-flight beats stay muted. */
-  color: ${p => (p.$done ? 'var(--color-success-content)' : 'var(--color-content-tertiary)')};
+     step's check — while in-flight beats stay muted. Once a newer activity group
+     triggers below, the whole superseded group's sub-text quiets to the disabled
+     tone, so the green stays with the latest work. */
+  color: ${p => (p.$superseded ? 'var(--color-content-disabled)' : p.$done ? 'var(--color-success-content)' : 'var(--color-content-tertiary)')};
   /* The live reveal is carried by the type-on (see MilestoneProgress → Typewriter),
      so the line itself no longer fades/pops in — that avoided a stray flash when a
      settled line re-mounts (e.g. as the finished group folds into a response set).
@@ -1078,8 +1144,8 @@ const Blocks = styled.div<{ $indent?: boolean }>`
      next step (the tighter headline-only gap leaves little room otherwise). */
   padding-bottom: var(--space-2);
   /* Card layout: hang the sub-context under the title by clearing the inline
-     icon column (icon width --space-8 + header gap --space-3). */
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-3))' : '0')};
+     icon column (icon width --space-8 + header gap --space-2). */
+  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
   animation: ${blocksIn} var(--duration-base) var(--ease-out);
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
@@ -1144,7 +1210,9 @@ const BulletList = styled.ul`
   & li {
     font-size: var(--text-xs);
     line-height: var(--line-height-normal);
-    color: var(--color-content-tertiary);
+    /* Lighter than the standard tertiary detail tone — the bullets are deep
+       sub-context, so they sit a step quieter than the step's other text. */
+    color: var(--color-content-disabled);
   }
 `;
 

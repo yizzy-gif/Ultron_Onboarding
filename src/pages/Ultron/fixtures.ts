@@ -776,13 +776,15 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
     { icon: 'done',  headline: 'Follow up', detail: 'Set reminders and I’ll track each of the 5 tasks through to done, so a stalled item surfaces instead of quietly blocking his start.', bullets: ['Reminders set on all 5 tasks', 'Tracking each to completion', 'Will flag any that stall'], progress: ['Setting reminders…', 'Tracking all 5 tasks to done'] },
   ],
   missed_clockin_james: [
-    { icon: 'send',  headline: 'Text James', detail: 'Reached out on SMS — his preferred channel — before treating the gap as a no-show, since it’s early enough that he may just be running late.', bullets: ['Sent to his preferred channel (SMS)', 'Asked if he’s on his way and an ETA', 'No time-off or release on file, so the shift still reads as his'], progress: ['Texting James…', 'Message delivered'], avatars: ['missed_clockin_james'] },
-    { icon: 'clock', headline: 'Await his reply', detail: 'Held the shift open and watched for his response, ready to reflect whatever he says straight onto the record — then check with you before marking it.', bullets: ['James replied — about 15 minutes out', 'Reads as a late start, not an absence', 'Will mark the shift from his reply rather than guess'], progress: ['Waiting on his reply…', 'James replied — 15 min out'] },
+    { icon: 'send',  headline: 'Text James', detail: 'Reached out on SMS — his preferred channel — before treating the gap as a no-show, since it’s early enough that he may just be running late.', bullets: ['Sent to his preferred channel (SMS)', 'Asked if he’s on his way and an ETA', 'No time-off or release on file, so the shift still reads as his'], progress: ['Texting James…', 'Message delivered'], avatars: ['missed_clockin_james'], tools: ['engage'] },
+    { icon: 'clock', headline: 'Await his reply', detail: 'Held the shift open and watched for his response, ready to reflect whatever he says straight onto the record — then check with you before marking it.', bullets: ['James replied — about 15 minutes out', 'Reads as a late start, not an absence', 'Will mark the shift from his reply rather than guess'], progress: ['Waiting on his reply…', 'James replied — 15 min out'], tools: ['engage'] },
   ],
   thread_cancel_wed: [
-    { icon: 'edit',  headline: 'Record the release', detail: 'Logged the Wed 7:00 AM shift as released on her behalf so the record stops showing it as covered when it isn’t — an informal “I can’t make it” doesn’t move the schedule on its own.', bullets: ['Release filed against her Pier 9 · Wed 7:00 AM shift', 'Reason noted as a worker-initiated cancellation', 'Shift now reads open, not covered'], progress: ['Filing the release…', 'Wed shift released'], tools: [] },
+    { icon: 'edit',  headline: 'Record the release', detail: 'Logged the Wed 7:00 AM shift as released on her behalf so the record stops showing it as covered when it isn’t — an informal “I can’t make it” doesn’t move the schedule on its own.', bullets: ['Release filed against her Pier 9 · Wed 7:00 AM shift', 'Reason noted as a worker-initiated cancellation', 'Shift now reads open, not covered'], progress: ['Filing the release…', 'Wed shift released'], tools: ['update'] },
     { icon: 'send',  headline: 'Acknowledge her', detail: 'Replied to close the loop so she knows the cancellation registered and she’s officially off — no ambiguity about whether she’s still expected.', bullets: ['Confirmed she’s released from the Wed shift', 'Thanked her for the heads-up', 'Left the channel open for a reschedule'], progress: ['Messaging her…', 'Confirmed she’s off the shift'], avatars: ['thread_cancel_wed'], tools: ['engage'] },
-    { icon: 'done',  headline: 'Start replacement search', detail: 'Opened a fill immediately rather than waiting — it’s tomorrow’s shift, so every hour of lead time matters for coverage.', bullets: ['Fill opened for Pier 9 · Wed 7:00 AM', 'Matching the qualified, available pool now', 'Will surface the first clean claim for your call'], progress: ['Opening a fill…', 'Search live for Wed 7:00 AM'] },
+    { icon: 'send',  headline: 'Message the top replacements', detail: 'Sent the Wed 7:00 AM brief to the 8 qualified, available workers at once — the shift is tomorrow, so a parallel blast beats working one name at a time.', bullets: ['Matched on Pier 9 site clearance, availability, and rest window', 'All 8 reached on their preferred channel (SMS or in-app)', 'No incentive attached — the qualified pool covers it'], progress: ['Reaching out to Theo Park…', 'Reached 5/8 qualified workers…', 'Reached all 8 qualified workers'], avatars: ['theo_park', 'gina_holt', 'renata_cruz', 'marcus_idris', 'tina_boyd'], reached: 8, tools: ['policy', 'engage-offer'] },
+    { icon: 'clock', headline: 'Collect confirmations', detail: 'Watched the replies land and ran each one against the shift’s policy gates before locking anyone in, so the first yes I take is one that actually clears.', bullets: ['2 workers replied in the first few minutes', 'Theo Park is the first clean yes — site-cleared, no overlap or rest-window conflict', 'Kept the other repliers warm as backup in case he falls through'], progress: ['Waiting on replies…', '2 replies in — checking fit…', 'Theo Park confirmed for Wed'], avatars: ['theo_park'], avatarsOnSettle: true, tools: ['engage-offer'] },
+    { icon: 'done',  headline: 'Fill the Wed shift', detail: 'Assigned Theo to the Wed 7:00 AM shift at Pier 9 and updated the record so the schedule reads covered again.', bullets: ['Theo Park assigned · site clearance re-checked at assignment', 'Calendar and his timesheet updated', 'Coverage restored for Wed 7:00 AM'], progress: ['Assigning the Wed shift…', 'Theo Park assigned · coverage restored'], avatars: ['theo_park'], tools: ['policy', 'update-close'] },
   ],
   payroll_acme_invoice: [
     { icon: 'edit',  headline: 'Add the line item', detail: 'Posted the approved shift to Acme’s open invoice as a new line — billable work belongs on the invoice the moment it’s approved, not at month-end when details get fuzzy.', bullets: ['Only the approved shift posted', 'Added to Acme’s current open invoice', 'Hours and rate carried from the timesheet'], progress: ['Posting the shift…', 'Line item added to Acme’s invoice'] },
@@ -837,8 +839,8 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
     { icon: 'done',  headline: 'Update ledger', detail: 'Posted the payment to the ledger so billing reflects reality and the client doesn’t show an outstanding balance they’ve already settled.', bullets: ['Payment posted to the ledger', 'Client balance now reads settled', 'No open AR remaining on #4821'], progress: ['Updating the ledger…', 'Ledger updated'] },
   ],
   cred_expired_nadia: [
-    { icon: 'alert', headline: 'Flag the 3 shifts at-risk', detail: 'Scanned Nadia’s upcoming schedule and flagged every shift her lapsed CPR cert now blocks her from legally working, so nothing slips through staffed-but-non-compliant.', bullets: ['3 of her upcoming shifts are CPR-gated', 'Each marked at-risk pending renewal', 'Compliance can’t clear them until the cert is current'], progress: ['Scanning her schedule…', '3 CPR-gated shifts flagged'] },
-    { icon: 'edit',  headline: 'Assign a renewal task', detail: 'Created a renewal task on Nadia’s profile with the upload step, so the path back to compliant is explicit and tracked rather than left to memory.', bullets: ['Task assigned to Nadia with a CPR-cert upload step', 'Due before her next gated shift', 'Auto-clears the flags once a valid cert is verified'], progress: ['Creating the task…', 'Renewal task assigned to Nadia'], tools: [] },
+    { icon: 'alert', headline: 'Flag the 3 shifts at-risk', detail: 'Scanned Nadia’s upcoming schedule and flagged every shift her lapsed CPR cert now blocks her from legally working, so nothing slips through staffed-but-non-compliant.', bullets: ['3 of her upcoming shifts are CPR-gated', 'Each marked at-risk pending renewal', 'Compliance can’t clear them until the cert is current'], progress: ['Scanning her schedule…', '3 CPR-gated shifts flagged'], tools: ['update'] },
+    { icon: 'edit',  headline: 'Assign a renewal task', detail: 'Created a renewal task on Nadia’s profile with the upload step, so the path back to compliant is explicit and tracked rather than left to memory.', bullets: ['Task assigned to Nadia with a CPR-cert upload step', 'Due before her next gated shift', 'Auto-clears the flags once a valid cert is verified'], progress: ['Creating the task…', 'Renewal task assigned to Nadia'], tools: ['engage-offer'] },
     { icon: 'done',  headline: 'Line up backfills', detail: 'Lined up qualified backfills for the shifts she can’t cover, so the renewal can take its time without leaving the shifts exposed.', bullets: ['Offered the 3 gated shifts to CPR-current workers', 'Ranked by proximity and reliability', 'Will assign on confirmation, or release if Nadia renews first'], progress: ['Finding backfills…', 'Backfills lined up'], avatars: ['carl_jensen', 'tina_boyd', 'marcus_idris'], tools: ['policy', 'engage'] },
   ],
 };
@@ -870,9 +872,9 @@ export const THREAD_FOLLOWUPS: Record<string, ThreadFollowUp> = {
     prompt: 'James says he’s 15 minutes out. Update the shift as confirmed-late?',
     actions: ['Review', 'Confirm late'],
     working: [
-      { icon: 'edit',  headline: 'Updating the shift', detail: 'James says he’s about 15 minutes out, so I marked the shift confirmed-late from his own word rather than logging a no-show that isn’t one.', bullets: ['Status set to confirmed-late', 'Based on his SMS, ~15 min out', 'No-show flag cleared'], progress: ['Updating the shift…', 'Marked confirmed-late'] },
-      { icon: 'send',  headline: 'Notifying the site', detail: 'Gave the location a heads-up to expect him shortly, so they’re not scrambling to backfill a shift that’s about to be covered.', bullets: ['Site told to expect him ~15 min late', 'Heads off an unnecessary backfill', 'Sent to the site’s point of contact'], progress: ['Messaging the site…', 'Site notified'] },
-      { icon: 'done',  headline: 'Update shift', detail: 'Closed it out with no replacement search — he’s on his way, so coverage holds and there’s nothing left to chase.', bullets: ['Coverage holds — no replacement needed', 'No fill opened', 'Case resolved'], progress: ['Closing it out…', 'Coverage holds — no replacement needed'] },
+      { icon: 'edit',  headline: 'Updating the shift', detail: 'James says he’s about 15 minutes out, so I marked the shift confirmed-late from his own word rather than logging a no-show that isn’t one.', bullets: ['Status set to confirmed-late', 'Based on his SMS, ~15 min out', 'No-show flag cleared'], progress: ['Updating the shift…', 'Marked confirmed-late'], tools: ['update'] },
+      { icon: 'send',  headline: 'Notifying the site', detail: 'Gave the location a heads-up to expect him shortly, so they’re not scrambling to backfill a shift that’s about to be covered.', bullets: ['Site told to expect him ~15 min late', 'Heads off an unnecessary backfill', 'Sent to the site’s point of contact'], progress: ['Messaging the site…', 'Site notified'], tools: ['engage'] },
+      { icon: 'done',  headline: 'Update shift', detail: 'Closed it out with no replacement search — he’s on his way, so coverage holds and there’s nothing left to chase.', bullets: ['Coverage holds — no replacement needed', 'No fill opened', 'Case resolved'], progress: ['Closing it out…', 'Coverage holds — no replacement needed'], tools: ['update-close'] },
     ],
     record: { eyebrow: 'Worker', title: 'James Okoro', meta: ['On his way', '~15 min late', 'Replied via SMS'], avatarSeed: 'missed_clockin_james' },
   },
@@ -972,7 +974,8 @@ export const THREAD_TASKS: Record<string, PlanTask[]> = {
   thread_cancel_wed: [
     { label: 'Record the shift as released on her behalf', detail: 'Log the informal cancellation as a formal release.' },
     { label: 'Reply to acknowledge she’s off it', detail: 'Confirm to her that she’s off the Wed shift.' },
-    { label: 'Start a replacement search for the Wed shift', detail: 'Open a fill right away since the shift is tomorrow.' },
+    { label: 'Message the best-matched replacements', detail: 'Reach out to the top qualified workers (max 8 — based on 16 active scheduling policies) with the shift details.', showsCandidates: true },
+    { label: 'Confirm and fill the Wed shift', detail: 'Assign the first clean confirmation and update the schedule.' },
   ],
   payroll_acme_invoice: [
     { label: 'Add the shift as a line item', detail: 'Post the approved $48/hr · 8 hr shift to Acme’s open invoice.' },
@@ -1353,6 +1356,10 @@ export interface ActivityMilestone {
    *  (see usageForThread). Surfaced in the step's run-details drawer. Present on
    *  executed steps; reasoning steps carry none. */
   usage?: ActivityUsage;
+  /** Start the step's accordion open, so its sub-context (bullets) reads under the
+   *  headline without a click — used by the folded analysis line, whose bullets
+   *  ARE the content. Still collapsible via the chevron. */
+  defaultOpen?: boolean;
 }
 
 const THREAD_ACTIVITY: Record<string, ActivityMilestone[]> = {
@@ -1472,14 +1479,16 @@ export interface UsageNotification {
 }
 
 /** One key/value row in an UpdateData write — a field label and the value Ultron
- *  wrote. `emphasis: 'success-tag'` promotes the value from plain text to a
- *  success-toned Tag. `emphasis: 'change'` renders a field REPLACEMENT: the dropped
- *  `previousValue` struck through, then the new `value` in success green (e.g. an
- *  open shift reassigned from the person who dropped it to the person who took it). */
+ *  wrote. `emphasis: 'success'` renders the value text in the success green — the
+ *  field the update actually changed, against plain context rows. `emphasis:
+ *  'success-tag'` promotes the value from plain text to a success-toned Tag.
+ *  `emphasis: 'change'` renders a field REPLACEMENT: the dropped `previousValue`
+ *  struck through, then the new `value` in success green (e.g. an open shift
+ *  reassigned from the person who dropped it to the person who took it). */
 export interface DetailRow {
   label: string;
   value: string;
-  emphasis?: 'success-tag' | 'change';
+  emphasis?: 'success' | 'success-tag' | 'change';
   /** The prior value, shown struck through before the new `value` when
    *  `emphasis: 'change'`. */
   previousValue?: string;
@@ -1487,10 +1496,14 @@ export interface DetailRow {
 
 /** A write Ultron committed to a Teambridge record — the resolution landing. The
  *  record it wrote to (`recordType` is open-ended, not a fixed enum — Shift today,
- *  any record tomorrow) plus the fields it set, rendered as a key/value list. */
+ *  any record tomorrow) plus the fields it set, rendered as a key/value list.
+ *  A write touching SEVERAL records (e.g. three gated shifts each marked
+ *  unassigned) uses `groups` instead — one field list per record, rendered as
+ *  separate stacked cards under the one eyebrow. */
 export interface UpdateDataResult {
   recordType: 'Shift' | 'Worker' | 'Placement' | string;
-  fields: DetailRow[];
+  fields?: DetailRow[];
+  groups?: DetailRow[][];
 }
 
 /** One tool Ultron drove on a step. Surfaced in the run-details drawer as a
@@ -1546,7 +1559,7 @@ export type ActivityUsage = UsageEntry[];
  *   · `update` — an Update Data write (committing the resolution to a record).
  *  A step lists the kinds it drove; the detail for each is normalized to the case
  *  via THREAD_USAGE. */
-export type UsageToolKind = 'match' | 'policy' | 'credential' | 'incentive' | 'engage' | 'notify' | 'notify-scheduler' | 'update';
+export type UsageToolKind = 'match' | 'policy' | 'credential' | 'incentive' | 'engage' | 'engage-offer' | 'notify' | 'notify-scheduler' | 'update' | 'update-close';
 
 /* Compact constructors for the per-thread content below. */
 const cand = (name: string, match: string, distance: string): UsageCandidate => ({ name, match, distance });
@@ -1573,10 +1586,19 @@ interface ThreadUsageContext {
     eligible?: { total: number; unit: string; moreNoun: string; items: UsageCandidate[] };
   };
   engage?: { name: string; description: string; message: string; total: number; threads: UsageThread[] };
+  /** A second outreach — the replacement-offer blast (see the 'engage-offer' tool
+   *  kind), for cases whose messaging splits in two (e.g. an acknowledgment reply
+   *  to the canceller, then a shift offer to the matched pool). Mirrors
+   *  notifyScheduler / updateClose. */
+  engageOffer?: { name: string; description: string; message: string; total: number; threads: UsageThread[] };
   notify?: { description: string } & UsageNotification;
   /** A second notification, to the scheduler (see the 'notify-scheduler' tool kind). */
   notifyScheduler?: { description: string } & UsageNotification;
   update?: { description: string } & UpdateDataResult;
+  /** A second record write — the closing close-out (see the 'update-close' tool
+   *  kind), for cases whose resolution writes the record twice (e.g. a status
+   *  change mid-case, then the final close-out). Mirrors notifyScheduler. */
+  updateClose?: { description: string } & UpdateDataResult;
 }
 
 const THREAD_USAGE: Record<string, ThreadUsageContext> = {
@@ -1612,11 +1634,41 @@ const THREAD_USAGE: Record<string, ThreadUsageContext> = {
     policy: { description: 'Evaluated scheduling policies, returned eligible workers', policies: ['Availability for Wed 7:00 AM', 'No overlapping shift', 'Site clearance for Pier 9', 'Rest window (≥ 8h between shifts)'], policiesTotal: 16,
       eligible: { total: 8, unit: 'eligible workers', moreNoun: 'eligible workers', items: [cand('Theo Park', '4.7 match', '1.9 mi'), cand('Gina Holt', '4.5 match', '3.3 mi'), cand('Renata Cruz', '4.4 match', '5.0 mi')] } },
     engage: { name: 'Engage: SMS', description: 'Acknowledged her cancellation', message: 'Thanks for letting us know — your Wed 7:00 AM shift has been released. No further action needed.', total: 1, threads: [thr('thread_cancel_wed', 'Mara Lindgren', '“Thanks for understanding.”', 'Read', 'positive')] },
+    update: { description: 'Filed the release on the shift record', recordType: 'Shift', fields: [
+      { label: 'Time', value: 'Wed · 7:00 AM' },
+      { label: 'User', value: 'Mara Lindgren' },
+      { label: 'Reason', value: 'Worker-initiated cancellation' },
+      { label: 'Status', value: 'Unassigned', emphasis: 'change', previousValue: 'Assigned' },
+    ] },
+    engageOffer: { name: 'Engage: SMS', description: 'Sent the shift offer to 8 qualified workers', message: 'The Wed 7:00 AM shift at Pier 9 just opened up. Reply YES to claim it — first to confirm takes the shift.', total: 8, threads: [thr('theo_park', 'Theo Park', '“Yes — I can take Wed.”', 'Interested', 'positive'), thr('gina_holt', 'Gina Holt', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('renata_cruz', 'Renata Cruz', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+    updateClose: { description: 'Wrote the assignment to the shift record', recordType: 'Shift', fields: [
+      { label: 'Time', value: 'Wed · 7:00 AM' },
+      { label: 'Location', value: 'Pier 9' },
+      { label: 'Assigned', value: 'Theo Park', emphasis: 'change', previousValue: 'Mara Lindgren' },
+    ] },
   },
   cred_expired_nadia: {
     policy: { description: 'Evaluated credential policies, flagged the at-risk shifts', policies: ['Active CPR certification', 'Credential current for gated shifts', 'Coverage available for each gap'], policiesTotal: 12,
       eligible: { total: 6, unit: 'eligible backfills', moreNoun: 'eligible backfills', items: [cand('Carl Jensen', '4.7 match', '2.6 mi'), cand('Tina Boyd', '4.5 match', '3.9 mi'), cand('Marcus Idris', '4.4 match', '4.8 mi')] } },
     engage: { name: 'Engage: SMS', description: 'Offered the 3 gated shifts to CPR-current workers', message: 'A few CPR-gated shifts just opened up. Reply YES to pick one up.', total: 6, threads: [thr('carl_jensen', 'Carl Jensen', '“Happy to pick one up.”', 'Interested', 'positive'), thr('tina_boyd', 'Tina Boyd', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('marcus_idris', 'Marcus Idris', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+    update: { description: 'Marked her 3 CPR-gated shifts unassigned pending renewal', recordType: 'Shift', groups: [
+      [
+        { label: 'Time', value: 'Thu · 7:00 AM' },
+        { label: 'User', value: 'Nadia Haddad' },
+        { label: 'Status', value: 'Unassigned', emphasis: 'change', previousValue: 'Assigned' },
+      ],
+      [
+        { label: 'Time', value: 'Sat · 3:00 PM' },
+        { label: 'User', value: 'Nadia Haddad' },
+        { label: 'Status', value: 'Unassigned', emphasis: 'change', previousValue: 'Assigned' },
+      ],
+      [
+        { label: 'Time', value: 'Mon · 7:00 AM' },
+        { label: 'User', value: 'Nadia Haddad' },
+        { label: 'Status', value: 'Unassigned', emphasis: 'change', previousValue: 'Assigned' },
+      ],
+    ] },
+    engageOffer: { name: 'Engage: in-app', description: 'Sent Nadia the renewal task', message: 'A CPR renewal task was assigned to you — upload your updated certification before your next gated shift.', total: 1, threads: [thr('cred_expired_nadia', 'Nadia Haddad', 'Delivered · task on her profile', 'Delivered', 'muted')] },
   },
   timeoff_sofia: {
     policy: { description: 'Evaluated time-off policies, cleared the request', policies: ['PTO balance sufficient', 'No blackout period in the window', 'Coverage for the affected shifts', 'Notice period met'], policiesTotal: 9 },
@@ -1634,6 +1686,17 @@ const THREAD_USAGE: Record<string, ThreadUsageContext> = {
   },
   missed_clockin_james: {
     engage: { name: 'Engage: SMS', description: 'Texted James to check on the missed start', message: 'Hi James — we didn’t see a clock-in for your 9:00 AM shift. Are you on your way?', total: 1, threads: [thr('missed_clockin_james', 'James Okoro', '“On my way — 15 min out.”', 'Replied', 'positive')] },
+    update: { description: 'Marked the shift confirmed-late on his record', recordType: 'Shift', fields: [
+      { label: 'Shift', value: 'Today · 9:00 AM' },
+      { label: 'Worker', value: 'James Okoro' },
+      { label: 'ETA', value: '~15 min out · via SMS' },
+      { label: 'Status', value: 'Confirmed-late', emphasis: 'change', previousValue: 'No clock-in' },
+    ] },
+    updateClose: { description: 'Closed the shift out — coverage holds, no fill opened', recordType: 'Shift', fields: [
+      { label: 'Time', value: 'Today · 9:00 AM' },
+      { label: 'User', value: 'James Okoro' },
+      { label: 'Status', value: 'Holds — no replacement needed', emphasis: 'success' },
+    ] },
   },
   missed_clockout_bianca: {
     engage: { name: 'Engage: SMS', description: 'Texted Bianca to confirm her end time', message: 'Hi Bianca — we didn’t get a clock-out for today. What time did you finish?', total: 1, threads: [thr('missed_clockout_bianca', 'Bianca Rossi', '“Left at 6:00 PM.”', 'Replied', 'positive')] },
@@ -1702,10 +1765,11 @@ function planDetail(kind: UsageToolKind, ctx: ThreadUsageContext): { query: stri
         : `Run the case against ${ctx.policy.policiesTotal} active policies to confirm it clears compliance before acting.`,
     };
   }
-  if (kind === 'engage' && ctx.engage) {
+  const planEng = kind === 'engage' ? ctx.engage : kind === 'engage-offer' ? ctx.engageOffer : undefined;
+  if (planEng) {
     return {
-      query: `engage.send(channel="${engageChannel(ctx.engage.name)}", template="shift_offer", to=matched)`,
-      summary: `${asPlanned(ctx.engage.description)} — ${ctx.engage.total} ${ctx.engage.total === 1 ? 'recipient' : 'recipients'} on their preferred channel, with replies tracked as they land.`,
+      query: `engage.send(channel="${engageChannel(planEng.name)}", template="shift_offer", to=matched)`,
+      summary: `${asPlanned(planEng.description)} — ${planEng.total} ${planEng.total === 1 ? 'recipient' : 'recipients'} on their preferred channel, with replies tracked as they land.`,
     };
   }
   const nctx = kind === 'notify' ? ctx.notify : kind === 'notify-scheduler' ? ctx.notifyScheduler : undefined;
@@ -1758,21 +1822,25 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
   // The Update Data write — committing the resolution to a Teambridge record. Like
   // the read-only analysis tools above, the write reads the same in the plan beat or
   // a later recap, so it's mode-independent.
-  if (kind === 'update') {
-    if (!ctx.update) return null;
-    const { description, ...updateData } = ctx.update;
+  if (kind === 'update' || kind === 'update-close') {
+    const updateCtx = kind === 'update' ? ctx.update : ctx.updateClose;
+    if (!updateCtx) return null;
+    const { description, ...updateData } = updateCtx;
     return { icon: 'record', name: 'Update Data', description, updateData };
   }
 
   // Both notify kinds share the "Engage: Notification" shape — they differ only in
-  // which recipient/message context they draw from (a step can send both).
+  // which recipient/message context they draw from (a step can send both). The two
+  // engage kinds likewise share the message-thread shape: 'engage' reads the case's
+  // primary conversation, 'engage-offer' the second outreach (the offer blast).
   const isNotify = kind === 'notify' || kind === 'notify-scheduler';
   const notifyCtx = kind === 'notify' ? ctx.notify : kind === 'notify-scheduler' ? ctx.notifyScheduler : undefined;
-  const present = (kind === 'policy' && ctx.policy) || (kind === 'engage' && ctx.engage) || !!notifyCtx;
+  const engCtx = kind === 'engage' ? ctx.engage : kind === 'engage-offer' ? ctx.engageOffer : undefined;
+  const present = (kind === 'policy' && ctx.policy) || !!engCtx || !!notifyCtx;
   if (!present) return null;
 
-  const name = kind === 'policy' ? 'Policy Engine' : isNotify ? 'Engage: Notification' : ctx.engage!.name;
-  const description = kind === 'policy' ? ctx.policy!.description : isNotify ? notifyCtx!.description : ctx.engage!.description;
+  const name = kind === 'policy' ? 'Policy Engine' : isNotify ? 'Engage: Notification' : engCtx!.name;
+  const description = kind === 'policy' ? ctx.policy!.description : isNotify ? notifyCtx!.description : engCtx!.description;
   const icon: UsageIconKey = kind === 'policy' ? 'shield' : isNotify ? 'bell' : 'message';
 
   if (mode === 'planning') {
@@ -1782,14 +1850,14 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
     const planned = { icon, name, description: plannedDesc, ...planDetail(kind, ctx) };
     // Messaging tools carry a concrete message body — surface it in the plan too.
     if (isNotify) return { ...planned, message: notifyCtx!.message };
-    if (kind === 'engage') return { ...planned, message: ctx.engage!.message };
+    if (engCtx) return { ...planned, message: engCtx.message };
     return planned;
   }
   if (kind === 'policy') {
     return { icon, name, description, policies: { total: ctx.policy!.policiesTotal, items: ctx.policy!.policies }, eligible: ctx.policy!.eligible };
   }
-  if (kind === 'engage') {
-    return { icon, name, description, message: ctx.engage!.message, threads: { total: ctx.engage!.total, moreNoun: 'threads', items: ctx.engage!.threads } };
+  if (engCtx) {
+    return { icon, name, description, message: engCtx.message, threads: { total: engCtx.total, moreNoun: 'threads', items: engCtx.threads } };
   }
   // notify / notify-scheduler
   const { description: _d, ...notification } = notifyCtx!;
@@ -1944,7 +2012,7 @@ export const RESOLVE_OUTCOMES: Record<string, string> = {
   new_shift_forklift: 'Forklift shift claimed — offered to the top 12 matches in ranked order. Calendar updated.',
   new_user_luis: 'Luis’s onboarding kicked off — welcome sent and all 5 intake tasks assigned and tracking.',
   missed_clockin_james: 'James replied he’s ~15 min out — shift marked confirmed-late and the site notified to expect him. Coverage holds.',
-  thread_cancel_wed: 'Logged the release for the Wed 7:00 AM shift at Pier 9 on her behalf — replacement search now live.',
+  thread_cancel_wed: 'Theo Park took the Wed 7:00 AM shift at Pier 9 — first of 8 qualified workers reached to confirm. Release logged and coverage restored.',
   payroll_acme_invoice: 'Approved shift posted to Acme’s open invoice and the total recalculated. Draft ready for your review.',
   job_event_staff: 'Invited the top 40 matches for Saturday’s 20 openings — filling first-come, with a standby list kept.',
   missed_clockout_bianca: 'Bianca confirmed her ~6:05 PM end time — timesheet corrected before the payroll run.',

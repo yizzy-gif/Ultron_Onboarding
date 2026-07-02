@@ -5,7 +5,7 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { useMemo, useReducer, useRef, useState } from 'react';
-import { ultronThreads, RESOLVE_OUTCOMES, THREAD_FOLLOWUPS, WORKING_ACTIVITIES, spawnThreadFromEvent, mockUltronReply } from './fixtures';
+import { ultronThreads, RESOLVE_OUTCOMES, THREAD_FOLLOWUPS, spawnThreadFromEvent, mockUltronReply } from './fixtures';
 import type { IncomingEvent } from './fixtures';
 import type { ChatMessage, ThreadItem, ThreadStatus } from './types';
 import { SEVERITY_RANK } from './ultronShared';
@@ -16,23 +16,13 @@ const isDetected = (t: ThreadItem) => t.id.startsWith('detected_');
 
 // Activity labels shown one-by-one while a thread executes (Live stream).
 export const EXECUTION_ACTIVITIES = ['Thinking', 'Working', 'Processing'];
-// How long each activity is shown before advancing to the next. Paced slowly so
-// the work reads as real and the move through Live stream is clearly visible.
+// How long each timed activity is shown before advancing to the next (analysis
+// reasoning and autonomous working cases). Operator-approved runs don't use this
+// cadence anymore — they advance step-by-step on the T key (see completeRun).
 export const ACTIVITY_STEP_MS = 5400;
-// Extra beat on the final step before the thread flips to Resolved, so the last
-// milestone (e.g. "Coverage confirmed") is readable rather than flashing past.
-const END_PAD_MS = 1000;
 // Beat between the operator's chat message landing and Ultron's mocked reply, so
 // the reply reads as a considered response rather than an instant echo.
 const REPLY_DELAY_MS = 1100;
-
-/** How long a thread stays "in progress" (Live stream): the full activity
- *  sequence for that thread, plus a closing beat. Scales with the sequence
- *  length so richer events take longer than simple ones. Exported so the event
- *  card's progress bar can fill in step with the work (and resolve). */
-export function workingDurationMs(steps: number): number {
-  return Math.max(steps, 1) * ACTIVITY_STEP_MS + END_PAD_MS;
-}
 
 type Action =
   | { type: 'decide'; threadId: string }
@@ -121,6 +111,9 @@ export interface UltronStore {
   /** DEMO ONLY — advance an analyzing case to Needs approval (reveals the prompt). */
   decide: (threadId: string) => void;
   commit: (threadId: string, label: string) => void;
+  /** Finish an executing run — the operator pressed T on its last activity.
+   *  Opens the follow-up question when one exists, otherwise resolves the case. */
+  completeRun: (threadId: string) => void;
   /** Send a free-text chat message to Ultron — appends it as a sent bubble in the
    *  thread (the composer at the foot of the event page) and lands a mocked Ultron
    *  reply a beat later, without advancing the case's status the way an approved
@@ -246,13 +239,6 @@ export function useUltronStore(): UltronStore {
   };
 
   const commit = (threadId: string, label: string) => {
-    const stage = stageById[threadId] ?? 0;
-    const followUp = THREAD_FOLLOWUPS[threadId];
-    const hasFollowUp = stage === 0 && !!followUp;
-    // Did the operator flag this play to be saved as a workflow? If so, the save is
-    // committed once the case resolves (below), not at click time.
-    const wantsWorkflowSave = pendingWorkflowIds.includes(threadId);
-
     // Keep the view anchored on this case as it travels Working → Done (or back
     // to Needs attention for a follow-up); the sidebar selection follows it.
     setSelectedId(threadId);
@@ -263,33 +249,35 @@ export function useUltronStore(): UltronStore {
       [threadId]: [...(prev[threadId] ?? []), label],
     }));
 
-    // The activity sequence that will play during this execution (the follow-up
-    // sequence when running the second step, otherwise the thread's own).
-    const workSeq = stage === 1 && followUp
-      ? followUp.working
-      : (WORKING_ACTIVITIES[threadId] ?? EXECUTION_ACTIVITIES);
-    const delay = workingDurationMs(workSeq.length);
-
-    // Move to Live stream (executing) while the activity sequence plays.
+    // Move to Live stream (executing). The run has no auto-resolution timer —
+    // the first activity fires and stays running until the operator steps the
+    // rest through with the T key; a final T on the last activity completes the
+    // run (see completeRun).
     dispatch({ type: 'commit', threadId });
+  };
 
-    setTimeout(() => {
-      if (hasFollowUp) {
-        // First step done → ask the follow-up question (back to Needs attention).
-        setStageById(prev => ({ ...prev, [threadId]: 1 }));
-        dispatch({ type: 'reopen', threadId });
-      } else {
-        dispatch({ type: 'resolve', threadId });
-        // The play was flagged for saving during the decision — now that it's
-        // resolved, mark it saved inline (the resolution turn shows the confirmation),
-        // once. (The explicit "Save as workflow" button takes the conversational path
-        // instead — see saveWorkflow.)
-        if (wantsWorkflowSave) {
-          markWorkflowSaved(threadId);
-          setPendingWorkflowIds(prev => prev.filter(id => id !== threadId));
-        }
+  // Finish the current execution run — the operator pressed T on the last
+  // activity. Moves the case on: to its follow-up question (stage 0 → 1, back to
+  // Needs attention) when one exists, otherwise to Resolved — committing any
+  // deferred save-as-workflow intent flagged on the decision card.
+  const completeRun = (threadId: string) => {
+    const stage = stageById[threadId] ?? 0;
+    const followUp = THREAD_FOLLOWUPS[threadId];
+    if (stage === 0 && followUp) {
+      // First step done → ask the follow-up question (back to Needs attention).
+      setStageById(prev => ({ ...prev, [threadId]: 1 }));
+      dispatch({ type: 'reopen', threadId });
+    } else {
+      dispatch({ type: 'resolve', threadId });
+      // The play was flagged for saving during the decision — now that it's
+      // resolved, mark it saved inline (the resolution turn shows the confirmation),
+      // once. (The explicit "Save as workflow" button takes the conversational path
+      // instead — see saveWorkflow.)
+      if (pendingWorkflowIds.includes(threadId)) {
+        markWorkflowSaved(threadId);
+        setPendingWorkflowIds(prev => prev.filter(id => id !== threadId));
       }
-    }, delay);
+    }
   };
   // A free-text reply typed into the composer at the foot of the event page.
   // The operator's message lands immediately as a sent bubble; Ultron then mocks
@@ -360,5 +348,5 @@ export function useUltronStore(): UltronStore {
     replyTimers.current[threadId] = timer;
   };
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved };
 }

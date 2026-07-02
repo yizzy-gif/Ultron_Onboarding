@@ -302,28 +302,32 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
         <Field>
           {/* Eyebrow uppercases, so "Shift details" renders as "SHIFT DETAILS". */}
           <Eyebrow>{`${entry.updateData.recordType} details`}</Eyebrow>
-          <DetailRows>
-            {entry.updateData.fields.map((row, i) => (
-              <ListItem
-                key={i}
-                size="sm"
-                label={row.label}
-                trailingSlot={
-                  row.emphasis === 'change' && row.previousValue
-                    ? (
-                        <ChangeValue>
-                          <DroppedValue>{row.previousValue}</DroppedValue>
-                          <ChangeArrow aria-hidden="true">→</ChangeArrow>
-                          <FilledValue>{row.value}</FilledValue>
-                        </ChangeValue>
-                      )
-                    : row.emphasis === 'success-tag'
-                    ? <StatusTag status="success" size="sm">{row.value}</StatusTag>
-                    : <DetailValue>{row.value}</DetailValue>
-                }
-              />
-            ))}
-          </DetailRows>
+          {/* A multi-record write (`groups`) renders one card per record under the
+              single eyebrow; a single-record write keeps its one `fields` card. */}
+          {(entry.updateData.groups ?? [entry.updateData.fields ?? []]).map((rows, g) => (
+            <DetailRows key={g}>
+              {rows.map((row, i) => (
+                <ListItem
+                  key={i}
+                  size="sm"
+                  label={row.label}
+                  trailingSlot={
+                    row.emphasis === 'change' && row.previousValue
+                      ? (
+                          <ChangeValue>
+                            <DroppedValue>{row.previousValue}</DroppedValue>
+                            <ChangeArrow aria-hidden="true">→</ChangeArrow>
+                            <FilledValue>{row.value}</FilledValue>
+                          </ChangeValue>
+                        )
+                      : row.emphasis === 'success-tag'
+                      ? <StatusTag status="success" size="sm">{row.value}</StatusTag>
+                      : <DetailValue $success={row.emphasis === 'success'}>{row.value}</DetailValue>
+                  }
+                />
+              ))}
+            </DetailRows>
+          ))}
         </Field>
       )}
     </>
@@ -403,7 +407,12 @@ const CandidateRows = styled.div`
    for an emphasized row). */
 const DetailRows = styled(CandidateRows)`
   /* 8px of breathing room inside the card's top/bottom edges — the rows themselves
-     stay tight (see --li-py below), so the padding sits on the card, not each row. */
+     stay tight (see --li-py below), so the padding sits on the card, not each row.
+     The column gap spaces the rows apart (the rows carry no vertical padding of
+     their own). */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   padding-top: var(--space-2);
   padding-bottom: var(--space-2);
 
@@ -424,11 +433,13 @@ const DetailRows = styled(CandidateRows)`
 `;
 
 /* The written value on an UpdateData row — emphasized (primary, medium weight)
-   against the muted label, right-aligned to the trailing edge. */
-const DetailValue = styled.span`
+   against the muted label, right-aligned to the trailing edge. `$success` renders
+   the value in the success green (an `emphasis: 'success'` field) — the row the
+   update actually changed — while the context rows stay primary. */
+const DetailValue = styled.span<{ $success?: boolean }>`
   font-size: var(--text-xs);
   font-weight: var(--font-weight-medium);
-  color: var(--color-content-primary);
+  color: ${p => (p.$success ? 'var(--color-success-content)' : 'var(--color-content-primary)')};
   text-align: right;
 `;
 
@@ -607,6 +618,8 @@ const SectionBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+  /* Breathing room between the entry's header row and its expanded detail. */
+  padding-top: var(--space-2);
 `;
 
 /* A labeled field — an Eyebrow over its value (query block, list, etc.). */
