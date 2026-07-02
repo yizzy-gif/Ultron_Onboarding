@@ -323,6 +323,9 @@ export function UltronPage({
                     analyzing={analyzing}
                     footSlot={footSlot}
                     onCompleteRun={() => onCompleteRun(thread.id)}
+                    /* The answered decision card marks whether its play was flagged
+                       to save as a workflow (the deferred toggle, or already saved). */
+                    saveWorkflowFlagged={pendingWorkflowIds.includes(thread.id) || savedWorkflowIds.includes(thread.id)}
                     actionCard={dockThread && dockThread.id === thread.id ? (
                       <UltronActionCard
                         key={`action-${dockThread.id}`}
@@ -335,6 +338,11 @@ export function UltronPage({
                         onToggleSaveWorkflow={onToggleSaveWorkflow}
                         saved={savedWorkflowIds.includes(dockThread.id)}
                         savedConversationally={(chatByThread[dockThread.id] ?? []).some(m => m.kind === 'workflow_saved')}
+                        /* "Other" opens a composer inline under the decision row —
+                           these back its send / stop, mirroring the docked one. */
+                        onSend={text => onSend(dockThread.id, text)}
+                        replying={replyingIds.includes(dockThread.id)}
+                        onStop={() => onStop(dockThread.id)}
                       />
                     ) : undefined}
                   />

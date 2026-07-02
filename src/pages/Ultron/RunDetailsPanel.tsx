@@ -14,14 +14,14 @@
    candidate to promote into Alloy.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, type ComponentType } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import {
   Accordion, AccordionItem, Avatar, ListItem, StatusTag, Eyebrow, Button,
-  XCloseIcon, ChevronRightIcon, CheckCircleIcon, CheckIcon, Users03Icon, ClipboardCheckIcon,
+  XCloseIcon, ChevronRightIcon, CheckCircleIcon, CheckIcon, Copy01Icon, Users03Icon, ClipboardCheckIcon,
   CheckVerified01Icon, CurrencyDollarIcon, MessageCircle02Icon,
-  TriangleUpIcon, File04Icon, LinkExternal01Icon,
+  TriangleUpIcon, File04Icon, LinkExternal01Icon, SearchMdIcon, Edit02Icon,
 } from 'alloy-design-system';
 import { avatarUrl } from './fixtures';
 import type {
@@ -35,6 +35,8 @@ type IconCmp = ComponentType<{ size?: number }>;
 /** Per-icon leading glyph for the Avatar tile + the inline "tool used" tag. */
 const USAGE_ICON: Record<UsageIconKey, IconCmp> = {
   search: Users03Icon,
+  /* Read Data — a magnifying glass, reading the record before planning. */
+  read: SearchMdIcon,
   message: MessageCircle02Icon,
   policy: ClipboardCheckIcon,
   shield: ClipboardCheckIcon,
@@ -45,6 +47,7 @@ const USAGE_ICON: Record<UsageIconKey, IconCmp> = {
   /* Engage notification — a chat glyph (matches the Engage outreach section). */
   bell: MessageCircle02Icon,
   record: File04Icon,
+  task: ClipboardCheckIcon,
 };
 
 /** The Policy check's read-only evaluation — fronts its tile with a triangle. */
@@ -60,6 +63,7 @@ const SECTION_TITLE: Partial<Record<UsageIconKey, string>> = {
   analytics: 'Incentive recommendation',
   message: 'Engage',
   bell: 'Engage',
+  task: 'Tasks',
 };
 const titleFor = (e: UsageEntry): string =>
   // The Update Data write qualifies its title with the record type it wrote
@@ -117,17 +121,22 @@ const RunItem = styled(AccordionItem)`
     gap: var(--space-3);
   }
   & [role='region'] > div > div {
-    /* 12px gutter + 32px avatar tile + 12px gap — aligns the expanded body (its
-       heading label and cards) under the section title rather than the row edge. */
-    padding-left: calc(var(--space-3) + var(--space-8) + var(--space-3));
-    padding-right: var(--space-3);
+    /* The expanded body reads as a tinted inset card: 12px margin off the item
+       edges (none on top — the header row above provides the spacing), 16px
+       padding inside, secondary fill, 12px radius. */
+    margin: 0 var(--space-3) var(--space-3);
+    padding: var(--space-4);
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
   }
   /* Inset the inter-item divider 12px on each side. Suppress Alloy's full-bleed
-     border (its selector needs &&& to override) and draw the line with a pseudo. */
+     border (its selector needs &&& to override) and draw the line with a pseudo.
+     An expanded section drops its divider — the tinted body card already closes
+     the section visually, so a line under it would double the boundary. */
   &&&:not(:last-child) {
     border-bottom: none;
   }
-  &:not(:last-child)::after {
+  &:not(:last-child):not([data-expanded='true'])::after {
     content: '';
     position: absolute;
     left: var(--space-3);
@@ -180,9 +189,11 @@ export function RunDetailsPanel({ open, onClose, title = 'Run details', usage }:
           <HeaderFade aria-hidden="true" />
           <Accordion type="single" collapsible value={openId} onValueChange={v => setOpenId(typeof v === 'string' ? v : '')}>
             {indexed.map(({ entry, index }) => {
-              // Policy check fronts its tile with a triangle; other tiles keep their
-              // per-icon glyph. (The "Tool used" tag keeps the tool's own glyph.)
-              const Icon = isPolicy(entry) ? TriangleUpIcon : USAGE_ICON[entry.icon];
+              // Policy check fronts its tile with a triangle; an Update Data write
+              // fronts a pencil (matching its titleFor special case — the read keeps
+              // the file glyph); other tiles keep their per-icon glyph. (The "Tool
+              // used" tag keeps the tool's own glyph.)
+              const Icon = entry.updateData ? Edit02Icon : isPolicy(entry) ? TriangleUpIcon : USAGE_ICON[entry.icon];
               return (
                 <RunItem
                   key={index}
@@ -225,22 +236,33 @@ export function RunDetailsPanel({ open, onClose, title = 'Run details', usage }:
 function EntryResult({ entry }: { entry: UsageEntry }) {
   return (
     <>
-      {entry.query && (
+      {entry.channel && (
         <Field>
-          <Eyebrow>Query</Eyebrow>
-          <QueryBlock>{entry.query}</QueryBlock>
-        </Field>
-      )}
-      {entry.summary && (
-        <Field>
-          <Eyebrow>What it does</Eyebrow>
-          <SummaryText>{entry.summary}</SummaryText>
+          <Eyebrow>Channel</Eyebrow>
+          <SummaryText>{entry.channel}</SummaryText>
         </Field>
       )}
       {entry.message && (
         <Field>
           <Eyebrow>Message</Eyebrow>
           <MessageContainer>{entry.message}</MessageContainer>
+        </Field>
+      )}
+      {entry.recordDetails && (
+        <Field>
+          {/* The record snapshot the read pulled — same key/value card as an
+              Update Data write, but read-only (plain values, no change arrows). */}
+          <Eyebrow>Record details</Eyebrow>
+          <DetailRows>
+            {entry.recordDetails.map((row, i) => (
+              <ListItem
+                key={i}
+                size="sm"
+                label={row.label}
+                trailingSlot={<DetailValue $success={row.emphasis === 'success'}>{row.value}</DetailValue>}
+              />
+            ))}
+          </DetailRows>
         </Field>
       )}
       {entry.policies && (
@@ -298,10 +320,31 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
           </Field>
         </>
       )}
+      {entry.task && (
+        <Field>
+          <Eyebrow>Task</Eyebrow>
+          {/* The created task's detail — the same key/value card as an UpdateData
+              write (muted labels, emphasized values). */}
+          <DetailRows>
+            {entry.task.fields.map((row, i) => (
+              <ListItem
+                key={i}
+                size="sm"
+                label={row.label}
+                trailingSlot={
+                  row.emphasis === 'success-tag'
+                    ? <StatusTag status="success" size="sm">{row.value}</StatusTag>
+                    : <DetailValue $success={row.emphasis === 'success'}>{row.value}</DetailValue>
+                }
+              />
+            ))}
+          </DetailRows>
+        </Field>
+      )}
       {entry.updateData && (
         <Field>
-          {/* Eyebrow uppercases, so "Shift details" renders as "SHIFT DETAILS". */}
-          <Eyebrow>{`${entry.updateData.recordType} details`}</Eyebrow>
+          {/* Eyebrow uppercases, so "Record details" renders as "RECORD DETAILS". */}
+          <Eyebrow>Record details</Eyebrow>
           {/* A multi-record write (`groups`) renders one card per record under the
               single eyebrow; a single-record write keeps its one `fields` card. */}
           {(entry.updateData.groups ?? [entry.updateData.fields ?? []]).map((rows, g) => (
@@ -330,7 +373,39 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
           ))}
         </Field>
       )}
+      {/* Query and "What it does" both tuck to the bottom, collapsed by default —
+          the raw invocation and the plain-language recap sit under the concrete
+          results rather than leading them. Query sits just above "What it does". */}
+      {entry.query && (
+        <CollapsibleField label="Query">
+          <QueryBlock>{entry.query}</QueryBlock>
+        </CollapsibleField>
+      )}
+      {/* "What it does" sits last in every tool section and is collapsed by
+          default — the plain-language recap tucks under the concrete detail
+          (query, results, record) rather than leading it. */}
+      {entry.summary && (
+        <CollapsibleField label="What it does">
+          <SummaryText>{entry.summary}</SummaryText>
+        </CollapsibleField>
+      )}
     </>
+  );
+}
+
+/** A field whose content collapses under a clickable eyebrow header (chevron
+ *  rotates open). Starts collapsed — used for the low-priority "What it does"
+ *  recap so it stays out of the way until the operator asks for it. */
+function CollapsibleField({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Field>
+      <CollapseHeader type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <Eyebrow>{label}</Eyebrow>
+        <CollapseChevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></CollapseChevron>
+      </CollapseHeader>
+      {open && children}
+    </Field>
   );
 }
 
@@ -618,8 +693,6 @@ const SectionBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  /* Breathing room between the entry's header row and its expanded detail. */
-  padding-top: var(--space-2);
 `;
 
 /* A labeled field — an Eyebrow over its value (query block, list, etc.). */
@@ -629,14 +702,79 @@ const Field = styled.div`
   gap: var(--space-2);
 `;
 
+/* Clickable header for a collapsible field — the eyebrow label with a trailing
+   chevron that rotates open. Resets the button chrome so it reads as the plain
+   eyebrow row it replaces. */
+const CollapseHeader = styled.button`
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-border-focus);
+    border-radius: var(--radius-sm);
+  }
+`;
+
+/* Chevron points right when collapsed, rotates down when the field is open. */
+const CollapseChevron = styled.span`
+  display: inline-flex;
+  color: var(--color-content-disabled);
+  transition: transform var(--duration-base) var(--ease-default);
+  &[data-open] { transform: rotate(90deg); }
+`;
+
 /* FLAGGED: Teambridge-local monospace surface. Alloy has no Code/CodeBlock
    primitive — only the --font-mono token. This is a candidate to promote into
-   Alloy as a `Code` / `CodeBlock` component. Token-only, so dark mode follows. */
-const QueryBlock = styled.pre`
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
+   Alloy as a `Code` / `CodeBlock` component. Token-only, so dark mode follows.
+   The primary fill lifts the code off the tinted section card; the trailing
+   button copies the query and flips to a check while the copy registers. */
+function QueryBlock({ children }: { children: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(children);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <QuerySurface>
+      <QueryCode>{children}</QueryCode>
+      <Button variant="ghost" size="xs" iconOnly aria-label={copied ? 'Copied' : 'Copy query'} onClick={copy}>
+        {copied ? <CheckIcon size={14} /> : <Copy01Icon size={14} />}
+      </Button>
+    </QuerySurface>
+  );
+}
+
+const QuerySurface = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border-radius: 6px;
   background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-opaque);
+
+  /* The copy control is a hover affordance: hidden at rest, revealed when the
+     pointer is over the box. Opacity (not display) so it keeps its layout slot
+     and stays keyboard-reachable — tabbing to it reveals it too. */
+  & > button {
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-default);
+  }
+  &:hover > button,
+  & > button:focus-visible {
+    opacity: 1;
+  }
+`;
+
+const QueryCode = styled.pre`
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: var(--line-height-normal);

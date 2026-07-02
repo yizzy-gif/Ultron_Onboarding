@@ -745,7 +745,7 @@ export interface WorkingMilestone {
 
 export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   shift_drop_maria: [
-    { icon: 'send',  headline: 'Message the top replacements', detail: 'Pushed the full shift brief to the 20 best-matched RNs at once. This close to start time an urgent fill lands faster blasted in parallel than worked one name at a time, so I skipped the ranked one-by-one outreach.', bullets: ['Matched on ICU credential, distance from Riverside, and reliability score', 'All 20 reached on their preferred channel (SMS or in-app)', 'No bonus incentive attached yet — the qualified pool is deep enough to fill without it'], progress: ['Reaching out to Aisha Karim…', 'Reaching out to Renee Wallace…', 'Reached 9/20 matched RNs…', 'Reached 16/20 matched RNs…', 'Reached all 20 matched RNs'], avatars: ['aisha_karim', 'renee_wallace', 'carl_jensen', 'tina_boyd', 'marcus_idris'], reached: 20 },
+    { icon: 'send',  headline: 'Message the top replacements', detail: 'Pushed the full shift brief to the 20 best-matched RNs at once. This close to start time an urgent fill lands faster blasted in parallel than worked one name at a time, so I skipped the ranked one-by-one outreach.', bullets: ['Matched on ICU credential, distance from Riverside, and reliability score', 'All 20 reached on their preferred channel (SMS or in-app)', 'No bonus incentive attached yet — the qualified pool is deep enough to fill without it'], progress: ['Reaching out to Aisha Karim…', 'Reaching out to Renee Wallace…', 'Reaching out to Carl Jensen…', 'Reaching out to Tina Boyd…', 'Reached all 20 matched RNs'], avatars: ['aisha_karim', 'renee_wallace', 'carl_jensen', 'tina_boyd', 'marcus_idris'], reached: 20 },
     { icon: 'clock', headline: 'Collect confirmations', detail: 'Watched the replies land and ran each one against the shift’s policy gates before locking anyone in, so the first yes I take is one that actually clears.', bullets: ['3 RNs replied in the first few minutes', 'Aisha Karim is the first clean yes — ICU-cleared, no overtime or double-booking conflict', 'Kept the other repliers warm as backup in case she falls through'], progress: ['Waiting on replies…', '3 RNs replied — checking fit…', 'Aisha Karim confirmed for the shift'], avatars: ['aisha_karim'], avatarsOnSettle: true },
     { icon: 'done',  headline: 'Fill shift', detail: 'Assigned Aisha to the 2:00–10:00 PM ICU shift and pushed the change everywhere it needs to land so the record stays honest.', bullets: ['Aisha Karim assigned · ICU credential re-checked at assignment', 'Calendar and her timesheet updated', 'Riverside’s scheduler notified the gap is closed'], progress: ['Assigning the 2:00 PM ICU shift…', 'Aisha Karim assigned · scheduler notified'], avatars: ['aisha_karim', 'priya_nair'], tools: ['policy', 'update', 'notify-scheduler'] },
     { icon: 'send',  headline: 'Notify the location manager', detail: 'Sent the Riverside location manager a heads-up on the reassignment so the floor lead has the change without needing to chase it — informational only, no action on their side.', bullets: ['Dana Brooks notified — Riverside location manager', 'Sent over push + email', 'Flagged as no action needed'], progress: ['Notifying the location manager…', 'Dana Brooks notified'], avatars: ['scheduler_dana'], tools: ['notify'] },
@@ -782,7 +782,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   thread_cancel_wed: [
     { icon: 'edit',  headline: 'Record the release', detail: 'Logged the Wed 7:00 AM shift as released on her behalf so the record stops showing it as covered when it isn’t — an informal “I can’t make it” doesn’t move the schedule on its own.', bullets: ['Release filed against her Pier 9 · Wed 7:00 AM shift', 'Reason noted as a worker-initiated cancellation', 'Shift now reads open, not covered'], progress: ['Filing the release…', 'Wed shift released'], tools: ['update'] },
     { icon: 'send',  headline: 'Acknowledge her', detail: 'Replied to close the loop so she knows the cancellation registered and she’s officially off — no ambiguity about whether she’s still expected.', bullets: ['Confirmed she’s released from the Wed shift', 'Thanked her for the heads-up', 'Left the channel open for a reschedule'], progress: ['Messaging her…', 'Confirmed she’s off the shift'], avatars: ['thread_cancel_wed'], tools: ['engage'] },
-    { icon: 'send',  headline: 'Message the top replacements', detail: 'Sent the Wed 7:00 AM brief to the 8 qualified, available workers at once — the shift is tomorrow, so a parallel blast beats working one name at a time.', bullets: ['Matched on Pier 9 site clearance, availability, and rest window', 'All 8 reached on their preferred channel (SMS or in-app)', 'No incentive attached — the qualified pool covers it'], progress: ['Reaching out to Theo Park…', 'Reached 5/8 qualified workers…', 'Reached all 8 qualified workers'], avatars: ['theo_park', 'gina_holt', 'renata_cruz', 'marcus_idris', 'tina_boyd'], reached: 8, tools: ['policy', 'engage-offer'] },
+    { icon: 'send',  headline: 'Message the top replacements', detail: 'Sent the Wed 7:00 AM brief to the 8 qualified, available workers at once — the shift is tomorrow, so a parallel blast beats working one name at a time.', bullets: ['Matched on Pier 9 site clearance, availability, and rest window', 'All 8 reached on their preferred channel (SMS or in-app)', 'No incentive attached — the qualified pool covers it'], progress: ['Reaching out to Theo Park…', 'Reaching out to Gina Holt…', 'Reaching out to Renata Cruz…', 'Reached all 8 qualified workers'], avatars: ['theo_park', 'gina_holt', 'renata_cruz', 'marcus_idris', 'tina_boyd'], reached: 8, tools: ['policy', 'engage-offer'] },
     { icon: 'clock', headline: 'Collect confirmations', detail: 'Watched the replies land and ran each one against the shift’s policy gates before locking anyone in, so the first yes I take is one that actually clears.', bullets: ['2 workers replied in the first few minutes', 'Theo Park is the first clean yes — site-cleared, no overlap or rest-window conflict', 'Kept the other repliers warm as backup in case he falls through'], progress: ['Waiting on replies…', '2 replies in — checking fit…', 'Theo Park confirmed for Wed'], avatars: ['theo_park'], avatarsOnSettle: true, tools: ['engage-offer'] },
     { icon: 'done',  headline: 'Fill the Wed shift', detail: 'Assigned Theo to the Wed 7:00 AM shift at Pier 9 and updated the record so the schedule reads covered again.', bullets: ['Theo Park assigned · site clearance re-checked at assignment', 'Calendar and his timesheet updated', 'Coverage restored for Wed 7:00 AM'], progress: ['Assigning the Wed shift…', 'Theo Park assigned · coverage restored'], avatars: ['theo_park'], tools: ['policy', 'update-close'] },
   ],
@@ -840,7 +840,7 @@ export const WORKING_ACTIVITIES: Record<string, WorkingMilestone[]> = {
   ],
   cred_expired_nadia: [
     { icon: 'alert', headline: 'Flag the 3 shifts at-risk', detail: 'Scanned Nadia’s upcoming schedule and flagged every shift her lapsed CPR cert now blocks her from legally working, so nothing slips through staffed-but-non-compliant.', bullets: ['3 of her upcoming shifts are CPR-gated', 'Each marked at-risk pending renewal', 'Compliance can’t clear them until the cert is current'], progress: ['Scanning her schedule…', '3 CPR-gated shifts flagged'], tools: ['update'] },
-    { icon: 'edit',  headline: 'Assign a renewal task', detail: 'Created a renewal task on Nadia’s profile with the upload step, so the path back to compliant is explicit and tracked rather than left to memory.', bullets: ['Task assigned to Nadia with a CPR-cert upload step', 'Due before her next gated shift', 'Auto-clears the flags once a valid cert is verified'], progress: ['Creating the task…', 'Renewal task assigned to Nadia'], tools: ['engage-offer'] },
+    { icon: 'edit',  headline: 'Assign a renewal task', detail: 'Created a renewal task on Nadia’s profile with the upload step, so the path back to compliant is explicit and tracked rather than left to memory.', bullets: ['Task assigned to Nadia with a CPR-cert upload step', 'Due before her next gated shift', 'Auto-clears the flags once a valid cert is verified'], progress: ['Creating the task…', 'Renewal task assigned to Nadia'], tools: ['task', 'engage-offer'] },
     { icon: 'done',  headline: 'Line up backfills', detail: 'Lined up qualified backfills for the shifts she can’t cover, so the renewal can take its time without leaving the shifts exposed.', bullets: ['Offered the 3 gated shifts to CPR-current workers', 'Ranked by proximity and reliability', 'Will assign on confirmation, or release if Nadia renews first'], progress: ['Finding backfills…', 'Backfills lined up'], avatars: ['carl_jensen', 'tina_boyd', 'marcus_idris'], tools: ['policy', 'engage'] },
   ],
 };
@@ -1435,8 +1435,8 @@ export function activityForThread(thread: ThreadItem): ActivityMilestone[] {
 /** Which glyph fronts a usage row — mapped to an Alloy icon at render time so the
  *  data layer stays component-free. */
 export type UsageIconKey =
-  | 'search' | 'message' | 'policy' | 'shield' | 'schedule'
-  | 'analytics' | 'clock' | 'monitor' | 'bell' | 'record';
+  | 'search' | 'read' | 'message' | 'policy' | 'shield' | 'schedule'
+  | 'analytics' | 'clock' | 'monitor' | 'bell' | 'record' | 'task';
 
 /** One eligible worker the Policy Engine returned — surfaced as a ranked row in
  *  the Policy Engine detail (name + match score + distance from the site). */
@@ -1531,14 +1531,24 @@ export interface UsageEntry {
   /** Policy Engine — the eligible workers it returned (total count + the top ranked
    *  rows shown; the remainder collapses into a "+N more {moreNoun}" line). */
   eligible?: { total: number; unit: string; moreNoun: string; items: UsageCandidate[] };
+  /** Engage (outreach) — the channel the outreach went out on, e.g. "SMS" /
+   *  "In-app", parsed from the Engage entry's display name. */
+  channel?: string;
   /** Engage (outreach) — the message threads it opened (total count + the first rows
    *  shown; the remainder collapses into a "+N more {moreNoun}" line). */
   threads?: { total: number; moreNoun: string; items: UsageThread[] };
   /** Engage (notification) — a single recipient + the message body sent. */
   notification?: UsageNotification;
+  /** Read Data — the record snapshot the read pulled, as key/value rows. Rendered
+   *  under a "Record details" eyebrow like an Update Data write, but read-only (no
+   *  title qualifier, so the tool stays "Read data: {type}"). */
+  recordDetails?: DetailRow[];
   /** Update Data — the write Ultron committed to a Teambridge record (the record
    *  type + the fields it set). Present on the resolution step that lands the change. */
   updateData?: UpdateDataResult;
+  /** Tasks — the task Ultron created (assignee, steps, due), rendered as the same
+   *  key/value card as an UpdateData write. */
+  task?: { fields: DetailRow[] };
 }
 
 /** The capabilities an activity drew on, as one flat list. A single scannable set
@@ -1559,7 +1569,7 @@ export type ActivityUsage = UsageEntry[];
  *   · `update` — an Update Data write (committing the resolution to a record).
  *  A step lists the kinds it drove; the detail for each is normalized to the case
  *  via THREAD_USAGE. */
-export type UsageToolKind = 'match' | 'policy' | 'credential' | 'incentive' | 'engage' | 'engage-offer' | 'notify' | 'notify-scheduler' | 'update' | 'update-close';
+export type UsageToolKind = 'read' | 'match' | 'policy' | 'credential' | 'incentive' | 'engage' | 'engage-offer' | 'notify' | 'notify-scheduler' | 'update' | 'update-close' | 'task';
 
 /* Compact constructors for the per-thread content below. */
 const cand = (name: string, match: string, distance: string): UsageCandidate => ({ name, match, distance });
@@ -1599,6 +1609,9 @@ interface ThreadUsageContext {
    *  kind), for cases whose resolution writes the record twice (e.g. a status
    *  change mid-case, then the final close-out). Mirrors notifyScheduler. */
   updateClose?: { description: string } & UpdateDataResult;
+  /** A task Ultron created (see the 'task' tool kind) — the invocation plus the
+   *  task's key/value detail (assignee, steps, due). */
+  task?: { description: string; query: string; fields: DetailRow[] };
 }
 
 const THREAD_USAGE: Record<string, ThreadUsageContext> = {
@@ -1669,6 +1682,13 @@ const THREAD_USAGE: Record<string, ThreadUsageContext> = {
       ],
     ] },
     engageOffer: { name: 'Engage: in-app', description: 'Sent Nadia the renewal task', message: 'A CPR renewal task was assigned to you — upload your updated certification before your next gated shift.', total: 1, threads: [thr('cred_expired_nadia', 'Nadia Haddad', 'Delivered · task on her profile', 'Delivered', 'muted')] },
+    task: { description: 'Created the CPR renewal task on Nadia’s profile', query: 'tasks.create(assignee="nadia_haddad", template="credential_renewal") → task', fields: [
+      { label: 'Task', value: 'Renew CPR certification' },
+      { label: 'Assignee', value: 'Nadia Haddad' },
+      { label: 'Step', value: 'Upload the updated cert' },
+      { label: 'Due', value: 'Before next gated shift · Thu 7:00 AM' },
+      { label: 'Status', value: 'Assigned', emphasis: 'success-tag' },
+    ] },
   },
   timeoff_sofia: {
     policy: { description: 'Evaluated time-off policies, cleared the request', policies: ['PTO balance sufficient', 'No blackout period in the window', 'Coverage for the affected shifts', 'Notice period met'], policiesTotal: 9 },
@@ -1735,6 +1755,12 @@ export type UsageMode = 'planning' | 'execution';
 const engageChannel = (name: string): string =>
   /in-app/i.test(name) ? 'in_app' : /sms/i.test(name) ? 'sms' : 'auto';
 
+/** A human-readable channel label for an Engage entry's "Channel" section,
+ *  parsed from its display name ("Engage: SMS" → "SMS", "Engage: in-app" →
+ *  "In-app"). Falls back to "Preferred channel" when the name carries none. */
+const engageChannelLabel = (name: string): string =>
+  /in-app/i.test(name) ? 'In-app' : /sms/i.test(name) ? 'SMS' : 'Preferred channel';
+
 /** Past-tense → base-verb map for the outreach descriptions, so the plan beat can
  *  recast a "what happened" description ("Sent the offer…") as planned intent
  *  ("Will send the offer…") — these messages are drafted in the plan, not yet fired. */
@@ -1786,7 +1812,35 @@ function planDetail(kind: UsageToolKind, ctx: ThreadUsageContext): { query: stri
  *  didn't use that tool. In `planning` mode the entry carries a query + summary
  *  (the intended invocation); in `execution` mode it carries the tool-shaped detail
  *  of what happened (policies/eligible, threads, or a notification). */
-function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMode): UsageEntry | null {
+function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMode, threadId: string): UsageEntry | null {
+  // Read Data — the initial read of the case's record before planning, so the plan
+  // works from the live record rather than assumptions. Reads the same record the
+  // case ultimately writes to (its update context), so it's present whenever the
+  // case touches a record. The 'record' icon has no SECTION_TITLE, so the panel
+  // titles it off the tool name — "Read data: Shift".
+  if (kind === 'read') {
+    const recordType = ctx.update?.recordType ?? ctx.updateClose?.recordType;
+    if (!recordType) return null;
+    const noun = recordType.toLowerCase();
+    // The record the read pulled, as a key/value snapshot — record type, the
+    // shift's time and worker (from the case's meta/subject), and the clock-in it
+    // was looking for (left blank — the missing punch is the whole reason to read).
+    const recordDetails: DetailRow[] = [
+      { label: 'Type', value: recordType },
+      { label: 'Time', value: THREAD_META[threadId]?.shiftTime ?? '' },
+      { label: 'User', value: THREAD_SUBJECTS[threadId] ?? '' },
+      { label: 'Clock in', value: '' },
+    ];
+    return {
+      icon: 'read',
+      name: `Read data: ${recordType}`,
+      description: `Pulled the current ${noun} record before planning`,
+      query: `read_data(record="${recordType}") → current_state`,
+      recordDetails,
+      summary: `Read the ${noun}’s current state — schedule, worker, and status — so the plan works from the live record rather than assumptions.`,
+    };
+  }
+
   // Read-only analysis sub-tools of the replacement-matching flow — present only
   // when the case actually matched a pool (policy.eligible). They're what produced
   // the plan, so the content reads the same in the plan or a later recap.
@@ -1817,6 +1871,14 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
       query: `recommend_incentive(pool_depth=${e.total}) → suggestion`,
       summary: 'Compared against recent last-minute fills — the qualified pool is deep enough, so no bonus was attached.',
     };
+  }
+
+  // Tasks — the task Ultron created. Mode-independent like the record write: the
+  // invocation (query) plus the task's key/value detail.
+  if (kind === 'task') {
+    if (!ctx.task) return null;
+    const { description, query, fields } = ctx.task;
+    return { icon: 'task', name: 'Tasks', description, query, task: { fields } };
   }
 
   // The Update Data write — committing the resolution to a Teambridge record. Like
@@ -1850,14 +1912,14 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
     const planned = { icon, name, description: plannedDesc, ...planDetail(kind, ctx) };
     // Messaging tools carry a concrete message body — surface it in the plan too.
     if (isNotify) return { ...planned, message: notifyCtx!.message };
-    if (engCtx) return { ...planned, message: engCtx.message };
+    if (engCtx) return { ...planned, channel: engageChannelLabel(engCtx.name), message: engCtx.message };
     return planned;
   }
   if (kind === 'policy') {
     return { icon, name, description, policies: { total: ctx.policy!.policiesTotal, items: ctx.policy!.policies }, eligible: ctx.policy!.eligible };
   }
   if (engCtx) {
-    return { icon, name, description, message: engCtx.message, threads: { total: engCtx.total, moreNoun: 'threads', items: engCtx.threads } };
+    return { icon, name, description, channel: engageChannelLabel(engCtx.name), message: engCtx.message, threads: { total: engCtx.total, moreNoun: 'threads', items: engCtx.threads } };
   }
   // notify / notify-scheduler
   const { description: _d, ...notification } = notifyCtx!;
@@ -1872,7 +1934,7 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
 export function usageForThread(threadId: string, kinds: UsageToolKind[], mode: UsageMode = 'execution'): ActivityUsage {
   const ctx = THREAD_USAGE[threadId];
   if (!ctx) return [];
-  return kinds.map(k => usageEntry(k, ctx, mode)).filter((e): e is UsageEntry => e !== null);
+  return kinds.map(k => usageEntry(k, ctx, mode, threadId)).filter((e): e is UsageEntry => e !== null);
 }
 
 /** The tool kinds a working step drove — its explicit `tools` override, else the

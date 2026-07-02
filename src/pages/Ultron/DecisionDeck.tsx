@@ -123,6 +123,10 @@ function DecisionCard({ thread, expanded, exiting, onToggle, onAction, onRefinem
   // Primary action is the last entry; render it first as the filled pill.
   const primaryLabel = thread.actions[thread.actions.length - 1];
   const secondaryLabels = thread.actions.slice(0, -1);
+  // "Other" hands off to the composer; once picked it settles to an outlined
+  // selected chip (solid border warmed to the selected ring) so the choice reads
+  // as committed while the operator types their refinement.
+  const [otherSelected, setOtherSelected] = useState(false);
 
   return (
     <Card data-exiting={exiting || undefined} data-severity={thread.severity}>
@@ -164,7 +168,11 @@ function DecisionCard({ thread, expanded, exiting, onToggle, onAction, onRefinem
               {label}
             </Pill>
           ))}
-          <OtherPill variant="tertiary" size="sm" onClick={() => onRefinement('Other')}>
+          <OtherPill
+            variant="tertiary" size="sm"
+            data-selected={otherSelected || undefined}
+            onClick={() => { setOtherSelected(true); onRefinement('Other'); }}
+          >
             Other
           </OtherPill>
         </Pills>
@@ -292,6 +300,16 @@ const OtherPill = styled(Button)`
   border-radius: var(--radius-full);
   border-style: dashed;
   color: var(--color-content-secondary);
+
+  /* Selected: settles to a solid filled chip on the primary (inverse) surface
+     with white content — the same mono fill as the primary CTA, so the picked
+     "Other" reads as the active choice. */
+  &[data-selected] {
+    border-style: solid;
+    background: var(--color-bg-inverse-primary) !important;
+    color: var(--color-content-inverse-primary) !important;
+    border-color: var(--color-border-selected);
+  }
 `;
 
 const EmptyState = styled.div`

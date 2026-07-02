@@ -137,7 +137,7 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
             const isLast = i === milestones.length - 1;
             return (
               <RowAnchor key={i} $tight={!hasSecondary} $last={isLast} $connected={showConnectors}>
-                {showConnectors && !isLast && <SessionConnector aria-hidden="true" $state={connectorState} $tight={!hasSecondary} />}
+                {showConnectors && !isLast && <SessionConnector aria-hidden="true" $state={connectorState} $tight={!hasSecondary} $superseded={defaultCollapsed} />}
                 <MilestoneContent
                   milestone={m}
                   last
@@ -680,7 +680,7 @@ const connectorDraw = keyframes`
    · working  — a green (success) segment drawing top→bottom on a loop over a faint
                 track, so the link reads as being drawn into the working activity.
    · upcoming — a faint dashed track (not yet reached). */
-const SessionConnector = styled.span<{ $state?: 'done' | 'working' | 'upcoming'; $tight?: boolean }>`
+const SessionConnector = styled.span<{ $state?: 'done' | 'working' | 'upcoming'; $tight?: boolean; $superseded?: boolean }>`
   position: absolute;
   /* Centered on the 32px icon column. */
   left: calc(var(--space-8) / 2);
@@ -714,9 +714,12 @@ const SessionConnector = styled.span<{ $state?: 'done' | 'working' | 'upcoming';
     : css`
         /* done — a full, solid green line. Static: the drawing motion belongs to
            the 'working' state (the looping sweep). Once the step completes, the
-           line simply solidifies rather than re-drawing from zero. */
+           line simply solidifies rather than re-drawing from zero.
+           A superseded group (a newer activity group has triggered below it)
+           demotes the line to the slate scale, so the success green stays with
+           the latest group. */
         width: 1.5px;
-        background-color: var(--color-success-content);
+        background-color: ${p.$superseded ? 'var(--color-slate-border-secondary)' : 'var(--color-success-content)'};
       `};
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
