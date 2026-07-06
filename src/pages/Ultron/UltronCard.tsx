@@ -1024,6 +1024,10 @@ export function UltronActivityCards({ thread, outbound = [], chat = [], replying
            packs its steps tight; every later work group keeps the connector, whose
            line tracks the run's progress. */
         showConnectors={gi !== firstActsIdx}
+        /* The reasoning group folds to a single lighter recap line once its analysis
+           settles ("Analyzed the event and shared a plan"), matching the collapsed
+           look of superseded groups; reopen it to read the thinking. */
+        reasoning={gi === firstActsIdx}
         /* In a response set the group has already streamed in standalone — it's
            merely folding into the set, so suppress its entrance animation (it would
            otherwise replay and blink the already-shown trail). A settled (Done)

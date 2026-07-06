@@ -8,7 +8,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import {
-  Avatar, Button, ChevronRightIcon,
+  Avatar, Button, ChevronRightIcon, ChevronSelectorVerticalIcon,
   AIMessageActions, ThumbsUpIcon, ThumbsDownIcon, RefreshCw04Icon,
 } from 'alloy-design-system';
 import type { ActivityMilestone, RecordRef, ActivityUsage } from './fixtures';
@@ -38,7 +38,7 @@ export function ActivityTrail({ milestones }: { milestones: ActivityMilestone[] 
  *  below the last step and morphs it into the resting magnetic mark once the work
  *  is done; `collapsed` starts the session shut (used for reasoning the operator
  *  has already acted past — the active session streams open). */
-export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors }: {
+export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors, reasoning }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   /** While running, the index of the step Ultron is currently working. Every step
@@ -70,6 +70,11 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
    *  group (below) keeps it, since its line tracks the run's progress. Defaults to
    *  true. */
   showConnectors?: boolean;
+  /** The reasoning group (Ultron's thinking before a decision). Once its analysis
+   *  settles it folds ENTIRELY to a single lighter recap line ("Analyzed the event
+   *  and shared a plan"), matching the collapsed look of superseded groups — the
+   *  operator reopens it to read the reasoning on demand. */
+  reasoning?: boolean;
 }) {
   return (
     <ActivitySession
@@ -82,17 +87,24 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
       defaultCollapsed={collapsed}
       animateIn={animateIn}
       showConnectors={showConnectors}
+      reasoning={reasoning}
     />
   );
 }
 
-function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false }: {
+/** A settled run keeps its last N steps in view; anything earlier folds behind the
+ *  collapse toggle. Set to 1 — only the final step (the outcome) stays visible. */
+const COLLAPSE_MIN_STEPS = 1;
+
+function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false, reasoning = false }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   focusIndex?: number;
   focusBeat?: number;
   hideActions?: boolean;
   running?: boolean;
+  /** Reasoning group — folds to a single lighter recap line once settled. */
+  reasoning?: boolean;
   /** The group is history — a newer activity group has triggered below it. The
    *  session stays fully expanded (it no longer collapses), but its settled step
    *  icons demote to a single muted checkmark so the success accent stays with
@@ -105,10 +117,50 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
   // (Ultron's live working status lives in the fixed presence mark above the composer,
   // see UltronActivityCards' footSlot). The activity list renders on its own.
 
+  // How many leading steps fold behind the single toggle. Cases:
+  //  · reasoning (settled) or superseded — history: fold the WHOLE group to a single
+  //    lighter recap line (nothing shows until the operator reopens it).
+  //  · running — fold the already-done steps ahead of the working one so the trail
+  //    stays anchored on current work + what's left. Skipped for a short run (≤2
+  //    steps), which stays fully open so the two steps read in place.
+  //  · settled & still latest — keep just the tail (the last step, the outcome).
+  const [stepsExpanded, setStepsExpanded] = useState(false);
+  const superseded = defaultCollapsed;
+  const hasFocus = running && typeof focusIndex === 'number';
+  // The reasoning group folds only once its analysis has settled — while it's still
+  // running (analyzing) it shows its live status like any other running group.
+  const foldEntire = superseded || (reasoning && !running);
+  const foldCount = foldEntire
+    ? milestones.length
+    : hasFocus
+      ? (milestones.length > 2 ? Math.min(Math.max(0, focusIndex), milestones.length - 1) : 0)
+      : running
+        ? 0
+        : Math.max(0, milestones.length - COLLAPSE_MIN_STEPS);
+  const collapsible = foldCount > 0;
+  const startIndex = collapsible && !stepsExpanded ? foldCount : 0;
+  // The collapsed toggle stands in for the folded steps, so it reads as a one-line
+  // recap of what they did — their headlines joined — rather than a bare count.
+  const foldedSummary = milestones.slice(0, foldCount).map(m => m.headline).join(' · ');
+  // A superseded group folds to JUST the toggle line (no steps below it) — pack the
+  // group tight so the one-line recap doesn't leave a gap before the next turn.
+  const fullyFolded = milestones.length > 0 && startIndex >= milestones.length;
+
   return (
     <SessionShell $animate={animateIn}>
-      <SessionBody>
-          {milestones.map((m, i) => {
+      <SessionBody $compact={fullyFolded}>
+          {collapsible && (
+            <RowAnchor $tight $last={fullyFolded} $connected={showConnectors}>
+              <CollapseToggle type="button" aria-expanded={stepsExpanded} onClick={() => setStepsExpanded(v => !v)}>
+                <CollapseMark aria-hidden="true"><ChevronSelectorVerticalIcon size={16} /></CollapseMark>
+                <CollapseLabel>
+                  {stepsExpanded ? 'Show fewer steps' : foldedSummary}
+                </CollapseLabel>
+              </CollapseToggle>
+            </RowAnchor>
+          )}
+          {milestones.slice(startIndex).map((m, li) => {
+            const i = startIndex + li;
             // The whole run is shown at once. The focused step (the one Ultron is
             // currently working) and every step already completed before it read at
             // full opacity; steps past the focus are "upcoming" — dimmed skeleton
@@ -638,13 +690,15 @@ const Ellipsis = styled.span``;
    set per-row (see RowAnchor) rather than by a uniform container gap: a row with a
    sub-context line gets a generous gap (space-5) so its heading + sub-line read as
    one unit, while a headline-only step packs tighter (space-3) against the next. */
-const SessionBody = styled.div`
+const SessionBody = styled.div<{ $compact?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
-  /* Symmetric breathing room above and below the activity stack. */
-  padding-top: var(--space-3);
-  padding-bottom: var(--space-3);
+  /* Symmetric breathing room above and below the activity stack. A fully-folded
+     (superseded) group is a single recap line, so it packs tight — just enough to
+     separate it from the turns around it without a full row of padding. */
+  padding-top: ${p => (p.$compact ? 'var(--space-1)' : 'var(--space-3)')};
+  padding-bottom: ${p => (p.$compact ? 'var(--space-1)' : 'var(--space-3)')};
 `;
 
 /* Wraps each step (positioning context for its connector). Carries the inter-row
@@ -883,6 +937,59 @@ const PlaceholderDot = styled.span`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
+/* The "Show N earlier steps" toggle that stands in for a settled run's folded head.
+   Laid out like a real step row — a leading marker in the 32px icon column + a muted
+   label — so it sits flush in the trail (and its connector, drawn by the RowAnchor,
+   bridges down to the first visible step). */
+const CollapseToggle = styled.button`
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-border-focus);
+    border-radius: var(--radius-sm);
+  }
+`;
+
+/* A chevron-selector-vertical marker sitting in the icon column — the expand/
+   collapse affordance for the folded steps, standing in for the checkmarks it hides. */
+const CollapseMark = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  /* The collapse toggle always reads in the quiet disabled tone — it's a recap
+     affordance, not a step, so it stays out of the way of the live trail. */
+  color: var(--color-content-disabled);
+`;
+
+const CollapseLabel = styled.span`
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  /* Always the quiet disabled tone — the recap line stays out of the way. */
+  color: var(--color-content-disabled);
+  line-height: var(--line-height-snug);
+  /* Keep the folded-steps recap to a single line — long summaries truncate. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--duration-base) var(--ease-out);
+
+  ${CollapseToggle}:hover & { color: var(--color-content-primary); }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+`;
+
 /* In-progress step indicator that resolves to the success check. A single SVG
    holds both the ring and the checkmark so the loader *morphs* into the check
    rather than hard-swapping:
@@ -1022,12 +1129,22 @@ const Headline = styled.span<{ $focused?: boolean }>`
   @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
-/* Chevron points right when collapsed, rotates to point down when expanded. */
+/* Chevron points right when collapsed, rotates to point down when expanded. Kept
+   hidden until the row is hovered/focused (or already open), so a settled step reads
+   clean and only surfaces its expand affordance on interaction. */
 const Chevron = styled.span`
   display: inline-flex;
   color: var(--color-content-disabled);
-  transition: transform var(--duration-base) var(--ease-default);
+  opacity: 0;
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-default);
+  ${Header}:hover &,
+  ${Header}:focus-visible &,
+  &[data-open] { opacity: 1; }
   &[data-open] { transform: rotate(90deg); }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 /* Running-progress sub-row — sits directly under the headline. Hangs under the
