@@ -119,15 +119,15 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
             // The connector below this step links it to the next activity, and its look
             // tracks whether that NEXT activity is done yet: once the lower activity
             // completes, the segment fills solid green; the segment feeding into the
-            // currently-working step draws green on a loop; segments at/below the working
-            // step are not-yet-reached (a faint dashed track). A settled session fills
-            // every segment solid green.
+            // currently-working step draws green on a loop. Segments at/below the working
+            // step are not-yet-reached — those draw NO connector at all (rather than a
+            // faint dashed track). A settled session fills every segment solid green.
             const connectorState: 'done' | 'working' | 'upcoming' =
               !running || typeof focusIndex !== 'number'
                 ? 'done'
                 : i < focusIndex - 1 ? 'done'       // the activity below this line is already complete
                 : i === focusIndex - 1 ? 'working'  // this line draws into the currently-working step
-                : 'upcoming';                        // at/below the working step — not yet reached
+                : 'upcoming';                        // at/below the working step — not yet reached (no line)
             // Rows with a persistent sub-context line (a running/settled progress line)
             // earn the larger inter-row gap so the heading + its sub-line read as one
             // unit; a headline-only step has no sub-line, so it packs tighter. When the
@@ -137,7 +137,7 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
             const isLast = i === milestones.length - 1;
             return (
               <RowAnchor key={i} $tight={!hasSecondary} $last={isLast} $connected={showConnectors}>
-                {showConnectors && !isLast && <SessionConnector aria-hidden="true" $state={connectorState} $tight={!hasSecondary} $superseded={defaultCollapsed} />}
+                {showConnectors && !isLast && connectorState !== 'upcoming' && <SessionConnector aria-hidden="true" $state={connectorState} $tight={!hasSecondary} $superseded={defaultCollapsed} />}
                 <MilestoneContent
                   milestone={m}
                   last
@@ -875,8 +875,9 @@ const PlaceholderDot = styled.span`
   height: var(--space-4);
   border-radius: var(--radius-full);
   box-sizing: border-box;
-  /* An outlined muted circle marks the step's leading slot until the work reaches it. */
-  border: 1.5px solid var(--color-border-opaque);
+  /* An outlined muted circle marks the step's leading slot until the work reaches it.
+     A touch darker than the default divider stroke so the empty ring reads clearly. */
+  border: 1.5px solid var(--color-slate-border-tertiary);
   animation: ${skeletonPulse} 1.6s ease-in-out infinite;
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
@@ -1044,12 +1045,14 @@ const ProgressRow = styled.div`
   gap: var(--space-3);
 `;
 
-/* While a step is running, its status line breathes — a gentle opacity pulse that
-   signals live, in-flight work. It stops the instant the step settles (see $live
-   below), leaving the final result solid. */
-const progressBlink = keyframes`
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.45; }
+/* While a step is running, a highlight band sweeps across its status line from
+   left to right, on a loop — signalling live, in-flight work as a directional
+   shimmer. It stops the instant the step settles (see $live below), leaving the
+   final result solid. The band starts and ends off the text, so the loop wraps
+   seamlessly with no visible jump. */
+const progressShimmer = keyframes`
+  from { background-position: 150% 0; }
+  to   { background-position: -50% 0; }
 `;
 
 /* The status line itself — Alloy paragraph / medium, in the muted content-tertiary
@@ -1070,11 +1073,28 @@ const ProgressLine = styled.div<{ $done?: boolean; $live?: boolean; $superseded?
   /* The live reveal is carried by the type-on (see MilestoneProgress → Typewriter),
      so the line itself no longer fades/pops in — that avoided a stray flash when a
      settled line re-mounts (e.g. as the finished group folds into a response set).
-     While the step is still running it blinks to read as actively-working; a settled
-     line holds solid. */
-  ${p => p.$live && css`animation: ${progressBlink} 1.4s ease-in-out infinite;`}
+     While the step is still running a highlight band sweeps left-to-right across it
+     to read as actively-working; a settled line holds solid. */
+  ${p => p.$live && css`
+    background: linear-gradient(
+      90deg,
+      var(--color-content-tertiary) 0%,
+      var(--color-content-tertiary) 45%,
+      var(--color-content-primary) 50%,
+      var(--color-content-tertiary) 55%,
+      var(--color-content-tertiary) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: ${progressShimmer} 1.6s linear infinite;
+  `}
 
-  @media (prefers-reduced-motion: reduce) { animation: none; }
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    -webkit-text-fill-color: currentColor;
+  }
 `;
 
 /* Trailing overlapping avatar cluster — the matched people the step reached. The
