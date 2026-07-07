@@ -1531,6 +1531,9 @@ export interface UsageEntry {
   /** Policy Engine — the eligible workers it returned (total count + the top ranked
    *  rows shown; the remainder collapses into a "+N more {moreNoun}" line). */
   eligible?: { total: number; unit: string; moreNoun: string; items: UsageCandidate[] };
+  /** Incentive recommendation — the verdict on whether to attach a bonus, how much,
+   *  and why. Rendered as a "Recommendation" section. */
+  recommendation?: { add: boolean; amount: string; rationale: string };
   /** Engage (outreach) — the channel the outreach went out on, e.g. "SMS" /
    *  "In-app", parsed from the Engage entry's display name. */
   channel?: string;
@@ -1761,6 +1764,11 @@ const engageChannel = (name: string): string =>
 const engageChannelLabel = (name: string): string =>
   /in-app/i.test(name) ? 'In-app' : /sms/i.test(name) ? 'SMS' : 'Preferred channel';
 
+/** A human-readable label for a notify channel ("push + email" → "Push, Email") —
+ *  title-cased and comma-separated, so the "Channel" section reads as a clean list. */
+const notifyChannelLabel = (channel: string): string =>
+  channel.split(/\s*\+\s*/).map(part => part.replace(/\b\w/g, c => c.toUpperCase())).join(', ');
+
 /** Past-tense → base-verb map for the outreach descriptions, so the plan beat can
  *  recast a "what happened" description ("Sent the offer…") as planned intent
  *  ("Will send the offer…") — these messages are drafted in the plan, not yet fired. */
@@ -1864,12 +1872,19 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
         summary: 'Confirmed the top match’s license and required certifications are active and current.',
       };
     }
-    // incentive
+    // incentive — a deep qualified pool fills on its own, so no bonus; a thin pool
+    // this close to start time warrants an incentive to secure the fill.
+    const deepPool = e.total >= 10;
     return {
       icon: 'analytics', name: 'Match Engine',
       description: 'Compared the fill against recent last-minute fills',
       query: `recommend_incentive(pool_depth=${e.total}) → suggestion`,
-      summary: 'Compared against recent last-minute fills — the qualified pool is deep enough, so no bonus was attached.',
+      summary: deepPool
+        ? 'Compared against recent last-minute fills — the qualified pool is deep enough, so no bonus was attached.'
+        : `Compared against recent last-minute fills — the pool is thin at this notice, so a bonus is recommended to secure the fill.`,
+      recommendation: deepPool
+        ? { add: false, amount: 'No bonus', rationale: `${e.total} qualified ${role} available — deep enough to fill without an incentive.` }
+        : { add: true, amount: '$150 / shift', rationale: `Only ${e.total} qualified ${role} available this close to start — a bonus improves the odds of a confirmed fill.` },
     };
   }
 
@@ -1911,8 +1926,11 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
     const plannedDesc = kind === 'policy' ? description : asPlanned(description);
     const planned = { icon, name, description: plannedDesc, ...planDetail(kind, ctx) };
     // Messaging tools carry a concrete message body — surface it in the plan too.
-    if (isNotify) return { ...planned, message: notifyCtx!.message };
+    if (isNotify) return { ...planned, channel: notifyChannelLabel(notifyCtx!.channel), message: notifyCtx!.message };
     if (engCtx) return { ...planned, channel: engageChannelLabel(engCtx.name), message: engCtx.message };
+    // Policy Engine: the plan lists the policies it evaluated against (the gates the
+    // fill runs through), so the plan shows WHAT it checks — not just the invocation.
+    if (kind === 'policy') return { ...planned, policies: { total: ctx.policy!.policiesTotal, items: ctx.policy!.policies } };
     return planned;
   }
   if (kind === 'policy') {
@@ -1921,9 +1939,10 @@ function usageEntry(kind: UsageToolKind, ctx: ThreadUsageContext, mode: UsageMod
   if (engCtx) {
     return { icon, name, description, channel: engageChannelLabel(engCtx.name), message: engCtx.message, threads: { total: engCtx.total, moreNoun: 'threads', items: engCtx.threads } };
   }
-  // notify / notify-scheduler
+  // notify / notify-scheduler — surface the channel as its own section (comma-joined),
+  // so it reads the same as the planning entry rather than only inside the recipient row.
   const { description: _d, ...notification } = notifyCtx!;
-  return { icon, name, description, notification };
+  return { icon, name, description, channel: notifyChannelLabel(notifyCtx!.channel), notification };
 }
 
 /** The tools a step drove, with detail normalized to its case — the entries shown

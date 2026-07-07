@@ -1115,7 +1115,9 @@ const Header = styled.div<{ $interactive?: boolean }>`
    when the operator hovers the step row; the focused (running) step holds
    primary throughout. */
 const Headline = styled.span<{ $focused?: boolean }>`
-  flex: 1;
+  /* Size to the title text (shrinking if the row is tight) rather than filling the
+     row, so the expand chevron sits right after the label instead of at the far edge. */
+  flex: 0 1 auto;
   min-width: 0;
   text-align: left;
   font-size: var(--text-sm); /* 14px */

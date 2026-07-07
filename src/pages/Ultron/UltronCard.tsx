@@ -722,7 +722,7 @@ function workingToMilestone(w: WorkingMilestone, threadId: string): ActivityMile
 function analysisMilestone(steps: AnalyzingStep[], threadId: string): ActivityMilestone {
   // usageForThread drops kinds the case didn't use, so simpler events show fewer.
   // 'read' leads — Ultron pulls the case's record before planning against it.
-  const usage = usageForThread(threadId, ['read', 'match', 'policy', 'credential', 'incentive', 'engage', 'notify'], 'planning');
+  const usage = usageForThread(threadId, ['read', 'match', 'policy', 'incentive', 'engage', 'notify'], 'planning');
   return {
     icon: 'done',
     headline: 'Analyzed the event and shared a plan',

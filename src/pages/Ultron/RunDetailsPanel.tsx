@@ -14,7 +14,7 @@
    candidate to promote into Alloy.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, type ComponentType, type ReactNode } from 'react';
+import { useState, useEffect, type ComponentType, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import {
@@ -156,12 +156,33 @@ export interface RunDetailsPanelProps {
   usage: ActivityUsage;
 }
 
+/** Enter/exit duration for the drawer (scrim fade + panel slide). Kept in JS so the
+ *  unmount waits for the exit transition; mirrored in the styled transitions below. */
+const PANEL_ANIM_MS = 240;
+
 export function RunDetailsPanel({ open, onClose, title = 'Run details', usage }: RunDetailsPanelProps) {
   // Single-open accordion — one controlled Accordion so opening any section
   // collapses the others. Keyed by entry index.
   const [openId, setOpenId] = useState<string>(() => (usage.length ? '0' : ''));
 
-  if (!open) return null;
+  // Two-phase visibility so the drawer animates BOTH ways: `mounted` keeps it in the
+  // tree through its exit transition; `shown` drives the enter/exit state (flipped a
+  // frame after mount so the browser paints the closed state first, then transitions).
+  const [mounted, setMounted] = useState(open);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => { raf2 = requestAnimationFrame(() => setShown(true)); });
+      return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+    }
+    setShown(false);
+    const t = setTimeout(() => setMounted(false), PANEL_ANIM_MS);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  if (!mounted) return null;
 
   // Count tappable sections (matches the trail's "N tools used" trigger). Some
   // sections share an underlying engine, so this counts operations, not distinct tools.
@@ -173,8 +194,8 @@ export function RunDetailsPanel({ open, onClose, title = 'Run details', usage }:
 
   return createPortal(
     <Overlay role="dialog" aria-modal="true" aria-label={title}>
-      <Scrim onClick={onClose} />
-      <Panel>
+      <Scrim $shown={shown} onClick={onClose} />
+      <Panel $shown={shown}>
         <Header>
           <Headings>
             <Title>{title}</Title>
@@ -259,7 +280,7 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
                 key={i}
                 size="sm"
                 label={row.label}
-                trailingSlot={<DetailValue $success={row.emphasis === 'success'}>{row.value}</DetailValue>}
+                trailingSlot={<DetailValue $success={row.emphasis === 'success'} $placeholder={!row.value}>{row.value || '???'}</DetailValue>}
               />
             ))}
           </DetailRows>
@@ -300,7 +321,7 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
                 divider={false}
                 leadingSlot={<Avatar size="sm" src={avatarUrl(entry.notification.seed)} name={entry.notification.name} alt="" style={{ ['--avatar-bg' as never]: 'var(--color-bg-secondary)' }} />}
                 label={entry.notification.name}
-                description={`${entry.notification.role} · ${entry.notification.channel}`}
+                description={entry.notification.role}
                 trailingSlot={
                   <Button
                     variant="ghost"
@@ -334,7 +355,7 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
                 trailingSlot={
                   row.emphasis === 'success-tag'
                     ? <StatusTag status="success" size="sm">{row.value}</StatusTag>
-                    : <DetailValue $success={row.emphasis === 'success'}>{row.value}</DetailValue>
+                    : <DetailValue $success={row.emphasis === 'success'} $placeholder={!row.value}>{row.value || '???'}</DetailValue>
                 }
               />
             ))}
@@ -365,12 +386,29 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
                         )
                       : row.emphasis === 'success-tag'
                       ? <StatusTag status="success" size="sm">{row.value}</StatusTag>
-                      : <DetailValue $success={row.emphasis === 'success'}>{row.value}</DetailValue>
+                      : <DetailValue $success={row.emphasis === 'success'} $placeholder={!row.value}>{row.value || '???'}</DetailValue>
                   }
                 />
               ))}
             </DetailRows>
           ))}
+        </Field>
+      )}
+      {entry.recommendation && (
+        <Field>
+          <Eyebrow>Recommendation</Eyebrow>
+          <RecommendationCard>
+            <RecommendationRow>
+              <RecommendationKey>Incentive?</RecommendationKey>
+              <RecommendationAmount $add={entry.recommendation.add}>
+                {entry.recommendation.add ? entry.recommendation.amount : 'No bonus'}
+              </RecommendationAmount>
+            </RecommendationRow>
+            <RecommendationRow>
+              <RecommendationKey>Reason</RecommendationKey>
+              <RecommendationRationale>{entry.recommendation.rationale}</RecommendationRationale>
+            </RecommendationRow>
+          </RecommendationCard>
         </Field>
       )}
       {/* Query and "What it does" both tuck to the bottom, collapsed by default —
@@ -511,10 +549,17 @@ const DetailRows = styled(CandidateRows)`
    against the muted label, right-aligned to the trailing edge. `$success` renders
    the value in the success green (an `emphasis: 'success'` field) — the row the
    update actually changed — while the context rows stay primary. */
-const DetailValue = styled.span<{ $success?: boolean }>`
+const DetailValue = styled.span<{ $success?: boolean; $placeholder?: boolean }>`
   font-size: var(--text-xs);
   font-weight: var(--font-weight-medium);
-  color: ${p => (p.$success ? 'var(--color-success-content)' : 'var(--color-content-primary)')};
+  /* A missing value renders as a muted "???" placeholder (disabled tone) so the row
+     reads as "no data yet" rather than a blank trailing edge. */
+  color: ${p =>
+    p.$placeholder
+      ? 'var(--color-content-disabled)'
+      : p.$success
+        ? 'var(--color-success-content)'
+        : 'var(--color-content-primary)'};
   text-align: right;
 `;
 
@@ -620,14 +665,17 @@ const Overlay = styled.div`
   font-family: var(--font-sans);
 `;
 
-const Scrim = styled.div`
+const Scrim = styled.div<{ $shown?: boolean }>`
   position: absolute;
   inset: 0;
   background: var(--color-bg-always-dark);
-  opacity: 0.45;
+  opacity: ${p => (p.$shown ? 0.45 : 0)};
+  transition: opacity ${PANEL_ANIM_MS}ms var(--ease-out);
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
-const Panel = styled.div`
+const Panel = styled.div<{ $shown?: boolean }>`
   position: relative;
   width: min(460px, 92vw);
   height: 100%;
@@ -636,6 +684,11 @@ const Panel = styled.div`
   background: var(--color-bg-primary);
   border-left: 1px solid var(--color-border-opaque);
   box-shadow: var(--shadow-below-high);
+  /* Slides in from the right edge on open, back out on close. */
+  transform: translateX(${p => (p.$shown ? '0' : '100%')});
+  transition: transform ${PANEL_ANIM_MS}ms var(--ease-out);
+
+  @media (prefers-reduced-motion: reduce) { transition: none; transform: none; }
 `;
 
 const Header = styled.div`
@@ -898,6 +951,51 @@ const RecipientCard = styled.div`
     /* Name uses the Label/sm type size. */
     --li-label-size: var(--text-xs);
   }
+`;
+
+/* The incentive verdict — a tinted, bordered card carrying the decision (a status
+   tag + the amount) with the rationale beneath. */
+const RecommendationCard = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-opaque);
+`;
+
+/* One labeled row — a fixed muted key column on the left, the value on the right. */
+const RecommendationRow = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+`;
+
+const RecommendationKey = styled.span`
+  flex-shrink: 0;
+  width: var(--space-20);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+`;
+
+/* The "Incentive?" answer — the bonus amount in success green when recommended,
+   or a muted "No bonus" when none. */
+const RecommendationAmount = styled.span<{ $add?: boolean }>`
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: ${p => (p.$add ? 'var(--color-success-content)' : 'var(--color-content-primary)')};
+`;
+
+/* The "Reason" prose — plain, muted, wraps under its key. */
+const RecommendationRationale = styled.span`
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-content-secondary);
 `;
 
 /* The plan's "what it does" summary — plain prose, no container chrome. */
