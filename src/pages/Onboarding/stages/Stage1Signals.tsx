@@ -8,7 +8,7 @@ import styled from 'styled-components';
 import {
   Button, Tag, AILoader,
   ComposerActions, ComposerAttachment, ComposerSendButton,
-  Link01Icon, File04Icon, FeatherIcon, ArrowNarrowRightIcon,
+  ArrowNarrowRightIcon,
 } from 'alloy-design-system';
 import type { Signal, SignalKind } from '../types';
 import { SIGNAL_SUGGESTIONS } from '../fixtures';
@@ -79,11 +79,6 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitText(); } }}
         />
         <ComposerRow>
-          <Hints>
-            <Hint><FeatherIcon size={14} /> Describe</Hint>
-            <Hint><Link01Icon size={14} /> Paste a URL</Hint>
-            <Hint><File04Icon size={14} /> Attach a roster</Hint>
-          </Hints>
           <Actions>
             <ComposerActions>
               <ComposerAttachment state={ingesting ? 'disabled' : 'idle'} onSelect={attachFile} />
@@ -190,23 +185,7 @@ const Field = styled.textarea`
 const ComposerRow = styled.div`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-`;
-
-const Hints = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-`;
-
-const Hint = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
+  justify-content: flex-start;
 `;
 
 const Actions = styled.div`
