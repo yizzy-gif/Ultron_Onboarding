@@ -304,15 +304,15 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
       </Tray>
 
       <FootRow>
-        <Button
+        <FindButton
           variant="primary"
-          size="lg"
+          size="sm"
           disabled={signals.length === 0}
-          trailingArtwork={<ArrowNarrowRightIcon size={18} />}
+          trailingArtwork={<ArrowNarrowRightIcon size={16} />}
           onClick={onNext}
         >
           Find my template
-        </Button>
+        </FindButton>
       </FootRow>
     </Wrap>
   );
@@ -648,4 +648,9 @@ const LegendSwatch = styled.span`
 const FootRow = styled.div`
   display: flex;
   justify-content: flex-end;
+`;
+
+// 32px (sm) pill — fully rounded corners on the primary CTA.
+const FindButton = styled(Button)`
+  border-radius: var(--radius-full);
 `;
