@@ -4,6 +4,7 @@
    a SOLID tag for hard evidence, an OUTLINED tag for an AI inference. */
 
 import { useMemo, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   Button, Tag, AILoader,
@@ -46,6 +47,8 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
   const [ingesting, setIngesting] = useState(false);
   // Attached-but-not-yet-sent files, shown as chips on the composer's top row.
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  // True while a file is dragged over the composer — draws the drop affordance.
+  const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileSeq = useRef(0);
 
@@ -105,6 +108,25 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
   };
   const removePending = (id: string) => setPendingFiles(prev => prev.filter(f => f.id !== id));
 
+  // Drag & drop onto the composer stages files exactly like the attach button.
+  const onDragOver = (e: DragEvent) => {
+    if (ingesting) return;
+    if (Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault();
+      setDragOver(true);
+    }
+  };
+  const onDragLeave = (e: DragEvent) => {
+    // Ignore leaves into child elements — only clear when leaving the composer.
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOver(false);
+  };
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files?.length) attachFile(e.dataTransfer.files);
+  };
+
   const dismiss = (id: string) => onChange(signals.filter(s => s.id !== id));
 
   const resize = () => {
@@ -139,7 +161,14 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
 
       {/* Composer — free text + attach + send, with the AI loader taking over the
           send button's spot while I read what you gave me. */}
-      <Composer onSubmit={e => { e.preventDefault(); submit(); }}>
+      <Composer
+        onSubmit={e => { e.preventDefault(); submit(); }}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        $dragOver={dragOver}
+      >
+        {dragOver && <DropHint><File04Icon size={16} /> Drop to import</DropHint>}
         {/* Top row — staged files, shown as removable chips before send. */}
         {pendingFiles.length > 0 && (
           <PendingRow>
@@ -306,7 +335,8 @@ const Lede = styled.p`
   color: var(--color-content-secondary);
 `;
 
-const Composer = styled.form`
+const Composer = styled.form<{ $dragOver?: boolean }>`
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -315,8 +345,35 @@ const Composer = styled.form`
   border: 1px solid var(--color-border-opaque);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-below-low);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              background var(--duration-fast) var(--ease-default);
 
   &:focus-within { border-color: var(--color-border-focus); }
+
+  /* Drag affordance — a dashed brand outline + tinted surface while a file is
+     dragged over, so it reads as a drop target. */
+  ${p => p.$dragOver && `
+    border-color: var(--color-content-link);
+    border-style: dashed;
+    background: var(--color-info-bg);
+  `}
+`;
+
+const DropHint = styled.div`
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--color-info-bg) 88%, transparent);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-content-link);
+  pointer-events: none;
 `;
 
 const Field = styled.textarea`
