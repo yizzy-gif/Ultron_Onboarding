@@ -24,6 +24,8 @@ interface Stage2Props {
 export function Stage2Template({ signals, chosen, onChoose, onNext, onBack }: Stage2Props) {
   const [hero, ...alternates] = [...TEMPLATES].sort((a, b) => b.match - a.match);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  // An alternate expanded into the full hero layout, in place.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [browseAll, setBrowseAll] = useState(false);
 
   const use = (tpl: Template) => { onChoose(tpl); onNext(); };
@@ -36,67 +38,44 @@ export function Stage2Template({ signals, chosen, onChoose, onNext, onBack }: St
       </Lede>
 
       {/* Hero — the recommended template. */}
-      <Hero>
-        <HeroTop>
-          <HeroTitleBlock>
-            <MatchRow>
-              <Badge variant="primary">{hero.match}% match</Badge>
-              <Industry>{hero.industry}</Industry>
-            </MatchRow>
-            <HeroName>{hero.name}</HeroName>
-          </HeroTitleBlock>
-        </HeroTop>
+      <HeroCard
+        template={hero}
+        previewOpen={previewId === hero.id}
+        onTogglePreview={() => setPreviewId(previewId === hero.id ? null : hero.id)}
+        onUse={() => use(hero)}
+      />
 
-        <Rationale>{hero.rationale}</Rationale>
-
-        <Tags>
-          {hero.tags.map(t => (
-            <Tag key={t} size="md" variant="subtle" color="blue">{t}</Tag>
-          ))}
-        </Tags>
-
-        {previewId === hero.id && <Preview template={hero} />}
-
-        <HeroActions>
-          <Button variant="primary" size="md" trailingArtwork={<ArrowNarrowRightIcon size={16} />} onClick={() => use(hero)}>
-            Use this template
-          </Button>
-          <Button
-            variant="tertiary"
-            size="md"
-            trailingArtwork={<ChevronDownIcon size={16} style={{ transform: previewId === hero.id ? 'rotate(180deg)' : undefined, transition: 'transform 150ms' }} />}
-            onClick={() => setPreviewId(previewId === hero.id ? null : hero.id)}
-          >
-            {previewId === hero.id ? 'Hide contents' : 'Preview contents'}
-          </Button>
-        </HeroActions>
-      </Hero>
-
-      {/* Alternates — quieter cards. */}
+      {/* Alternates — quiet rows that expand into the same layout on click. */}
       <AltHead>Other close fits</AltHead>
       <Alternates>
-        {(browseAll ? alternates : alternates.slice(0, 2)).map(tpl => (
-          <AltCard key={tpl.id}>
-            <AltMain>
-              <AltTitleRow>
-                <AltName>{tpl.name}</AltName>
-                <Tag size="sm" variant="outline" color="neutral">{tpl.match}%</Tag>
-              </AltTitleRow>
-              <AltIndustry>{tpl.industry}</AltIndustry>
-              {previewId === tpl.id && <Preview template={tpl} />}
-            </AltMain>
-            <AltActions>
-              <Button variant="secondary" size="sm" onClick={() => use(tpl)}>Use</Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setPreviewId(previewId === tpl.id ? null : tpl.id)}
-              >
-                {previewId === tpl.id ? 'Hide' : 'Preview'}
-              </Button>
-            </AltActions>
-          </AltCard>
-        ))}
+        {(browseAll ? alternates : alternates.slice(0, 2)).map(tpl =>
+          expandedId === tpl.id ? (
+            <HeroCard
+              key={tpl.id}
+              template={tpl}
+              previewOpen={previewId === tpl.id}
+              onTogglePreview={() => setPreviewId(previewId === tpl.id ? null : tpl.id)}
+              onUse={() => use(tpl)}
+              onCollapse={() => { setExpandedId(null); setPreviewId(p => (p === tpl.id ? null : p)); }}
+            />
+          ) : (
+            <AltCard key={tpl.id}>
+              <AltMainButton type="button" onClick={() => setExpandedId(tpl.id)} aria-expanded={false} aria-label={`Expand ${tpl.name}`}>
+                <AltTitleRow>
+                  <AltName>{tpl.name}</AltName>
+                  <Tag size="sm" variant="outline" color="neutral">{tpl.match}%</Tag>
+                </AltTitleRow>
+                <AltIndustry>{tpl.industry}</AltIndustry>
+              </AltMainButton>
+              <AltActions>
+                <Button variant="secondary" size="sm" onClick={() => use(tpl)}>Use</Button>
+                <Button variant="ghost" size="sm" iconOnly aria-label={`Expand ${tpl.name}`} onClick={() => setExpandedId(tpl.id)}>
+                  <ChevronDownIcon size={16} />
+                </Button>
+              </AltActions>
+            </AltCard>
+          ),
+        )}
       </Alternates>
 
       {/* Escape hatches. */}
@@ -114,6 +93,63 @@ export function Stage2Template({ signals, chosen, onChoose, onNext, onBack }: St
         {chosen && <Chosen>Chosen: {chosen.name}</Chosen>}
       </FootRow>
     </Wrap>
+  );
+}
+
+// ── Hero card — the full template layout, reused by the recommendation and by
+// any alternate expanded in place. ────────────────────────────────────────────
+
+function HeroCard({
+  template, previewOpen, onTogglePreview, onUse, onCollapse,
+}: {
+  template: Template;
+  previewOpen: boolean;
+  onTogglePreview: () => void;
+  onUse: () => void;
+  // Present only when this card is an expanded alternate — renders a collapse control.
+  onCollapse?: () => void;
+}) {
+  return (
+    <Hero>
+      <HeroTop>
+        <HeroTitleBlock>
+          <MatchRow>
+            <Badge variant="primary">{template.match}% match</Badge>
+            <Industry>{template.industry}</Industry>
+          </MatchRow>
+          <HeroName>{template.name}</HeroName>
+        </HeroTitleBlock>
+        {onCollapse && (
+          <Button variant="ghost" size="sm" iconOnly aria-label="Collapse" onClick={onCollapse}>
+            <ChevronDownIcon size={16} style={{ transform: 'rotate(180deg)' }} />
+          </Button>
+        )}
+      </HeroTop>
+
+      <Rationale>{template.rationale}</Rationale>
+
+      <Tags>
+        {template.tags.map(t => (
+          <Tag key={t} size="md" variant="subtle" color="blue">{t}</Tag>
+        ))}
+      </Tags>
+
+      {previewOpen && <Preview template={template} />}
+
+      <HeroActions>
+        <Button variant="primary" size="md" trailingArtwork={<ArrowNarrowRightIcon size={16} />} onClick={onUse}>
+          Use this template
+        </Button>
+        <Button
+          variant="tertiary"
+          size="md"
+          trailingArtwork={<ChevronDownIcon size={16} style={{ transform: previewOpen ? 'rotate(180deg)' : undefined, transition: 'transform 150ms' }} />}
+          onClick={onTogglePreview}
+        >
+          {previewOpen ? 'Hide contents' : 'Preview contents'}
+        </Button>
+      </HeroActions>
+    </Hero>
   );
 }
 
@@ -265,20 +301,34 @@ const Alternates = styled.div`
 
 const AltCard = styled.div`
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   padding: var(--space-4) var(--space-5);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border-opaque);
   border-radius: var(--radius-lg);
+  transition: border-color var(--duration-fast) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
+
+  &:hover { border-color: var(--color-border-hover); box-shadow: var(--shadow-below-low); }
 `;
 
-const AltMain = styled.div`
+// Clickable left region — expands the row into the full HeroCard layout.
+const AltMainButton = styled.button`
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-2);
-  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 4px; border-radius: var(--radius-sm); }
 `;
 
 const AltTitleRow = styled.div`
