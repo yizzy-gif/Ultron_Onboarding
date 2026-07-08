@@ -7,11 +7,12 @@ import { useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
-  Button, Tag, AILoader,
+  Button, Tag,
   ComposerActions, ComposerAttachment, ComposerSendButton,
   ArrowNarrowRightIcon, File04Icon, Link01Icon, LinkExternal01Icon,
   Tooltip, InfoCircleIcon,
 } from 'alloy-design-system';
+import { AgentMark } from '../../Ultron';
 import type { Signal } from '../types';
 import { SIGNAL_SUGGESTIONS, SIGNAL_CATEGORY_ORDER, SIGNAL_CATEGORY_LABEL } from '../fixtures';
 
@@ -221,7 +222,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           <TrayTitle>What I know so far</TrayTitle>
           <HeadRight>
             {ingesting && (
-              <Reading><AILoader size="xs" /> Reading…</Reading>
+              <Reading><AgentMark mark="circle" size={20} tone="auto" state="active" aria-label="Ultron reading" /> Reading…</Reading>
             )}
             <Tooltip
               placement="top"
