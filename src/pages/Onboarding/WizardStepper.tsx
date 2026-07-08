@@ -3,6 +3,7 @@
    this is a Teambridge-local component built from tokens + an Alloy CheckIcon.
    FLAGGED for promotion to Alloy as a `Steps` component. */
 
+import { Fragment } from 'react';
 import styled from 'styled-components';
 import { CheckIcon } from 'alloy-design-system';
 import { STAGES, type StageId } from './types';
@@ -21,7 +22,10 @@ export function WizardStepper({ current, onJump }: WizardStepperProps) {
           s.id < current ? 'done' : s.id === current ? 'active' : 'todo';
         const clickable = state === 'done' && !!onJump;
         return (
-          <Step key={s.id}>
+          <Fragment key={s.id}>
+            {/* Connectors are flat siblings (not nested per-step), so each one
+                shares the leftover space equally regardless of label width —
+                keeping the segments balanced. */}
             {i > 0 && <Connector data-filled={s.id <= current} />}
             <StepButton
               type="button"
@@ -35,7 +39,7 @@ export function WizardStepper({ current, onJump }: WizardStepperProps) {
               </Dot>
               <Label data-state={state}>{s.short}</Label>
             </StepButton>
-          </Step>
+          </Fragment>
         );
       })}
     </Spine>
@@ -48,17 +52,9 @@ const Spine = styled.nav`
   width: 100%;
 `;
 
-const Step = styled.div`
-  display: flex;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-
-  &:last-child { flex: 0 0 auto; }
-`;
-
 const Connector = styled.div<{ 'data-filled'?: boolean }>`
-  flex: 1;
+  flex: 1 1 0;
+  min-width: var(--space-4);
   height: 2px;
   margin: 0 var(--space-2);
   border-radius: var(--radius-full);
@@ -70,6 +66,9 @@ const StepButton = styled.button`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  /* Intrinsic width so the flat connectors (flex:1) share the leftover space
+     equally — the button never absorbs it. */
+  flex: 0 0 auto;
   padding: var(--space-1) var(--space-2);
   border: none;
   background: transparent;
