@@ -47,22 +47,22 @@ export const SIGNAL_CATEGORY_LABEL: Record<Signal['category'], string> = {
 
 export const TEMPLATES: Template[] = [
   {
-    id: 'tpl_multisite_hospitality',
-    name: 'Multi-site Hospitality',
-    industry: 'Restaurants & hospitality',
+    id: 'tpl_medical_staffing',
+    name: 'Medical Staffing',
+    industry: 'Healthcare',
     match: 94,
     rationale:
-      'You run 24/7 coverage across several locations with an hourly, shift-based crew and differential pay — this template ships those roles, an overtime + night-differential rate structure, and multi-site scheduling out of the box.',
-    tags: ['24/7 shifts', 'Multi-site', 'Hourly', 'Night differential'],
+      'You run credentialed teams around the clock with shift differentials — this template ships the clinical roles, an overtime + evening/night/weekend differential rate structure, license tracking, and multi-unit scheduling out of the box.',
+    tags: ['24/7 shifts', 'Credentialed', 'Shift differentials', 'Multi-unit'],
     sections: [
       {
         key: 'roles',
         title: 'Roles',
         lines: [
-          { domain: 'role', label: 'Shift Lead', detail: 'Manager tier' },
-          { domain: 'role', label: 'Line Cook', detail: 'Hourly' },
-          { domain: 'role', label: 'Server', detail: 'Hourly + tips' },
-          { domain: 'role', label: 'Host', detail: 'Hourly' },
+          { domain: 'role', label: 'Charge Nurse', detail: 'Credentialed · manager tier' },
+          { domain: 'role', label: 'Registered Nurse', detail: 'Credentialed' },
+          { domain: 'role', label: 'LPN', detail: 'Credentialed' },
+          { domain: 'role', label: 'CNA', detail: 'Hourly' },
         ],
       },
       {
@@ -70,43 +70,99 @@ export const TEMPLATES: Template[] = [
         title: 'Rate rules',
         lines: [
           { domain: 'rateRule', label: 'Overtime', detail: 'After 40h/week' },
-          { domain: 'rateRule', label: 'Night differential', detail: '10pm–6am' },
+          { domain: 'rateRule', label: 'Shift differential', detail: 'Evening / night / weekend' },
           { domain: 'rateValue', label: 'Base hourly rate', locked: true },
-          { domain: 'rateValue', label: 'Night multiplier', locked: true },
+          { domain: 'rateValue', label: 'Differential rate', locked: true },
         ],
       },
       {
         key: 'policies',
         title: 'Policies',
         lines: [
+          { domain: 'customField', label: 'License / credential tracking' },
           { domain: 'policy', label: 'Meal & rest breaks', detail: 'State default' },
-          { domain: 'policy', label: 'Time-off accrual', detail: 'Hourly accrual' },
-          { domain: 'permission', label: 'Manager approvals', detail: 'Shift Lead + up' },
+          { domain: 'permission', label: 'Charge-nurse approvals' },
         ],
       },
     ],
     seed: [
-      { op: 'add', domain: 'role', ref: 'role.shift_lead', label: 'Shift Lead' },
-      { op: 'add', domain: 'role', ref: 'role.line_cook', label: 'Line Cook' },
-      { op: 'add', domain: 'role', ref: 'role.server', label: 'Server' },
-      { op: 'add', domain: 'role', ref: 'role.host', label: 'Host' },
+      { op: 'add', domain: 'role', ref: 'role.charge_nurse', label: 'Charge Nurse' },
+      { op: 'add', domain: 'role', ref: 'role.rn', label: 'Registered Nurse' },
+      { op: 'add', domain: 'role', ref: 'role.lpn', label: 'LPN' },
+      { op: 'add', domain: 'role', ref: 'role.cna', label: 'CNA' },
       { op: 'add', domain: 'rateRule', ref: 'rate.ot', label: 'Overtime — after 40h/week' },
-      { op: 'add', domain: 'rateRule', ref: 'rate.night', label: 'Night differential — 10pm–6am' },
+      { op: 'add', domain: 'rateRule', ref: 'rate.differential', label: 'Shift differential — evening / night / weekend' },
       { op: 'add', domain: 'rateValue', ref: 'rate.base', label: 'Base hourly rate' },
-      { op: 'add', domain: 'rateValue', ref: 'rate.night_mult', label: 'Night multiplier' },
+      { op: 'add', domain: 'rateValue', ref: 'rate.diff', label: 'Differential rate' },
+      { op: 'add', domain: 'customField', ref: 'cf.credentials', label: 'License / credential tracking' },
       { op: 'add', domain: 'policy', ref: 'policy.breaks', label: 'Meal & rest breaks' },
-      { op: 'add', domain: 'policy', ref: 'policy.pto', label: 'Time-off accrual' },
+      { op: 'add', domain: 'permission', ref: 'perm.charge_approvals', label: 'Charge-nurse approvals' },
+      { op: 'add', domain: 'scheduling', ref: 'sched.multiunit', label: 'Multi-unit scheduling' },
+    ],
+  },
+  {
+    id: 'tpl_stadium_events',
+    name: 'Live Event & Stadium',
+    industry: 'Live events & venues',
+    match: 82,
+    rationale:
+      'Event-day surges staffed by large, mostly-hourly crews — this template ships the game-day roles, an event-day premium + overtime rate structure, certification tracking for security and alcohol service, and event-based scheduling.',
+    tags: ['Event-based', 'Large crews', 'Event premium', 'Certified'],
+    sections: [
+      {
+        key: 'roles',
+        title: 'Roles',
+        lines: [
+          { domain: 'role', label: 'Event Manager', detail: 'Manager tier' },
+          { domain: 'role', label: 'Usher', detail: 'Hourly' },
+          { domain: 'role', label: 'Ticket Scanner', detail: 'Hourly' },
+          { domain: 'role', label: 'Concessions', detail: 'Hourly + tips' },
+          { domain: 'role', label: 'Event Security', detail: 'Certified' },
+        ],
+      },
+      {
+        key: 'rates',
+        title: 'Rate rules',
+        lines: [
+          { domain: 'rateRule', label: 'Overtime', detail: 'After 40h/week' },
+          { domain: 'rateRule', label: 'Event-day premium', detail: 'Game / show days' },
+          { domain: 'rateValue', label: 'Base hourly rate', locked: true },
+          { domain: 'rateValue', label: 'Event premium rate', locked: true },
+        ],
+      },
+      {
+        key: 'policies',
+        title: 'Policies',
+        lines: [
+          { domain: 'customField', label: 'Certification tracking', detail: 'Security · alcohol service' },
+          { domain: 'policy', label: 'Meal & rest breaks', detail: 'State default' },
+          { domain: 'permission', label: 'Manager approvals' },
+        ],
+      },
+    ],
+    seed: [
+      { op: 'add', domain: 'role', ref: 'role.event_manager', label: 'Event Manager' },
+      { op: 'add', domain: 'role', ref: 'role.usher', label: 'Usher' },
+      { op: 'add', domain: 'role', ref: 'role.ticket_scanner', label: 'Ticket Scanner' },
+      { op: 'add', domain: 'role', ref: 'role.concessions', label: 'Concessions' },
+      { op: 'add', domain: 'role', ref: 'role.event_security', label: 'Event Security' },
+      { op: 'add', domain: 'rateRule', ref: 'rate.ot', label: 'Overtime — after 40h/week' },
+      { op: 'add', domain: 'rateRule', ref: 'rate.event_premium', label: 'Event-day premium' },
+      { op: 'add', domain: 'rateValue', ref: 'rate.base', label: 'Base hourly rate' },
+      { op: 'add', domain: 'rateValue', ref: 'rate.event_rate', label: 'Event premium rate' },
+      { op: 'add', domain: 'customField', ref: 'cf.certifications', label: 'Certification tracking' },
+      { op: 'add', domain: 'policy', ref: 'policy.breaks', label: 'Meal & rest breaks' },
       { op: 'add', domain: 'permission', ref: 'perm.manager_approvals', label: 'Manager approvals' },
-      { op: 'add', domain: 'scheduling', ref: 'sched.multisite', label: 'Multi-site scheduling' },
+      { op: 'add', domain: 'scheduling', ref: 'sched.event', label: 'Event-based scheduling' },
     ],
   },
   {
     id: 'tpl_retail',
     name: 'Retail & Storefront',
     industry: 'Retail',
-    match: 71,
+    match: 61,
     rationale:
-      'A leaner storefront template — hourly associates, a single overtime rule, and standard break policies. A good fit if scheduling is simpler and there is no night-shift structure.',
+      'A leaner storefront template — hourly associates, a single overtime rule, and standard break policies. A good fit if scheduling is simpler and there is no shift-differential structure.',
     tags: ['Hourly', 'Storefront', 'Overtime'],
     sections: [
       {
@@ -137,51 +193,6 @@ export const TEMPLATES: Template[] = [
       { op: 'add', domain: 'rateRule', ref: 'rate.ot', label: 'Overtime — after 40h/week' },
       { op: 'add', domain: 'rateValue', ref: 'rate.base', label: 'Base hourly rate' },
       { op: 'add', domain: 'policy', ref: 'policy.breaks', label: 'Meal & rest breaks' },
-    ],
-  },
-  {
-    id: 'tpl_healthcare',
-    name: 'Healthcare Staffing',
-    industry: 'Healthcare',
-    match: 68,
-    rationale:
-      'Built for credentialed, around-the-clock care teams — role credentials, shift differentials, and stricter approval permissions. Heavier than you may need if you are not tracking licenses.',
-    tags: ['24/7 shifts', 'Credentials', 'Differentials'],
-    sections: [
-      {
-        key: 'roles',
-        title: 'Roles',
-        lines: [
-          { domain: 'role', label: 'Charge Nurse', detail: 'Credentialed' },
-          { domain: 'role', label: 'RN', detail: 'Credentialed' },
-          { domain: 'role', label: 'CNA', detail: 'Hourly' },
-        ],
-      },
-      {
-        key: 'rates',
-        title: 'Rate rules',
-        lines: [
-          { domain: 'rateRule', label: 'Shift differential', detail: 'Evening / night / weekend' },
-          { domain: 'rateValue', label: 'Base hourly rate', locked: true },
-        ],
-      },
-      {
-        key: 'policies',
-        title: 'Policies',
-        lines: [
-          { domain: 'customField', label: 'License / credential tracking' },
-          { domain: 'permission', label: 'Charge-nurse approvals' },
-        ],
-      },
-    ],
-    seed: [
-      { op: 'add', domain: 'role', ref: 'role.charge_nurse', label: 'Charge Nurse' },
-      { op: 'add', domain: 'role', ref: 'role.rn', label: 'RN' },
-      { op: 'add', domain: 'role', ref: 'role.cna', label: 'CNA' },
-      { op: 'add', domain: 'rateRule', ref: 'rate.differential', label: 'Shift differential' },
-      { op: 'add', domain: 'rateValue', ref: 'rate.base', label: 'Base hourly rate' },
-      { op: 'add', domain: 'customField', ref: 'cf.credentials', label: 'License / credential tracking' },
-      { op: 'add', domain: 'permission', ref: 'perm.charge_approvals', label: 'Charge-nurse approvals' },
     ],
   },
 ];
