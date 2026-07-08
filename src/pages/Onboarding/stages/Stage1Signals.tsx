@@ -10,7 +10,7 @@ import {
   Button, Tag,
   ComposerActions, ComposerAttachment, ComposerSendButton,
   ArrowNarrowRightIcon, File04Icon, Link01Icon, LinkExternal01Icon,
-  Tooltip, InfoCircleIcon,
+  Tooltip, InfoIcon,
 } from 'alloy-design-system';
 import { AgentMark } from '../../Ultron';
 import type { Signal } from '../types';
@@ -234,7 +234,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
               }
             >
               <Button variant="ghost" size="xs" iconOnly aria-label="What do these chips mean?">
-                <InfoCircleIcon size={16} />
+                <InfoIcon size={16} />
               </Button>
             </Tooltip>
           </HeadRight>
