@@ -33,10 +33,25 @@ export type SignalKind = 'text' | 'url' | 'file';
 // that evidence. Solid chip = evidence, outlined chip = inference.
 export type SignalEvidence = 'evidence' | 'inference';
 
+// What a signal is ABOUT — drives how it's grouped in the "What I know so far"
+// panel. `company` (the scraped org identity) and `file` (an imported document)
+// are special-cased into the header / files strip; the rest fold into typed
+// sub-sections.
+export type SignalCategory =
+  | 'company'
+  | 'file'
+  | 'role'
+  | 'pay'
+  | 'facility'
+  | 'credential'
+  | 'scheduling'
+  | 'other';
+
 export interface Signal {
   id: string;
   kind: SignalKind;
   evidence: SignalEvidence;
+  category: SignalCategory;
   label: string;
   // Optional detail (the URL, the filename, the inference rationale).
   detail?: string;

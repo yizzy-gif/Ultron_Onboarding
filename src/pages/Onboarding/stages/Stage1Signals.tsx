@@ -3,15 +3,15 @@
    feeds a "What I know so far" tray. Each ingested signal is a dismissible chip:
    a SOLID tag for hard evidence, an OUTLINED tag for an AI inference. */
 
-import { useRef, useState } from 'react';
-import styled from 'styled-components';
+import { useMemo, useRef, useState } from 'react';
+import styled, { keyframes } from 'styled-components';
 import {
   Button, Tag, AILoader,
   ComposerActions, ComposerAttachment, ComposerSendButton,
-  ArrowNarrowRightIcon, File04Icon,
+  ArrowNarrowRightIcon, File04Icon, Link01Icon, LinkExternal01Icon,
 } from 'alloy-design-system';
-import type { Signal, SignalKind } from '../types';
-import { SIGNAL_SUGGESTIONS } from '../fixtures';
+import type { Signal } from '../types';
+import { SIGNAL_SUGGESTIONS, SIGNAL_CATEGORY_ORDER, SIGNAL_CATEGORY_LABEL } from '../fixtures';
 
 interface Stage1Props {
   signals: Signal[];
@@ -26,6 +26,21 @@ const INGEST_MS = 900;
 // top row as a removable chip until the admin hits send.
 interface PendingFile { id: string; name: string; }
 
+// Derive an org identity from a pasted link: a normalized href, the bare host
+// (for the favicon lookup), and a title-cased display name.
+function companyFromUrl(raw: string): { name: string; host: string; url: string } {
+  const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  let host = raw;
+  try { host = new URL(withProto).hostname; } catch { /* keep raw */ }
+  host = host.replace(/^www\./, '');
+  const root = host.split('.')[0] || host;
+  const name = root
+    .split(/[-_]/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+  return { name: name || host, host, url: withProto };
+}
+
 export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
   const [draft, setDraft] = useState('');
   const [ingesting, setIngesting] = useState(false);
@@ -35,11 +50,15 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
   const fileSeq = useRef(0);
 
   // Merge freshly-ingested signals into the tray, skipping any already present.
+  // A fresh `company` signal replaces the prior one (only one org identity).
   const ingest = (incoming: Signal[]) => {
     setIngesting(true);
     window.setTimeout(() => {
-      const have = new Set(signals.map(s => s.id));
-      onChange([...signals, ...incoming.filter(s => !have.has(s.id))]);
+      const base = incoming.some(s => s.category === 'company')
+        ? signals.filter(s => s.category !== 'company')
+        : signals;
+      const have = new Set(base.map(s => s.id));
+      onChange([...base, ...incoming.filter(s => !have.has(s.id))]);
       setIngesting(false);
     }, INGEST_MS);
   };
@@ -51,11 +70,27 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
     const text = draft.trim();
     if (!text && pendingFiles.length === 0) return;
     const incoming: Signal[] = [];
-    if (pendingFiles.length > 0) incoming.push(...SIGNAL_SUGGESTIONS.file);
-    if (text) {
-      const kind: SignalKind = URL_RE.test(text) ? 'url' : 'text';
-      incoming.push(...SIGNAL_SUGGESTIONS[kind]);
+
+    // Attached files become their own `file` signals (real names) plus the
+    // parsed roster content.
+    if (pendingFiles.length > 0) {
+      pendingFiles.forEach(f =>
+        incoming.push({ id: `sig_${f.id}`, kind: 'file', evidence: 'evidence', category: 'file', label: f.name }),
+      );
+      incoming.push(...SIGNAL_SUGGESTIONS.file);
     }
+
+    if (text) {
+      if (URL_RE.test(text)) {
+        // A link → capture the org identity for the header, then the scraped facts.
+        const c = companyFromUrl(text);
+        incoming.push({ id: 'sig_company', kind: 'url', evidence: 'evidence', category: 'company', label: c.name, detail: c.url });
+        incoming.push(...SIGNAL_SUGGESTIONS.url);
+      } else {
+        incoming.push(...SIGNAL_SUGGESTIONS.text);
+      }
+    }
+
     ingest(incoming);
     setDraft('');
     setPendingFiles([]);
@@ -81,6 +116,19 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
 
   const canSend = draft.trim().length > 0 || pendingFiles.length > 0;
   const sendState = ingesting ? 'streaming' : canSend ? 'ready' : 'disabled-invalid';
+
+  // Fold the flat signal list into the panel's shape: the org header, the files
+  // strip, and the typed sub-sections (roles, pay, …).
+  const company = useMemo(() => signals.find(s => s.category === 'company') ?? null, [signals]);
+  const files = useMemo(() => signals.filter(s => s.category === 'file'), [signals]);
+  const groups = useMemo(
+    () =>
+      SIGNAL_CATEGORY_ORDER.map(cat => ({ cat, items: signals.filter(s => s.category === cat) })).filter(
+        g => g.items.length > 0,
+      ),
+    [signals],
+  );
+  const hasContent = signals.length > 0;
 
   return (
     <Wrap>
@@ -141,25 +189,66 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           )}
         </TrayHead>
 
-        {signals.length === 0 && !ingesting ? (
+        {!hasContent && !ingesting ? (
           <Empty>Nothing yet — send a description, link, or file above and I'll start filling this in.</Empty>
         ) : (
-          <Chips>
-            {signals.map(s => (
-              <Tag
-                key={s.id}
-                size="md"
-                // Solid = hard evidence you gave me; outline = something I inferred.
-                variant={s.evidence === 'evidence' ? 'solid' : 'outline'}
-                color={s.evidence === 'evidence' ? 'blue' : 'neutral'}
-                dismissible
-                onDismiss={() => dismiss(s.id)}
-                title={s.detail}
-              >
-                {s.label}
-              </Tag>
+          <Knowledge>
+            {/* 1 — Company identity, from the scraped link (with favicon). */}
+            {company && (
+              <CompanyRow key={company.id}>
+                <Favicon url={company.detail} />
+                <CompanyMeta>
+                  <CompanyName>{company.label}</CompanyName>
+                  {company.detail && (
+                    <CompanyLink href={company.detail} target="_blank" rel="noreferrer">
+                      {company.detail.replace(/^https?:\/\//, '')}
+                      <LinkExternal01Icon size={12} />
+                    </CompanyLink>
+                  )}
+                </CompanyMeta>
+              </CompanyRow>
+            )}
+
+            {/* 2 — Files imported. */}
+            {files.length > 0 && (
+              <SubSection>
+                <SubTitle>{SIGNAL_CATEGORY_LABEL.file}</SubTitle>
+                <Chips>
+                  {files.map(f => (
+                    <ChipIn key={f.id}>
+                      <Tag size="md" variant="subtle" color="blue" leadingIcon={<File04Icon size={12} />} dismissible onDismiss={() => dismiss(f.id)}>
+                        {f.label}
+                      </Tag>
+                    </ChipIn>
+                  ))}
+                </Chips>
+              </SubSection>
+            )}
+
+            {/* 3 — Typed sub-sections: roles, pay, scheduling, … */}
+            {groups.map(g => (
+              <SubSection key={g.cat}>
+                <SubTitle>{SIGNAL_CATEGORY_LABEL[g.cat]}</SubTitle>
+                <Chips>
+                  {g.items.map(s => (
+                    <ChipIn key={s.id}>
+                      <Tag
+                        size="md"
+                        // Solid = hard evidence you gave me; outline = something I inferred.
+                        variant={s.evidence === 'evidence' ? 'solid' : 'outline'}
+                        color={s.evidence === 'evidence' ? 'blue' : 'neutral'}
+                        dismissible
+                        onDismiss={() => dismiss(s.id)}
+                        title={s.detail}
+                      >
+                        {s.label}
+                      </Tag>
+                    </ChipIn>
+                  ))}
+                </Chips>
+              </SubSection>
             ))}
-          </Chips>
+          </Knowledge>
         )}
 
         <Legend>
@@ -180,6 +269,24 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
         </Button>
       </FootRow>
     </Wrap>
+  );
+}
+
+// Favicon for the scraped company, pulled from the public favicon service with a
+// graceful fall back to a link glyph when it can't load (offline / no icon).
+function Favicon({ url }: { url?: string }) {
+  const [failed, setFailed] = useState(false);
+  let host = '';
+  try { host = url ? new URL(url).hostname : ''; } catch { /* no host */ }
+  if (!url || !host || failed) {
+    return <FaviconFallback><Link01Icon size={16} /></FaviconFallback>;
+  }
+  return (
+    <FaviconImg
+      src={`https://www.google.com/s2/favicons?domain=${host}&sz=64`}
+      alt=""
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -302,10 +409,110 @@ const Empty = styled.p`
   color: var(--color-content-tertiary);
 `;
 
+// Entrance motion — each newly-mounted chip / section rises in, so the panel
+// visibly reacts the moment the composer's content is ingested.
+const riseIn = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+const Knowledge = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+`;
+
+const CompanyRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-md);
+  animation: ${riseIn} var(--duration-slow) var(--ease-default) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+const FaviconImg = styled.img`
+  width: var(--space-8);
+  height: var(--space-8);
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  background: var(--color-bg-secondary);
+`;
+
+const FaviconFallback = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+  color: var(--color-content-tertiary);
+`;
+
+const CompanyMeta = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+`;
+
+const CompanyName = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+`;
+
+const CompanyLink = styled.a`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-content-link);
+  text-decoration: none;
+
+  &:hover { text-decoration: underline; }
+`;
+
+const SubSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: ${riseIn} var(--duration-slow) var(--ease-default) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+const SubTitle = styled.div`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-content-tertiary);
+`;
+
 const Chips = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+`;
+
+// Per-chip entrance — only freshly-mounted chips animate, so new knowledge
+// slides in without re-animating what's already there.
+const ChipIn = styled.span`
+  display: inline-flex;
+  animation: ${riseIn} var(--duration-slow) var(--ease-default) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
 const Legend = styled.div`

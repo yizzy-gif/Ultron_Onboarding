@@ -12,19 +12,35 @@ import type { MutationDomain } from './provisioningLog';
 
 export const SIGNAL_SUGGESTIONS: Record<Signal['kind'], Signal[]> = {
   text: [
-    { id: 's_text_shifts', kind: 'text', evidence: 'evidence', label: '24/7 shift coverage' },
-    { id: 's_text_hourly', kind: 'text', evidence: 'evidence', label: 'Hourly workforce' },
-    { id: 's_infer_ot',    kind: 'text', evidence: 'inference', label: 'Overtime likely', detail: 'Inferred from 24/7 coverage' },
+    { id: 's_text_shifts', kind: 'text', evidence: 'evidence',  category: 'scheduling', label: '24/7 shift coverage' },
+    { id: 's_text_hourly', kind: 'text', evidence: 'evidence',  category: 'pay',        label: 'Hourly workforce' },
+    { id: 's_infer_ot',    kind: 'text', evidence: 'inference', category: 'pay',        label: 'Overtime likely', detail: 'Inferred from 24/7 coverage' },
   ],
   url: [
-    { id: 's_url_sites',   kind: 'url', evidence: 'evidence', label: '6 locations', detail: 'Scraped from site' },
-    { id: 's_infer_multi', kind: 'url', evidence: 'inference', label: 'Multi-site scheduling', detail: 'Inferred from locations page' },
+    { id: 's_url_sites',   kind: 'url', evidence: 'evidence',  category: 'facility',   label: '6 locations', detail: 'Scraped from site' },
+    { id: 's_infer_multi', kind: 'url', evidence: 'inference', category: 'scheduling', label: 'Multi-site scheduling', detail: 'Inferred from locations page' },
   ],
   file: [
-    { id: 's_file_roles',  kind: 'file', evidence: 'evidence', label: '4 job titles', detail: 'roster.csv' },
-    { id: 's_file_rates',  kind: 'file', evidence: 'evidence', label: 'Differential pay', detail: 'roster.csv' },
-    { id: 's_infer_night', kind: 'file', evidence: 'inference', label: 'Night differential', detail: 'Inferred from pay columns' },
+    { id: 's_file_roles',  kind: 'file', evidence: 'evidence',  category: 'role',       label: '4 job titles', detail: 'roster.csv' },
+    { id: 's_file_rates',  kind: 'file', evidence: 'evidence',  category: 'pay',        label: 'Differential pay', detail: 'roster.csv' },
+    { id: 's_file_cred',   kind: 'file', evidence: 'evidence',  category: 'credential', label: 'Food-handler certs', detail: 'roster.csv' },
+    { id: 's_infer_night', kind: 'file', evidence: 'inference', category: 'pay',        label: 'Night differential', detail: 'Inferred from pay columns' },
   ],
+};
+
+// Ordered, labelled sub-sections for the "What I know so far" panel.
+export const SIGNAL_CATEGORY_ORDER: Signal['category'][] = [
+  'role', 'pay', 'scheduling', 'facility', 'credential', 'other',
+];
+export const SIGNAL_CATEGORY_LABEL: Record<Signal['category'], string> = {
+  company: 'Company',
+  file: 'Files',
+  role: 'Roles & job titles',
+  pay: 'Pay',
+  scheduling: 'Scheduling',
+  facility: 'Facilities',
+  credential: 'Credentials',
+  other: 'Other',
 };
 
 // ── Stage 2: templates ───────────────────────────────────────────────────────
