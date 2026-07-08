@@ -223,7 +223,7 @@ const Field = styled.textarea`
   line-height: var(--line-height-relaxed);
   color: var(--color-content-primary);
 
-  &::placeholder { color: var(--color-content-tertiary); }
+  &::placeholder { color: var(--color-content-disabled); }
 `;
 
 const PendingRow = styled.div`
