@@ -79,9 +79,12 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitText(); } }}
         />
         <ComposerRow>
-          <BigComposerActions>
-            <ComposerAttachment state={ingesting ? 'disabled' : 'idle'} onSelect={attachFile} />
-          </BigComposerActions>
+          <LeftGroup>
+            <BigComposerActions>
+              <ComposerAttachment state={ingesting ? 'disabled' : 'idle'} onSelect={attachFile} />
+            </BigComposerActions>
+            <ComposerHint>Upload a file, paste a link, or just describe it</ComposerHint>
+          </LeftGroup>
           <BigComposerActions>
             <ComposerSendButton state={sendState} onSend={submitText} />
           </BigComposerActions>
@@ -186,6 +189,19 @@ const ComposerRow = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+`;
+
+const LeftGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+`;
+
+const ComposerHint = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+  white-space: nowrap;
 `;
 
 /* Enlarge the composer controls to 32px via Alloy's own composer sizing vars.
