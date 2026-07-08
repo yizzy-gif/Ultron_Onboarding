@@ -10,7 +10,7 @@ import {
   Button, Tag,
   ComposerActions, ComposerAttachment, ComposerSendButton,
   ArrowNarrowRightIcon, File04Icon, Link01Icon, LinkExternal01Icon,
-  Tooltip, InfoIcon,
+  Tooltip,
 } from 'alloy-design-system';
 import { AgentMark } from '../../Ultron';
 import type { Signal } from '../types';
@@ -234,7 +234,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
               }
             >
               <Button variant="ghost" size="xs" iconOnly aria-label="What do these chips mean?">
-                <InfoIcon size={16} />
+                <InfoCircleOutlineIcon size={16} />
               </Button>
             </Tooltip>
           </HeadRight>
@@ -315,6 +315,24 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
         </Button>
       </FootRow>
     </Wrap>
+  );
+}
+
+// Outlined info-in-circle. Alloy only ships a FILLED InfoCircleIcon and a
+// circle-less InfoIcon, so this composes the line style (Alloy's own circle path
+// + an "i") at currentColor. FLAGGED for an outlined InfoCircleIcon in Alloy.
+function InfoCircleOutlineIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path
+        d="M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12Z"
+        stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"
+      />
+      <path
+        d="M12 16V11M12 8H12.01"
+        stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
