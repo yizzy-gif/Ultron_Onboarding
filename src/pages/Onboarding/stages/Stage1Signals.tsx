@@ -544,7 +544,7 @@ const CompanyLink = styled.a`
   gap: var(--space-1);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  color: var(--color-content-link);
+  color: var(--color-content-tertiary);
   text-decoration: none;
 
   &:hover { text-decoration: underline; }
