@@ -212,12 +212,14 @@ const Hero = styled.section`
   border: 1px solid var(--color-border-selected);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-below-md);
-  transition: transform var(--duration-slow) var(--ease-default),
-              box-shadow var(--duration-slow) var(--ease-default);
+  transition: transform 320ms var(--ease-out),
+              box-shadow 320ms var(--ease-out);
+  will-change: transform;
 
-  /* Lift on hover — the recommended card reacts as the primary target. */
+  /* Lift on hover — a subtle, smooth float; the recommended card reacts as the
+     primary target without jumping. */
   &:hover {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     box-shadow: var(--shadow-below-high);
   }
 
