@@ -58,12 +58,12 @@ export function Stage2Template({ signals, chosen, onChoose, onNext, onBack }: St
         {previewId === hero.id && <Preview template={hero} />}
 
         <HeroActions>
-          <Button variant="primary" size="lg" trailingArtwork={<ArrowNarrowRightIcon size={18} />} onClick={() => use(hero)}>
+          <Button variant="primary" size="md" trailingArtwork={<ArrowNarrowRightIcon size={16} />} onClick={() => use(hero)}>
             Use this template
           </Button>
           <Button
             variant="tertiary"
-            size="lg"
+            size="md"
             trailingArtwork={<ChevronDownIcon size={16} style={{ transform: previewId === hero.id ? 'rotate(180deg)' : undefined, transition: 'transform 150ms' }} />}
             onClick={() => setPreviewId(previewId === hero.id ? null : hero.id)}
           >
@@ -176,6 +176,28 @@ const Hero = styled.section`
   border: 1px solid var(--color-border-selected);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-below-md);
+  transition: transform var(--duration-slow) var(--ease-default),
+              box-shadow var(--duration-slow) var(--ease-default);
+
+  /* Lift on hover — the recommended card reacts as the primary target. */
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-below-high);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+    &:hover { transform: none; }
+  }
+`;
+
+const HeroActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+
+  /* Fully-rounded hero CTAs. */
+  & button { border-radius: var(--radius-full); }
 `;
 
 const HeroTop = styled.div`
@@ -225,12 +247,6 @@ const Tags = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-`;
-
-const HeroActions = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
 `;
 
 const AltHead = styled.h3`
