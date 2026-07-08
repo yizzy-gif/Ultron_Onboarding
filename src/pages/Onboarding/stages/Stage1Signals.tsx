@@ -79,9 +79,9 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitText(); } }}
         />
         <ComposerRow>
-          <ComposerActions>
+          <AttachActions>
             <ComposerAttachment state={ingesting ? 'disabled' : 'idle'} onSelect={attachFile} />
-          </ComposerActions>
+          </AttachActions>
           <ComposerActions>
             <ComposerSendButton state={sendState} onSend={submitText} />
           </ComposerActions>
@@ -186,6 +186,17 @@ const ComposerRow = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+`;
+
+/* Enlarge just the attachment control to 32px via Alloy's own composer sizing
+   vars. `&&` outweighs the component's `.size-md` rule (which sets these on the
+   same root element), so the override wins without depending on stylesheet
+   order. */
+const AttachActions = styled(ComposerActions)`
+  && {
+    --composer-btn-size: var(--space-8); /* 32px */
+    --composer-btn-icon-attach: var(--space-4); /* 16px */
+  }
 `;
 
 const Tray = styled.section`
