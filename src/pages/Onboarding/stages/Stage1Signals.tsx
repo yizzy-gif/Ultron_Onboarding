@@ -146,9 +146,14 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
   const files = useMemo(() => signals.filter(s => s.category === 'file'), [signals]);
   const groups = useMemo(
     () =>
-      SIGNAL_CATEGORY_ORDER.map(cat => ({ cat, items: signals.filter(s => s.category === cat) })).filter(
-        g => g.items.length > 0,
-      ),
+      SIGNAL_CATEGORY_ORDER.map(cat => ({
+        cat,
+        // Evidence always sorts before inference within a section; ties keep
+        // insertion order (stable sort).
+        items: signals
+          .filter(s => s.category === cat)
+          .sort((a, b) => (a.evidence === 'evidence' ? 0 : 1) - (b.evidence === 'evidence' ? 0 : 1)),
+      })).filter(g => g.items.length > 0),
     [signals],
   );
   const hasContent = signals.length > 0;
