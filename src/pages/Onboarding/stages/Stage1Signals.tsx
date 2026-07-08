@@ -79,12 +79,12 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitText(); } }}
         />
         <ComposerRow>
-          <Actions>
-            <ComposerActions>
-              <ComposerAttachment state={ingesting ? 'disabled' : 'idle'} onSelect={attachFile} />
-              <ComposerSendButton state={sendState} onSend={submitText} />
-            </ComposerActions>
-          </Actions>
+          <ComposerActions>
+            <ComposerAttachment state={ingesting ? 'disabled' : 'idle'} onSelect={attachFile} />
+          </ComposerActions>
+          <ComposerActions>
+            <ComposerSendButton state={sendState} onSend={submitText} />
+          </ComposerActions>
         </ComposerRow>
       </Composer>
 
@@ -185,11 +185,7 @@ const Field = styled.textarea`
 const ComposerRow = styled.div`
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-`;
-
-const Actions = styled.div`
-  flex-shrink: 0;
+  justify-content: space-between;
 `;
 
 const Tray = styled.section`
