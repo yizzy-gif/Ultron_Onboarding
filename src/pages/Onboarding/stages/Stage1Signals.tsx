@@ -8,7 +8,7 @@ import styled from 'styled-components';
 import {
   Button, Tag, AILoader,
   ComposerActions, ComposerAttachment, ComposerSendButton,
-  ArrowNarrowRightIcon,
+  ArrowNarrowRightIcon, File04Icon,
 } from 'alloy-design-system';
 import type { Signal, SignalKind } from '../types';
 import { SIGNAL_SUGGESTIONS } from '../fixtures';
@@ -22,10 +22,17 @@ interface Stage1Props {
 const URL_RE = /https?:\/\/|www\.|\.[a-z]{2,}\//i;
 const INGEST_MS = 900;
 
+// A file staged in the composer but not yet parsed — it rides the composer's
+// top row as a removable chip until the admin hits send.
+interface PendingFile { id: string; name: string; }
+
 export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
   const [draft, setDraft] = useState('');
   const [ingesting, setIngesting] = useState(false);
+  // Attached-but-not-yet-sent files, shown as chips on the composer's top row.
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileSeq = useRef(0);
 
   // Merge freshly-ingested signals into the tray, skipping any already present.
   const ingest = (incoming: Signal[]) => {
@@ -37,16 +44,31 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
     }, INGEST_MS);
   };
 
-  const submitText = () => {
+  // Send: parse whatever is staged — the typed text (as free text or a URL) and
+  // any attached files — into signals, then clear the composer.
+  const submit = () => {
+    if (ingesting) return;
     const text = draft.trim();
-    if (!text || ingesting) return;
-    const kind: SignalKind = URL_RE.test(text) ? 'url' : 'text';
-    ingest(SIGNAL_SUGGESTIONS[kind]);
+    if (!text && pendingFiles.length === 0) return;
+    const incoming: Signal[] = [];
+    if (pendingFiles.length > 0) incoming.push(...SIGNAL_SUGGESTIONS.file);
+    if (text) {
+      const kind: SignalKind = URL_RE.test(text) ? 'url' : 'text';
+      incoming.push(...SIGNAL_SUGGESTIONS[kind]);
+    }
+    ingest(incoming);
     setDraft('');
+    setPendingFiles([]);
     requestAnimationFrame(() => { if (textareaRef.current) textareaRef.current.style.height = 'auto'; });
   };
 
-  const attachFile = () => { if (!ingesting) ingest(SIGNAL_SUGGESTIONS.file); };
+  // Attaching only STAGES the files as chips — nothing is parsed until send.
+  const attachFile = (files: FileList) => {
+    if (ingesting) return;
+    const added = Array.from(files).map(f => ({ id: `f${fileSeq.current++}`, name: f.name }));
+    if (added.length) setPendingFiles(prev => [...prev, ...added]);
+  };
+  const removePending = (id: string) => setPendingFiles(prev => prev.filter(f => f.id !== id));
 
   const dismiss = (id: string) => onChange(signals.filter(s => s.id !== id));
 
@@ -57,7 +79,8 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
-  const sendState = ingesting ? 'streaming' : draft.trim() ? 'ready' : 'disabled-invalid';
+  const canSend = draft.trim().length > 0 || pendingFiles.length > 0;
+  const sendState = ingesting ? 'streaming' : canSend ? 'ready' : 'disabled-invalid';
 
   return (
     <Wrap>
@@ -68,7 +91,25 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
 
       {/* Composer — free text + attach + send, with the AI loader taking over the
           send button's spot while I read what you gave me. */}
-      <Composer onSubmit={e => { e.preventDefault(); submitText(); }}>
+      <Composer onSubmit={e => { e.preventDefault(); submit(); }}>
+        {/* Top row — staged files, shown as removable chips before send. */}
+        {pendingFiles.length > 0 && (
+          <PendingRow>
+            {pendingFiles.map(f => (
+              <Tag
+                key={f.id}
+                size="md"
+                variant="subtle"
+                color="blue"
+                leadingIcon={<File04Icon size={12} />}
+                dismissible
+                onDismiss={() => removePending(f.id)}
+              >
+                {f.name}
+              </Tag>
+            ))}
+          </PendingRow>
+        )}
         <Field
           ref={textareaRef}
           rows={2}
@@ -76,7 +117,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           placeholder="e.g. We run three restaurants, open late, mostly hourly staff on rotating shifts…"
           aria-label="Describe your operation"
           onChange={e => { setDraft(e.target.value); resize(); }}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitText(); } }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
         />
         <ComposerRow>
           <LeftGroup>
@@ -86,7 +127,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
             <ComposerHint>Upload a file, paste a link, or just describe it</ComposerHint>
           </LeftGroup>
           <BigComposerActions>
-            <ComposerSendButton state={sendState} onSend={submitText} />
+            <ComposerSendButton state={sendState} onSend={submit} />
           </BigComposerActions>
         </ComposerRow>
       </Composer>
@@ -183,6 +224,13 @@ const Field = styled.textarea`
   color: var(--color-content-primary);
 
   &::placeholder { color: var(--color-content-tertiary); }
+`;
+
+const PendingRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
 `;
 
 const ComposerRow = styled.div`
