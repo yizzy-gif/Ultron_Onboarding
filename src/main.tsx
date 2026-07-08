@@ -16,12 +16,12 @@ import './fonts.css';
 import './ultron-overrides.css';
 
 import { ToastProvider } from 'alloy-design-system';
-import App from './App';
+import Root from './Root';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ToastProvider>
-      <App />
+      <Root />
     </ToastProvider>
   </React.StrictMode>,
 );
