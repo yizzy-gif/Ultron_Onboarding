@@ -10,6 +10,7 @@ import {
   Button, Tag, AILoader,
   ComposerActions, ComposerAttachment, ComposerSendButton,
   ArrowNarrowRightIcon, File04Icon, Link01Icon, LinkExternal01Icon,
+  Tooltip, InfoCircleIcon,
 } from 'alloy-design-system';
 import type { Signal } from '../types';
 import { SIGNAL_SUGGESTIONS, SIGNAL_CATEGORY_ORDER, SIGNAL_CATEGORY_LABEL } from '../fixtures';
@@ -213,9 +214,24 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
       <Tray>
         <TrayHead>
           <TrayTitle>What I know so far</TrayTitle>
-          {ingesting && (
-            <Reading><AILoader size="xs" /> Reading…</Reading>
-          )}
+          <HeadRight>
+            {ingesting && (
+              <Reading><AILoader size="xs" /> Reading…</Reading>
+            )}
+            <Tooltip
+              placement="top"
+              content={
+                <LegendTip>
+                  <LegendRow><LegendSwatch data-kind="solid" /> <strong>Evidence</strong> — you told me directly</LegendRow>
+                  <LegendRow><LegendSwatch data-kind="outline" /> <strong>Inference</strong> — I worked out</LegendRow>
+                </LegendTip>
+              }
+            >
+              <Button variant="ghost" size="xs" iconOnly aria-label="What do these chips mean?">
+                <InfoCircleIcon size={16} />
+              </Button>
+            </Tooltip>
+          </HeadRight>
         </TrayHead>
 
         {!hasContent && !ingesting ? (
@@ -279,11 +295,6 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
             ))}
           </Knowledge>
         )}
-
-        <Legend>
-          <LegendItem><Tag size="sm" variant="solid" color="blue">Evidence</Tag> you told me directly</LegendItem>
-          <LegendItem><Tag size="sm" variant="outline" color="neutral">Inference</Tag> I worked out</LegendItem>
-        </Legend>
       </Tray>
 
       <FootRow>
@@ -572,21 +583,42 @@ const ChipIn = styled.span`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-const Legend = styled.div`
+const HeadRight = styled.div`
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--color-border-opaque);
+  align-items: center;
+  gap: var(--space-2);
 `;
 
-const LegendItem = styled.span`
+// Legend now lives in the header info-button tooltip.
+const LegendTip = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+`;
+
+const LegendRow = styled.span`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
+  /* Inverse content so it reads on the tooltip's inverse surface in both themes. */
+  color: var(--color-content-inverse-primary);
+  white-space: nowrap;
+
+  strong { font-weight: var(--font-weight-semibold); }
+`;
+
+// Solid vs outline swatch mirroring the chip styles, drawn with inverse tokens
+// so both are legible on the tooltip's dark surface.
+const LegendSwatch = styled.span`
+  flex-shrink: 0;
+  width: var(--space-6);
+  height: var(--space-3);
+  border-radius: var(--radius-full);
+
+  &[data-kind='solid']   { background: var(--color-blue-bg-secondary); }
+  &[data-kind='outline'] { background: transparent; border: 1px solid var(--color-content-inverse-tertiary); }
 `;
 
 const FootRow = styled.div`
