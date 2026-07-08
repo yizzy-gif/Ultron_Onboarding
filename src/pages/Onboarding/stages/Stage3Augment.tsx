@@ -25,7 +25,7 @@ import type { Template } from '../types';
 import { interpretInstruction, AUGMENT_SUGGESTIONS } from '../fixtures';
 import {
   DOMAIN_LABEL, DOMAIN_ORDER, OP_VERB, opIcon,
-  RISK_COLOR, RISK_LABEL, GATE_LABEL, SOURCE_LABEL,
+  RISK_COLOR, RISK_LABEL, SOURCE_LABEL,
 } from '../shared';
 
 interface Stage3Props {
@@ -89,17 +89,18 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   };
 
-  // Fold the log into domain-grouped sections for the tree.
+  // Fold the log into two status sections — everything that needs the admin's
+  // sign-off (gate) first, then everything built automatically (auto + notify).
+  // Within each, order by domain for a stable read.
   const groups = useMemo(() => {
-    const byDomain = new Map<string, MutationEntry[]>();
-    for (const e of store.active) {
-      const arr = byDomain.get(e.target.domain) ?? [];
-      arr.push(e);
-      byDomain.set(e.target.domain, arr);
-    }
-    return DOMAIN_ORDER
-      .filter(d => byDomain.has(d))
-      .map(d => ({ domain: d, label: DOMAIN_LABEL[d], entries: byDomain.get(d)! }));
+    const byDomain = (a: MutationEntry, b: MutationEntry) =>
+      DOMAIN_ORDER.indexOf(a.target.domain) - DOMAIN_ORDER.indexOf(b.target.domain);
+    const gate = store.active.filter(e => e.gateBehavior === 'gate').sort(byDomain);
+    const built = store.active.filter(e => e.gateBehavior !== 'gate').sort(byDomain);
+    const out: { key: string; label: string; entries: MutationEntry[] }[] = [];
+    if (gate.length) out.push({ key: 'gate', label: 'Needs sign-off', entries: gate });
+    if (built.length) out.push({ key: 'built', label: 'Built', entries: built });
+    return out;
   }, [store.active]);
 
   const gateCount = store.active.filter(e => e.gateBehavior === 'gate').length;
@@ -180,7 +181,7 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
               <TreeEmpty>Nothing drafted yet. Your changes will appear here as a live account tree.</TreeEmpty>
             ) : (
               groups.map(g => (
-                <TreeGroup key={g.domain}>
+                <TreeGroup key={g.key}>
                   <TreeGroupHead>
                     <TreeGroupLabel>{g.label}</TreeGroupLabel>
                     <TreeGroupCount>{g.entries.length}</TreeGroupCount>
@@ -229,7 +230,9 @@ function DiffRow({ entry, fresh, onUndo }: { entry: MutationEntry; fresh: boolea
         <RowMeta>
           <Attrib>{SOURCE_LABEL[entry.source]}</Attrib>
           <MetaDot>·</MetaDot>
-          <GateText data-gate={entry.gateBehavior}>{GATE_LABEL[entry.gateBehavior]}</GateText>
+          {/* Sections now group by sign-off status, so the row carries the
+              domain for context instead of repeating the status. */}
+          <Attrib>{DOMAIN_LABEL[entry.target.domain]}</Attrib>
         </RowMeta>
       </RowMain>
       <RowRight>
@@ -559,14 +562,6 @@ const MetaDot = styled.span`
   color: var(--color-content-disabled);
 `;
 
-const GateText = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-
-  &[data-gate='gate'] { color: var(--color-error-content); font-weight: var(--font-weight-medium); }
-  &[data-gate='notify'] { color: var(--color-warning-content); }
-`;
 
 const RowRight = styled.div`
   display: flex;
