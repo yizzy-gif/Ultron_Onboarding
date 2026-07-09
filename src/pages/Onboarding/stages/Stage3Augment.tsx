@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   Button, Tag, AILoader, Tooltip,
-  CircularArrowIcon, ArrowNarrowUpIcon, ArrowNarrowRightIcon, ChevronLeftIcon,
+  CircularArrowIcon, ArrowNarrowUpIcon, ArrowNarrowRightIcon, ChevronLeftIcon, ChevronDownIcon,
   TeambridgeAIIcon, PlusIcon,
 } from 'alloy-design-system';
 import type { ProvisioningStore } from '../logStore';
@@ -54,6 +54,14 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
   const [draft, setDraft] = useState('');
   // Entry ids appended in the last turn — briefly highlighted in the tree.
   const [justAdded, setJustAdded] = useState<string[]>([]);
+  // Collapsed status sections — "Built" starts collapsed (the low-risk bulk).
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(['built']));
+  const toggleSection = (key: string) =>
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
   const convoRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -91,15 +99,24 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
 
   // Fold the log into two status sections — everything that needs the admin's
   // sign-off (gate) first, then everything built automatically (auto + notify).
-  // Within each, order by domain for a stable read.
+  // Each section nests domain sub-sections (roles, rate rules, …).
   const groups = useMemo(() => {
-    const byDomain = (a: MutationEntry, b: MutationEntry) =>
-      DOMAIN_ORDER.indexOf(a.target.domain) - DOMAIN_ORDER.indexOf(b.target.domain);
-    const gate = store.active.filter(e => e.gateBehavior === 'gate').sort(byDomain);
-    const built = store.active.filter(e => e.gateBehavior !== 'gate').sort(byDomain);
-    const out: { key: string; label: string; entries: MutationEntry[] }[] = [];
-    if (gate.length) out.push({ key: 'gate', label: 'Needs sign-off', entries: gate });
-    if (built.length) out.push({ key: 'built', label: 'Built', entries: built });
+    const byDomain = (entries: MutationEntry[]) => {
+      const map = new Map<string, MutationEntry[]>();
+      for (const e of entries) {
+        const arr = map.get(e.target.domain) ?? [];
+        arr.push(e);
+        map.set(e.target.domain, arr);
+      }
+      return DOMAIN_ORDER.filter(d => map.has(d)).map(d => ({
+        domain: d, label: DOMAIN_LABEL[d], entries: map.get(d)!,
+      }));
+    };
+    const gate = store.active.filter(e => e.gateBehavior === 'gate');
+    const built = store.active.filter(e => e.gateBehavior !== 'gate');
+    const out: { key: string; label: string; total: number; domains: ReturnType<typeof byDomain> }[] = [];
+    if (gate.length) out.push({ key: 'gate', label: 'Needs sign-off', total: gate.length, domains: byDomain(gate) });
+    if (built.length) out.push({ key: 'built', label: 'Built', total: built.length, domains: byDomain(built) });
     return out;
   }, [store.active]);
 
@@ -180,19 +197,37 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
             {groups.length === 0 ? (
               <TreeEmpty>Nothing drafted yet. Your changes will appear here as a live account tree.</TreeEmpty>
             ) : (
-              groups.map(g => (
-                <TreeGroup key={g.key}>
-                  <TreeGroupHead>
-                    <TreeGroupLabel>{g.label}</TreeGroupLabel>
-                    <TreeGroupCount>{g.entries.length}</TreeGroupCount>
-                  </TreeGroupHead>
-                  <Rows>
-                    {g.entries.map(e => (
-                      <DiffRow key={e.id} entry={e} fresh={justAdded.includes(e.id)} onUndo={() => store.undoEntry(e.id)} />
-                    ))}
-                  </Rows>
-                </TreeGroup>
-              ))
+              groups.map(g => {
+                const isCollapsed = collapsed.has(g.key);
+                return (
+                  <StatusSection key={g.key}>
+                    <StatusHead type="button" onClick={() => toggleSection(g.key)} aria-expanded={!isCollapsed}>
+                      <StatusHeadLeft>
+                        <Chevron data-collapsed={isCollapsed || undefined}><ChevronDownIcon size={16} /></Chevron>
+                        <StatusLabel data-status={g.key}>{g.label}</StatusLabel>
+                      </StatusHeadLeft>
+                      <TreeGroupCount>{g.total}</TreeGroupCount>
+                    </StatusHead>
+                    {!isCollapsed && (
+                      <StatusBody>
+                        {g.domains.map(d => (
+                          <TreeGroup key={d.domain}>
+                            <TreeGroupHead>
+                              <TreeGroupLabel>{d.label}</TreeGroupLabel>
+                              <TreeGroupCount>{d.entries.length}</TreeGroupCount>
+                            </TreeGroupHead>
+                            <Rows>
+                              {d.entries.map(e => (
+                                <DiffRow key={e.id} entry={e} fresh={justAdded.includes(e.id)} onUndo={() => store.undoEntry(e.id)} />
+                              ))}
+                            </Rows>
+                          </TreeGroup>
+                        ))}
+                      </StatusBody>
+                    )}
+                  </StatusSection>
+                );
+              })
             )}
           </Tree>
         </DraftCol>
@@ -228,11 +263,9 @@ function DiffRow({ entry, fresh, onUndo }: { entry: MutationEntry; fresh: boolea
           <OpVerb>{OP_VERB[entry.op]}</OpVerb> {entry.target.label}
         </RowLabel>
         <RowMeta>
-          <Attrib>{SOURCE_LABEL[entry.source]}</Attrib>
-          <MetaDot>·</MetaDot>
-          {/* Sections now group by sign-off status, so the row carries the
-              domain for context instead of repeating the status. */}
-          <Attrib>{DOMAIN_LABEL[entry.target.domain]}</Attrib>
+          {/* Domain is now the sub-section header, so the row just carries its
+              attribution. */}
+          <Attrib>Drafted by {SOURCE_LABEL[entry.source]}</Attrib>
         </RowMeta>
       </RowMain>
       <RowRight>
@@ -484,6 +517,60 @@ const TreeGroupCount = styled.span`
   color: var(--color-content-tertiary);
 `;
 
+// Top-level status section (Needs sign-off / Built) — collapsible, nesting the
+// domain sub-sections.
+const StatusSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+`;
+
+const StatusHead = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+
+  &:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+`;
+
+const StatusHeadLeft = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+`;
+
+const Chevron = styled.span`
+  display: inline-flex;
+  color: var(--color-content-tertiary);
+  transition: transform var(--duration-fast) var(--ease-default);
+
+  &[data-collapsed] { transform: rotate(-90deg); }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+`;
+
+const StatusLabel = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+
+  &[data-status='gate'] { color: var(--color-error-content); }
+`;
+
+const StatusBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding-left: var(--space-6);
+`;
+
 const Rows = styled.div`
   display: flex;
   flex-direction: column;
@@ -557,11 +644,6 @@ const Attrib = styled.span`
   font-size: var(--text-xs);
   color: var(--color-content-tertiary);
 `;
-
-const MetaDot = styled.span`
-  color: var(--color-content-disabled);
-`;
-
 
 const RowRight = styled.div`
   display: flex;
