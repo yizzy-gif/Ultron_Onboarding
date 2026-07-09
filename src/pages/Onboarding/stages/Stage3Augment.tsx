@@ -127,7 +127,7 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
       <Columns>
         {/* ── Left: conversation ─────────────────────────────────────────── */}
         <ConvoCol>
-          <ColHead>
+          <ColHead $plain>
             <ColTitle><TeambridgeAIIcon size={16} /> Conversation</ColTitle>
             <ColSub>Describe changes — Ultron drafts them on the right.</ColSub>
           </ColHead>
@@ -329,10 +329,10 @@ const DraftCol = styled.section`
   background: var(--color-bg-secondary);
 `;
 
-const ColHead = styled.div`
+const ColHead = styled.div<{ $plain?: boolean }>`
   flex-shrink: 0;
   padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--color-border-opaque);
+  ${p => !p.$plain && 'border-bottom: 1px solid var(--color-border-opaque);'}
 `;
 
 const ColTitle = styled.h2`
