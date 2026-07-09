@@ -62,7 +62,6 @@ const Frame = styled.div`
 
 const Header = styled.header`
   flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border-opaque);
   background: var(--color-bg-primary);
 `;
 
