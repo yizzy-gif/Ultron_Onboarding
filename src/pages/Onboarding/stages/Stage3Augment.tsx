@@ -174,7 +174,8 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
         </ConvoCol>
 
         {/* ── Right: live account draft tree ─────────────────────────────── */}
-        <DraftCol>
+        <DraftPane>
+          <DraftCol>
           <ColHead>
             <DraftHeadRow>
               <ColTitle>Account draft</ColTitle>
@@ -230,7 +231,8 @@ export function Stage3Augment({ store, template, onNext, onBack }: Stage3Props) 
               })
             )}
           </Tree>
-        </DraftCol>
+          </DraftCol>
+        </DraftPane>
       </Columns>
 
       {/* Footer */}
@@ -308,7 +310,19 @@ const ConvoCol = styled.section`
   border-right: 1px solid var(--color-border-opaque);
 `;
 
+// The right column rides inside an inset, rounded pane (12px radius + margin).
+const DraftPane = styled.div`
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: var(--space-3);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-lg);
+  overflow: hidden; /* clip the rounded corners over the scrolling tree */
+`;
+
 const DraftCol = styled.section`
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
