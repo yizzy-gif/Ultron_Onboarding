@@ -307,7 +307,6 @@ const ConvoCol = styled.section`
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--color-border-opaque);
 `;
 
 // The right column rides inside an inset, rounded pane (12px radius + margin).
