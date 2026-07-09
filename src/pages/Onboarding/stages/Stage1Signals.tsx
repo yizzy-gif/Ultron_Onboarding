@@ -304,7 +304,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
       </Tray>
 
       <FootRow>
-        <FindButton
+        <Button
           variant="primary"
           size="md"
           disabled={signals.length === 0}
@@ -312,7 +312,7 @@ export function Stage1Signals({ signals, onChange, onNext }: Stage1Props) {
           onClick={onNext}
         >
           Find my template
-        </FindButton>
+        </Button>
       </FootRow>
     </Wrap>
   );
@@ -650,9 +650,3 @@ const FootRow = styled.div`
   justify-content: flex-end;
 `;
 
-// Fully-rounded primary CTA. Alloy has no 40px size, so base on md (36) and
-// force the height to 40px (`&&` outweighs the size class).
-const FindButton = styled(Button)`
-  border-radius: var(--radius-full);
-  && { height: var(--space-10); }
-`;
