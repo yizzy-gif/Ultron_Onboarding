@@ -6,7 +6,11 @@ import type { MutationDomain } from './provisioningLog';
 
 // ── Wizard spine ────────────────────────────────────────────────────────────
 
-export type StageId = 1 | 2 | 3 | 4 | 5;
+// Template selection and augment happen inline on the intro build page (Ultron
+// recommends a starting point, then the chat splits into the augment canvas),
+// and provisioning starts straight from there — so the numbered wizard is just
+// the provisioning run.
+export type StageId = 1;
 
 export interface StageDef {
   id: StageId;
@@ -17,11 +21,7 @@ export interface StageDef {
 }
 
 export const STAGES: StageDef[] = [
-  { id: 1, key: 'signals',  title: 'Tell us about your operation', short: 'Signals' },
-  { id: 2, key: 'template', title: 'Pick a starting point',         short: 'Template' },
-  { id: 3, key: 'augment',  title: 'Shape your account',            short: 'Augment' },
-  { id: 4, key: 'confirm',  title: 'Review & sign off',             short: 'Confirm' },
-  { id: 5, key: 'provision',title: 'Provisioning your account',     short: 'Provision' },
+  { id: 1, key: 'provision', title: 'Provisioning your account', short: 'Provision' },
 ];
 
 // ── Stage 1 — signals intake ─────────────────────────────────────────────────

@@ -5,7 +5,7 @@
    list / labeled check list).
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import {
   Avatar, Button, ChevronRightIcon, ChevronSelectorVerticalIcon,
@@ -38,7 +38,7 @@ export function ActivityTrail({ milestones }: { milestones: ActivityMilestone[] 
  *  below the last step and morphs it into the resting magnetic mark once the work
  *  is done; `collapsed` starts the session shut (used for reasoning the operator
  *  has already acted past — the active session streams open). */
-export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors, reasoning }: {
+export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors, reasoning, expandAll }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   /** While running, the index of the step Ultron is currently working. Every step
@@ -75,6 +75,11 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
    *  and shared a plan"), matching the collapsed look of superseded groups — the
    *  operator reopens it to read the reasoning on demand. */
   reasoning?: boolean;
+  /** Keep every step expanded — never fold settled/completed steps behind the
+   *  "show earlier steps" toggle. Used where the trail is a short, fixed recap
+   *  meant to be read in full (e.g. the onboarding findings), rather than a long
+   *  run that should anchor on its current/last step. */
+  expandAll?: boolean;
 }) {
   return (
     <ActivitySession
@@ -88,6 +93,7 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
       animateIn={animateIn}
       showConnectors={showConnectors}
       reasoning={reasoning}
+      expandAll={expandAll}
     />
   );
 }
@@ -96,7 +102,7 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
  *  collapse toggle. Set to 1 — only the final step (the outcome) stays visible. */
 const COLLAPSE_MIN_STEPS = 1;
 
-function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false, reasoning = false }: {
+function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false, reasoning = false, expandAll = false }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   focusIndex?: number;
@@ -105,6 +111,8 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
   running?: boolean;
   /** Reasoning group — folds to a single lighter recap line once settled. */
   reasoning?: boolean;
+  /** Never fold steps behind the collapse toggle — keep the whole trail expanded. */
+  expandAll?: boolean;
   /** The group is history — a newer activity group has triggered below it. The
    *  session stays fully expanded (it no longer collapses), but its settled step
    *  icons demote to a single muted checkmark so the success accent stays with
@@ -130,7 +138,9 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
   // The reasoning group folds only once its analysis has settled — while it's still
   // running (analyzing) it shows its live status like any other running group.
   const foldEntire = superseded || (reasoning && !running);
-  const foldCount = foldEntire
+  const foldCount = expandAll
+    ? 0
+    : foldEntire
     ? milestones.length
     : hasFocus
       ? (milestones.length > 2 ? Math.min(Math.max(0, focusIndex), milestones.length - 1) : 0)
@@ -487,6 +497,20 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
         )}
       </Header>
 
+      {/* Summary line under the headline. While the step is running (focused) it
+          reads as Ultron thinking — cycling probe beats in the muted tertiary tone
+          with a live blink; once the step completes it settles to the summary in
+          the success green. Stays put whether collapsed or expanded (the richer
+          `blocks` detail is what the chevron reveals/hides). */}
+      {milestone.summary && (
+        <MilestoneSummary
+          text={milestone.summary}
+          probe={milestone.probe}
+          running={!!focused}
+          indent={!!icon}
+        />
+      )}
+
       {/* Running progress sub-row — a live status line that keeps cycling through the
           step's progress beats (each pops in as it replaces the last) for the WHOLE
           time the step is the running/focused one, then settles to the final result in
@@ -537,6 +561,61 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
 
       {showExtra && <ExtraSlot $indent={!!icon}>{extra}</ExtraSlot>}
     </Content>
+  );
+}
+
+/** How long the FIRST thinking-probe beat holds before the next cycles in. Brisk
+ *  at the start; each subsequent beat then holds progressively longer (see
+ *  PROBE_BEAT_DECEL) so the line visibly slows as the step converges on its
+ *  result. */
+const PROBE_BEAT_MS = 380;
+
+/** Each probe beat holds this factor longer than the one before it — an eased
+ *  (fast → slow) cadence, so the reveal decelerates into the settled green state
+ *  rather than ticking at a flat rate. */
+const PROBE_BEAT_DECEL = 1.32;
+
+/** Ceiling on the decelerating beat interval, so a long-running step slows to a
+ *  calm pulse rather than freezing outright. */
+const PROBE_BEAT_MAX_MS = 1600;
+
+/** The step's summary sub-text. While the step is running (`running`, i.e. it's
+ *  the focused step Ultron is working) and it carries `probe` beats, the line
+ *  reads as live thinking: each beat POPS IN and blinks (one per-beat animation),
+ *  in the muted tertiary tone, and the cadence decelerates beat over beat so the
+ *  line eases toward rest. Once the step completes (no longer running) it settles
+ *  to the real `summary` in the success green — matching the leading loader→check
+ *  hand-off. A summary with no probe beats just reads settled. */
+function MilestoneSummary({ text, probe, running, indent }: { text: string; probe?: string[]; running?: boolean; indent?: boolean }) {
+  const beats = probe && probe.length ? probe : null;
+  const thinking = !!running && !!beats;
+  // `i` counts monotonically across the WHOLE thinking run (not reset per loop),
+  // so the deceleration keeps ramping even as the beats cycle; the shown beat is
+  // `i % beats.length`.
+  const [i, setI] = useState(0);
+  // Restart the cycle (and the deceleration ramp) each time the step re-enters
+  // its running state.
+  useEffect(() => { if (thinking) setI(0); }, [thinking]);
+  // Each successive beat holds longer than the last (eased cadence), capped so it
+  // settles to a slow pulse instead of stalling. Drives both the JS advance timer
+  // and — via the --beat-ms custom property — the per-beat pop-in/blink duration.
+  const beatMs = Math.min(PROBE_BEAT_MS * Math.pow(PROBE_BEAT_DECEL, i), PROBE_BEAT_MAX_MS);
+  useEffect(() => {
+    if (!thinking || !beats) return;
+    const t = setTimeout(() => setI(n => n + 1), beatMs);
+    return () => clearTimeout(t);
+  }, [thinking, i, beats, beatMs]);
+  return (
+    <Summary
+      $indent={indent}
+      $thinking={thinking}
+      aria-live="polite"
+      style={thinking ? ({ ['--beat-ms']: `${Math.round(beatMs)}ms` } as CSSProperties) : undefined}
+    >
+      {/* Each beat re-mounts (keyed on `i`) so its pop-in + blink replays; as
+          beatMs grows, that per-beat motion slows in lockstep with the cadence. */}
+      {thinking && beats ? <ProbeBeat key={i}>{beats[i % beats.length]}</ProbeBeat> : text}
+    </Summary>
   );
 }
 
@@ -1291,6 +1370,60 @@ const Blocks = styled.div<{ $indent?: boolean }>`
   animation: ${blocksIn} var(--duration-base) var(--ease-out);
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* Pop-in for each probe beat: a soft fade + small upward settle as the beat lands. */
+const probePop = keyframes`
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+/* One thinking-probe beat. Wraps the changing probe text so its motion replays on
+   mount (the span is keyed per beat). Two things play, both scaled to --beat-ms
+   (set on the parent Summary) so they decelerate in lockstep with the cadence:
+   · a quick pop-in (fade + rise), then
+   · the "blink" — a bright highlight band that sweeps the text LEFT → RIGHT once
+     (via a clipped moving gradient, same direction as the running progress line),
+     rather than a whole-line opacity pulse. */
+const ProbeBeat = styled.span`
+  display: inline-block;
+  /* Muted base with a brighter band the sweep animation slides across the text. */
+  background: linear-gradient(
+    90deg,
+    var(--color-content-tertiary) 0%,
+    var(--color-content-tertiary) 40%,
+    var(--color-content-primary) 50%,
+    var(--color-content-tertiary) 60%,
+    var(--color-content-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation:
+    ${probePop} calc(var(--beat-ms, 460ms) * 0.35) var(--ease-out) both,
+    ${progressShimmer} var(--beat-ms, 460ms) linear both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    -webkit-text-fill-color: currentColor;
+  }
+`;
+
+/* An always-on one-line summary under the headline (see ActivityMilestone.summary).
+   Matches the collapsed-block detail tone/size, hung under the title by clearing the
+   inline icon column so it lines up with the step's other sub-content.
+   · thinking (step running) — muted tertiary; the probe beats pop in + blink (see
+     ProbeBeat), decelerating beat over beat.
+   · settled (step complete)  — the summary in the success green. */
+const Summary = styled.p<{ $indent?: boolean; $thinking?: boolean }>`
+  margin: 0;
+  padding-top: var(--space-2);
+  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
+  font-size: var(--text-sm);
+  line-height: var(--line-height-normal);
+  color: ${p => (p.$thinking ? 'var(--color-content-tertiary)' : 'var(--color-success-content)')};
+  transition: color var(--duration-base) var(--ease-out);
 `;
 
 const Block = styled.div`

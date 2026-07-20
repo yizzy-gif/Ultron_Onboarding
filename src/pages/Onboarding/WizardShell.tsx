@@ -1,12 +1,10 @@
-/* Wizard shell — the chrome shared by every onboarding stage: the stepper spine
-   pinned to the top, a scrolling body slot, and an optional footer for
-   back/continue controls. Stages 1/2/4 render inside a centered column; stage 3
-   (augment canvas) and stage 5 (provisioning run) opt into full width via
-   `wide`. */
+/* Wizard shell — the chrome shared by the wizard's stages: a step title, a
+   scrolling body slot, and an optional footer for back/continue controls.
+   Stages render inside a centered column by default; the provisioning run opts
+   into full width via `wide` (which also hides the title block). */
 
 import type { ReactNode } from 'react';
 import styled from 'styled-components';
-import { WizardStepper } from './WizardStepper';
 import type { StageId } from './types';
 import { STAGES } from './types';
 
@@ -20,16 +18,10 @@ interface WizardShellProps {
   children: ReactNode;
 }
 
-export function WizardShell({ current, onJump, wide = false, footer, children }: WizardShellProps) {
+export function WizardShell({ current, wide = false, footer, children }: WizardShellProps) {
   const stage = STAGES.find(s => s.id === current)!;
   return (
     <Frame>
-      <Header>
-        <HeaderInner>
-          <WizardStepper current={current} onJump={onJump} />
-        </HeaderInner>
-      </Header>
-
       <Body $wide={wide}>
         <BodyInner $wide={wide}>
           {!wide && (
@@ -58,17 +50,6 @@ const Frame = styled.div`
   height: 100dvh;
   background: var(--color-bg-primary);
   color: var(--color-content-primary);
-`;
-
-const Header = styled.header`
-  flex-shrink: 0;
-  background: var(--color-bg-primary);
-`;
-
-const HeaderInner = styled.div`
-  max-width: 960px;
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-6);
 `;
 
 const Body = styled.main<{ $wide?: boolean }>`

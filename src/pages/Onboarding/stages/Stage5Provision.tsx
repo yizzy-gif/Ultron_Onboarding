@@ -20,9 +20,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import {
-  Button, Tag, AILoader,
+  Button, Tag,
   AlertTriangleIcon, CheckCircleIcon, CircularArrowIcon, ArrowNarrowRightIcon, ChevronLeftIcon,
 } from 'alloy-design-system';
+import { AgentMark } from '../../Ultron';
 import { ActivityTrailCards } from '../../Ultron/ActivityTrail';
 import type { ActivityMilestone, ActivityUsage, UsageIconKey, WorkingIcon } from '../../Ultron/fixtures';
 import type { ProvisioningStore } from '../logStore';
@@ -31,7 +32,10 @@ import { OP_VERB, SOURCE_LABEL, DOMAIN_LABEL } from '../shared';
 
 interface Stage5Props {
   store: ProvisioningStore;
-  onDone: () => void;
+  // Enters the live Ultron app on completion. Optional for now — the Ultron
+  // event pages are disabled, so the flow rests on the completion screen and
+  // the "Enter your account" CTA is hidden when this is omitted.
+  onDone?: () => void;
   onBack: () => void;
 }
 
@@ -160,7 +164,20 @@ export function Stage5Provision({ store, onDone, onBack }: Stage5Props) {
         <HeadInner>
           <TitleRow>
             <Title>
-              {phase === 'done' ? <CheckCircleIcon size={20} /> : <AILoader size="sm" state={phase === 'paused' ? 'ready' : 'loading'} />}
+              {phase === 'done'
+                ? <CheckCircleIcon size={20} />
+                : (
+                  // Ultron's own identity — the lines mark — in place of the
+                  // generic AI sparkle: animating while the run works, idling
+                  // while it's paused on the admin.
+                  <AgentMark
+                    mark="lines"
+                    size={22}
+                    tone="auto"
+                    state={phase === 'paused' ? 'idle' : 'active'}
+                    aria-label="Ultron"
+                  />
+                )}
               {phase === 'done' ? 'Your account is ready' : phase === 'paused' ? 'Paused on a step that needs you' : 'Provisioning your account'}
             </Title>
             <Tag size="sm" variant="subtle" color={phase === 'paused' ? 'red' : phase === 'done' ? 'green' : 'blue'}>
@@ -216,9 +233,9 @@ export function Stage5Provision({ store, onDone, onBack }: Stage5Props) {
 
       <Foot>
         <Button variant="tertiary" size="md" leadingArtwork={<ChevronLeftIcon size={16} />} onClick={onBack}>
-          Back to review
+          Back to build
         </Button>
-        {phase === 'done' && (
+        {phase === 'done' && onDone && (
           <Button variant="primary" size="lg" trailingArtwork={<ArrowNarrowRightIcon size={18} />} onClick={onDone}>
             Enter your account
           </Button>

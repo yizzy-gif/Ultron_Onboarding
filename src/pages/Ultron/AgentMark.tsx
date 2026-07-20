@@ -46,6 +46,10 @@ interface AgentMarkProps {
   /** When true, the core blooms into a blurred warm→magenta→violet gradient
    *  instead of the mono fill — an alert state (e.g. a risk just detected). */
   coreGradient?: boolean;
+  /** `circle` mark only — how many connection streams (the hairline links that
+   *  arc between cells) to draw. Omit for the default (5 hero / 4 nav). `0`
+   *  leaves just the core, cell sphere, and flowing particle swarm — no lines. */
+  streamCount?: number;
   'aria-label'?: string;
   className?: string;
 }
@@ -119,7 +123,7 @@ function pal(tone: AgentMarkTone, accent: string): Pal {
   return { dot: '228,238,252', core: '248,251,255', accent, glow: true };
 }
 
-interface Ctx { ctx: CanvasRenderingContext2D; w: number; h: number; dpr: number; size: number; state: AgentMarkState; coreHalo: boolean; alert?: number; }
+interface Ctx { ctx: CanvasRenderingContext2D; w: number; h: number; dpr: number; size: number; state: AgentMarkState; coreHalo: boolean; alert?: number; streamCount?: number; }
 
 // The alert palette. The core runs orange-red at the middle out to yellow at the
 // edge (a hot sun). The cells/lines run the SAME red-orange → yellow sweep,
@@ -375,9 +379,12 @@ function drawCircle(e: Ctx, T: number, P: Pal) {
   const phase = T * hopRate, hopN = Math.floor(phase), frac = phase - hopN;
   const VIS = 5, ARC = 12;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const streams = hero
-    ? [{ seed: 1.7 }, { seed: 9.3 }, { seed: 21.5 }, { seed: 34.8 }, { seed: 48.2 }]
-    : [{ seed: 1.7 }, { seed: 9.3 }, { seed: 21.5 }, { seed: 34.8 }];
+  // Connection streams — the hairline links arcing between cells. Callers can
+  // cap how many draw via `streamCount` (0 → none, for the "core + particles"
+  // look); omitting it keeps the default of 5 (hero) / 4 (nav).
+  const STREAM_SEEDS = [1.7, 9.3, 21.5, 34.8, 48.2];
+  const streamN = clamp(Math.round(e.streamCount ?? (hero ? 5 : 4)), 0, STREAM_SEEDS.length);
+  const streams = STREAM_SEEDS.slice(0, streamN).map(seed => ({ seed }));
   for (const stream of streams) {
     const ix = (i: number) => { const x = Math.sin(i * 12.9898 + stream.seed) * 43758.5453; return Math.floor((x - Math.floor(x)) * N); };
     const nodeAt = (i: number) => { let a = ix(i); if (a === ix(i - 1)) a = (a + 1) % N; return byK[a]; };
@@ -588,7 +595,7 @@ const DRAW: Record<AgentMarkKind, (e: Ctx, T: number, P: Pal) => void> = {
 
 export function AgentMark({
   mark = 'orbit', size = 16, tone = 'auto', state = 'active',
-  motionSpeed = 1, accent = '#96B9FF', color, coreHalo = true, coreGradient = false, className, 'aria-label': ariaLabel,
+  motionSpeed = 1, accent = '#96B9FF', color, coreHalo = true, coreGradient = false, streamCount, className, 'aria-label': ariaLabel,
 }: AgentMarkProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   // Repaint trigger when the OS theme flips (the light/dark choice itself is
@@ -609,7 +616,7 @@ export function AgentMark({
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const W = Math.max(2, Math.round(size * dpr)), H = W;
     el.width = W; el.height = H;
-    const e: Ctx = { ctx, w: W, h: H, dpr, size, state, coreHalo, alert: alertRef.current };
+    const e: Ctx = { ctx, w: W, h: H, dpr, size, state, coreHalo, alert: alertRef.current, streamCount };
     // `auto` follows the page theme: sample the resolved page surface token off
     // this element (which honours both the prefers-color-scheme media query and
     // any manual .light/.dark override) and pick the matching palette — light
@@ -649,7 +656,7 @@ export function AgentMark({
     const loop = (now: number) => { paint((now / 1000) * sp); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo, coreGradient, prefersDark]);
+  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo, coreGradient, streamCount, prefersDark]);
 
   return (
     <canvas

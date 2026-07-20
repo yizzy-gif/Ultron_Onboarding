@@ -5,6 +5,7 @@
 import type { Signal, Template } from './types';
 import type { DraftInput } from './logStore';
 import type { MutationDomain } from './provisioningLog';
+import { classify } from './provisioningLog';
 
 // ── Stage 1: seed signals (what the composer "ingests") ──────────────────────
 // A short canned set the intake composer appends from, so the demo shows the
@@ -197,6 +198,118 @@ export const TEMPLATES: Template[] = [
   },
 ];
 
+// ── Granular recommendation templates ────────────────────────────────────────
+// Ultron recommends at the SUBVERTICAL level, not the top-level industry:
+// "healthcare staffing" is never the template — "anesthesia staffing",
+// "long-term care nursing", "travel nursing" are. Each niche carries its own
+// display copy (subvertical name, vertical, rationale, tags) and references a
+// base TEMPLATES entry for the account seed + preview breakdown it lays down, so
+// the recommendation reads at niche granularity while the underlying
+// provisioning reuses the vetted seed for that vertical.
+
+export interface RecTemplate {
+  id: string;
+  /** The subvertical — the actual template name (e.g. "Long-Term Care Nursing"). */
+  name: string;
+  /** The top-level vertical this niche rolls up to (shown as the kicker). */
+  vertical: string;
+  /** 0–100 confidence the niche matches the mapped operation. */
+  match: number;
+  /** Plain-language reason this niche fits. */
+  rationale: string;
+  /** Signal-mirroring tags. */
+  tags: string[];
+  /** TEMPLATES id supplying the seed mutations + preview sections. */
+  baseId: string;
+}
+
+const HC = 'Healthcare staffing';
+const HOSP = 'Hospitality';
+const CON = 'Construction';
+const STAFF = 'Staffing';
+const ENT = 'Enterprise multi-site';
+
+export const REC_TEMPLATES: Record<string, RecTemplate> = {
+  // Healthcare staffing → subverticals (all seed from the medical staffing base).
+  anesthesia: { id: 'rec_anesthesia', name: 'Anesthesia Staffing', vertical: HC, match: 91, baseId: 'tpl_medical_staffing',
+    rationale: 'CRNA and anesthesiologist coverage with case-based scheduling, stipends, and tight credential gating — the roles, differential structure, and license tracking ship configured for the OR.',
+    tags: ['Case-based', 'CRNA / MD', 'Credential-gated', 'Stipends'] },
+  ltc: { id: 'rec_ltc', name: 'Long-Term Care Nursing', vertical: HC, match: 94, baseId: 'tpl_medical_staffing',
+    rationale: 'Resident-facing care around the clock with hard staffing ratios — 24/7 rotating shifts, evening/night/weekend differentials, and CNA/med-tech certification tracking out of the box.',
+    tags: ['24/7 ratios', 'CNA / med tech', 'Shift differentials', 'Certification tracking'] },
+  travel: { id: 'rec_travel', name: 'Travel Nursing', vertical: HC, match: 93, baseId: 'tpl_medical_staffing',
+    rationale: 'Contract clinicians on 8–13 week assignments across facilities — per-assignment pay packages, multi-facility credential holds, and float-pool scheduling ship configured.',
+    tags: ['Contract', 'Multi-facility', 'Pay packages', 'Credential holds'] },
+  allied: { id: 'rec_allied', name: 'Allied Health Per-Diem', vertical: HC, match: 88, baseId: 'tpl_medical_staffing',
+    rationale: 'Per-diem techs and therapists self-scheduling open shifts — light-touch onboarding, competency gating, and shift differentials tuned for a large, uneven float pool.',
+    tags: ['Per-diem', 'Self-scheduling', 'Competency-gated', 'Float pool'] },
+  federal: { id: 'rec_federal', name: 'Federal / Military Healthcare', vertical: HC, match: 82, baseId: 'tpl_medical_staffing',
+    rationale: 'Contract clinicians on government sites — clearance and contract-compliance tracking, prevailing-wage rates, and site-based scheduling ship configured.',
+    tags: ['Cleared', 'Contract-compliant', 'Prevailing wage', 'Site-based'] },
+  homehealth: { id: 'rec_homehealth', name: 'Home Health', vertical: HC, match: 92, baseId: 'tpl_medical_staffing',
+    rationale: 'Field clinicians on visit-based routes — drive-time and mileage, an on-call after-hours pool, and RN/LPN license + CPR tracking ship configured for in-home care.',
+    tags: ['Visit-based', 'Drive-time', 'On-call pool', 'License tracking'] },
+
+  // Hospitality → subverticals (seed from the event/venue base).
+  hotel: { id: 'rec_hotel', name: 'Hotel Multi-Property', vertical: HOSP, match: 90, baseId: 'tpl_stadium_events',
+    rationale: 'Housekeeping, front desk, and F&B across properties — occupancy-driven scheduling, cross-property coverage, and tip handling ship configured.',
+    tags: ['Multi-property', 'Occupancy-driven', 'Cross-coverage', 'Tips'] },
+  fnb: { id: 'rec_fnb', name: 'Food & Beverage', vertical: HOSP, match: 87, baseId: 'tpl_stadium_events',
+    rationale: 'Front- and back-of-house crews on demand-based shifts — tip pooling, alcohol-service certification, and split shifts ship configured.',
+    tags: ['Demand-based', 'Tip pooling', 'Certified', 'Split shifts'] },
+  events: { id: 'rec_events', name: 'Events / Banquet', vertical: HOSP, match: 89, baseId: 'tpl_stadium_events',
+    rationale: 'Event-day surges staffed by large hourly crews — event-based scheduling, event-day premiums, and certification tracking ship configured.',
+    tags: ['Event-based', 'Large crews', 'Event premium', 'Certified'] },
+
+  // Construction → subverticals (seed from the crew-based event base).
+  trades: { id: 'rec_trades', name: 'Trades Subcontracting', vertical: CON, match: 85, baseId: 'tpl_stadium_events',
+    rationale: 'Skilled trades dispatched to job sites — certification tracking, per-site scheduling, and overtime rules ship configured for subcontracted crews.',
+    tags: ['Job-site', 'Certified trades', 'Per-site', 'Overtime'] },
+  crews: { id: 'rec_crews', name: 'Project-Based Crews', vertical: CON, match: 83, baseId: 'tpl_stadium_events',
+    rationale: 'Crews assigned to projects with start/end dates — project-based scheduling, crew rosters, and coverage rules ship configured.',
+    tags: ['Project-based', 'Crew rosters', 'Coverage', 'Overtime'] },
+  union: { id: 'rec_union', name: 'Union / Prevailing-Wage', vertical: CON, match: 80, baseId: 'tpl_stadium_events',
+    rationale: 'Union crews on prevailing-wage jobs — wage-scale rates, certified-payroll tracking, and classification-based scheduling ship configured.',
+    tags: ['Prevailing wage', 'Certified payroll', 'Classifications', 'Union'] },
+
+  // Staffing (general) → subverticals (seed from the hourly-crew base).
+  light: { id: 'rec_light', name: 'Light Industrial', vertical: STAFF, match: 86, baseId: 'tpl_stadium_events',
+    rationale: 'Warehouse and production crews against client orders — order-based scheduling, attendance tracking, and overtime-risk rules ship configured.',
+    tags: ['Order-based', 'Attendance', 'Overtime risk', 'High volume'] },
+  clerical: { id: 'rec_clerical', name: 'Clerical / Admin', vertical: STAFF, match: 81, baseId: 'tpl_stadium_events',
+    rationale: 'Office and admin placements on client assignments — assignment scheduling, timesheet approvals, and skills tracking ship configured.',
+    tags: ['Assignment-based', 'Timesheets', 'Skills', 'Placements'] },
+  warehouse: { id: 'rec_warehouse', name: 'Warehouse / Logistics', vertical: STAFF, match: 84, baseId: 'tpl_stadium_events',
+    rationale: 'Dock and fulfillment crews across shifts — shift-based scheduling, dock coverage rules, and overtime handling ship configured.',
+    tags: ['Shift-based', 'Dock coverage', 'Overtime', 'High volume'] },
+
+  // Enterprise multi-site → subverticals (seed from the retail base).
+  retail: { id: 'rec_retail', name: 'Retail Chains', vertical: ENT, match: 85, baseId: 'tpl_retail',
+    rationale: 'Store teams across a chain — traffic-driven scheduling, per-store coverage, and labor-budget rules ship configured.',
+    tags: ['Multi-store', 'Traffic-driven', 'Labor budget', 'Coverage'] },
+  franchise: { id: 'rec_franchise', name: 'Franchise Networks', vertical: ENT, match: 82, baseId: 'tpl_retail',
+    rationale: 'Independently-run locations under one brand — per-location scheduling with shared standards and roll-up reporting ship configured.',
+    tags: ['Per-location', 'Shared standards', 'Roll-up', 'Distributed'] },
+  distributed: { id: 'rec_distributed', name: 'Distributed Facilities', vertical: ENT, match: 80, baseId: 'tpl_retail',
+    rationale: 'Cleaning and building-services crews across many sites — route-based scheduling, per-site coverage, and quality checks ship configured.',
+    tags: ['Route-based', 'Many sites', 'Coverage', 'Quality checks'] },
+};
+
+// Compose a full Template (for the provisioning log) from a recommendation: the
+// granular display copy over the base template's seed + preview sections.
+export function buildTemplate(rec: RecTemplate): Template {
+  const base = TEMPLATES.find(t => t.id === rec.baseId) ?? TEMPLATES[0];
+  return {
+    ...base,
+    id: rec.id,
+    name: rec.name,
+    industry: rec.vertical,
+    match: rec.match,
+    rationale: rec.rationale,
+    tags: rec.tags,
+  };
+}
+
 // ── Stage 3: mocked AI interpreter ───────────────────────────────────────────
 // Turns a free-text instruction into one or more provisioning-log drafts. A
 // keyword table stands in for a real model; each match becomes a DraftInput the
@@ -206,6 +319,9 @@ export const TEMPLATES: Template[] = [
 interface AiResponse {
   reply: string;
   drafts: DraftInput[];
+  // A short trace of how Ultron read the instruction and worked it — surfaced as
+  // collapsed sub-details on the settled "Drafting the change" activity card.
+  work: string[];
 }
 
 let aiRefCounter = 0;
@@ -294,19 +410,94 @@ export function interpretInstruction(text: string): AiResponse {
       replies.push(reply);
     }
   }
+  const heard = `Read your instruction: "${labelFrom(text, 'your instruction')}"`;
   if (drafts.length === 0) {
     return {
       reply: "I couldn't map that to a concrete account change yet. Try naming a role, a pay rule, a policy, or a permission — e.g. \"add a night-shift differential\" or \"create a Dispatcher role\".",
       drafts: [],
+      work: [
+        heard,
+        'Searched the account model for a matching role, pay rule, policy, or permission.',
+        "Found no concrete target — held off rather than guess at the change.",
+      ],
     };
   }
-  return { reply: replies.join(' '), drafts };
+  const gated = drafts.filter(d => classify(d.target.domain).gateBehavior === 'gate');
+  const list = (ds: DraftInput[]) => ds.map(d => DOMAIN_NOUN[d.target.domain]).join(', ');
+  const work = [
+    heard,
+    `Mapped it to ${drafts.length} account ${drafts.length === 1 ? 'change' : 'changes'}: ${list(drafts)}.`,
+    ...(gated.length
+      ? [`Held the pay & access pieces (${list(gated)}) for your sign-off before anything provisions.`]
+      : []),
+    'Staged the change on the account draft — nothing goes live until you review.',
+  ];
+  return { reply: replies.join(' '), drafts, work };
 }
 
-// A couple of canned opening suggestions for the stage-3 conversation.
-export const AUGMENT_SUGGESTIONS = [
+// Friendly nouns for each change domain — used in the activity card's "how I
+// worked this" trace, where the per-draft labels (all derived from the same
+// instruction text) would otherwise read as duplicates.
+const DOMAIN_NOUN: Record<MutationDomain, string> = {
+  role: 'a role',
+  rateRule: 'a pay rule',
+  rateValue: 'a pay rate',
+  policy: 'a policy',
+  customField: 'a custom field',
+  scheduling: 'a scheduling update',
+  scoringRule: 'a scoring rule',
+  evaluation: 'an evaluation rule',
+  permission: 'a permission',
+  user: 'a user',
+};
+
+// Canned opening suggestions for the augment conversation, keyed by the picked
+// template's vertical (Template.industry) so they read native to the operation —
+// a long-term-care admin sees nurse roles and CPR certs, not dispatchers and
+// food-handler cards. Every line is phrased to hit an interpretInstruction rule
+// (role / rate / policy / certification / permission / scheduling), so tapping
+// one always drafts a concrete change. The generic set is the blank-template /
+// unknown-vertical fallback.
+const GENERIC_SUGGESTIONS = [
   'Add a night-shift differential',
   'Create a Dispatcher role',
   'Give Shift Leads approval permission',
   'Track food-handler certifications',
 ];
+
+const AUGMENT_SUGGESTIONS_BY_VERTICAL: Record<string, string[]> = {
+  'Healthcare staffing': [
+    'Add a night-shift differential',
+    'Create a Charge Nurse role',
+    'Track CPR certifications',
+    'Give Charge Nurses approval permission',
+  ],
+  'Hospitality': [
+    'Add an event-day pay premium',
+    'Create a Banquet Server role',
+    'Track alcohol-service certifications',
+    'Add a tip-pooling policy',
+  ],
+  'Construction': [
+    'Add prevailing-wage rates',
+    'Create a Site Foreman role',
+    'Track OSHA certifications',
+    'Give Foremen timesheet approval permission',
+  ],
+  'Staffing': [
+    'Create a Forklift Operator role',
+    'Add weekend shift coverage',
+    'Track attendance',
+    'Give Supervisors approval permission',
+  ],
+  'Enterprise multi-site': [
+    'Create a Store Manager role',
+    'Add a holiday time-off policy',
+    'Track food-handler certifications',
+    'Adjust weekend coverage scheduling',
+  ],
+};
+
+export function augmentSuggestionsFor(industry?: string): string[] {
+  return (industry && AUGMENT_SUGGESTIONS_BY_VERTICAL[industry]) || GENERIC_SUGGESTIONS;
+}

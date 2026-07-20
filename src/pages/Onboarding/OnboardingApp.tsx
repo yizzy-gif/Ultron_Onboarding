@@ -3,46 +3,46 @@
    page as the entry layer for a customer admin setting up a Teambridge account.
 
    Owns the whole flow's state:
-     • the current wizard stage (1–5),
-     • the intake signals (stage 1),
-     • the chosen template (stage 2),
-     • the shared provisioning log (stages 3–5) — the single source of truth.
+     • the intro layer vs the wizard's provisioning run,
+     • the chosen template (picked on the intro build step),
+     • the shared provisioning log — the single source of truth.
 
-   Each stage is a fold over that log; navigation never mutates it except through
-   the log store's append/undo/resolve/exec. On completion the flow drops into
-   the real app via `onEnterApp`.
+   Each surface is a fold over that log; navigation never mutates it except
+   through the log store's append/undo/resolve/exec. On completion the flow
+   drops into the real app via `onEnterApp`.
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { useCallback, useRef, useState } from 'react';
 import { WizardShell } from './WizardShell';
+import { IntroFlow } from './IntroFlow';
 import { useProvisioningLog } from './logStore';
-import type { Signal, StageId, Template } from './types';
-import { Stage1Signals } from './stages/Stage1Signals';
-import { Stage2Template } from './stages/Stage2Template';
-import { Stage3Augment } from './stages/Stage3Augment';
-import { Stage4Confirm } from './stages/Stage4Confirm';
+import type { Template } from './types';
 import { Stage5Provision } from './stages/Stage5Provision';
 
 interface OnboardingAppProps {
-  /** Called when provisioning completes — drops the admin into the live app. */
-  onEnterApp: () => void;
+  /** Called when provisioning completes — used to drop the admin into the live
+   *  Ultron app. Optional for now: the Ultron event pages are disabled, so the
+   *  flow rests on the provisioning completion screen when this is omitted. */
+  onEnterApp?: () => void;
 }
 
 export function OnboardingApp({ onEnterApp }: OnboardingAppProps) {
-  const [stage, setStage] = useState<StageId>(1);
-  const [signals, setSignals] = useState<Signal[]>([]);
-  const [template, setTemplate] = useState<Template | null>(null);
+  // The flow opens on the intro layer (greeting → intent → questions → build →
+  // augment). The build step is where Ultron recommends a starting-point
+  // template; picking one seeds the account and splits the chat into the inline
+  // augment canvas. Provisioning from there drops into the wizard's run —
+  // augment is the last stop before the account is created.
+  const [phase, setPhase] = useState<'intro' | 'wizard'>('intro');
 
-  // The shared provisioning log — the spine of stages 3–5.
+  // The shared provisioning log — the spine of every surface.
   const store = useProvisioningLog();
 
-  // Templates seed the log exactly once. A ref guards against re-seeding when
-  // the admin steps back to stage 2 and forward again.
+  // The chosen template seeds the log exactly once. A ref guards against
+  // re-seeding when the admin steps back to the intro and picks again.
   const seededTemplateId = useRef<string | null>(null);
 
   const chooseTemplate = useCallback(
     (tpl: Template) => {
-      setTemplate(tpl);
       if (seededTemplateId.current !== tpl.id) {
         // Re-seeding a different template: reset the log first so we don't stack
         // two templates' worth of drafts.
@@ -61,36 +61,25 @@ export function OnboardingApp({ onEnterApp }: OnboardingAppProps) {
     [store],
   );
 
-  const go = useCallback((id: StageId) => setStage(id), []);
-  const next = useCallback(() => setStage(s => (Math.min(5, s + 1) as StageId)), []);
-  const back = useCallback(() => setStage(s => (Math.max(1, s - 1) as StageId)), []);
+  // The intro layer plays before the wizard — greeting through the inline
+  // augment canvas (where the account is shaped). It owns its own full-screen
+  // chrome (no stepper/title), so it renders outside WizardShell. Provisioning
+  // from the augment canvas opens the wizard at the run.
+  if (phase === 'intro') {
+    return (
+      <IntroFlow
+        store={store}
+        onSeedTemplate={chooseTemplate}
+        onComplete={() => setPhase('wizard')}
+      />
+    );
+  }
 
-  // Stage 3 renders full-width; stage 5 reuses the Ultron run surface (also wide).
-  const wide = stage === 3 || stage === 5;
-
+  // The provisioning run reuses the wide Ultron surface; back drops to the
+  // intro layer, where the account was shaped in the augment canvas.
   return (
-    <WizardShell current={stage} onJump={go} wide={wide}>
-      {stage === 1 && (
-        <Stage1Signals signals={signals} onChange={setSignals} onNext={next} />
-      )}
-      {stage === 2 && (
-        <Stage2Template
-          signals={signals}
-          chosen={template}
-          onChoose={chooseTemplate}
-          onNext={next}
-          onBack={back}
-        />
-      )}
-      {stage === 3 && (
-        <Stage3Augment store={store} template={template} onNext={next} onBack={back} />
-      )}
-      {stage === 4 && (
-        <Stage4Confirm store={store} onProvision={next} onBack={back} />
-      )}
-      {stage === 5 && (
-        <Stage5Provision store={store} onDone={onEnterApp} onBack={back} />
-      )}
+    <WizardShell current={1} wide>
+      <Stage5Provision store={store} onDone={onEnterApp} onBack={() => setPhase('intro')} />
     </WizardShell>
   );
 }

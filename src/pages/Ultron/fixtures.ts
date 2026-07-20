@@ -1340,6 +1340,17 @@ export interface ActivityBlock {
 export interface ActivityMilestone {
   icon: WorkingIcon;
   headline: string;
+  /** An always-visible one-line sub-text shown directly under the headline —
+   *  stays put whether the step is collapsed or expanded (unlike `blocks`, which
+   *  the step's accordion hides while collapsed). Used where a step should read
+   *  as headline + summary at rest, with its richer detail (bullets) tucked
+   *  behind the chevron. */
+  summary?: string;
+  /** Short "thinking context" beats cycled through the summary line WHILE the step
+   *  is running (focused): each reads as Ultron working the step, in the muted
+   *  tertiary tone with a live blink. Once the step completes, the line settles to
+   *  `summary` in the success green. Omit for a summary that reads settled at rest. */
+  probe?: string[];
   blocks?: ActivityBlock[];
   /** Running progress beats shown as a sub-row under the headline (see
    *  WorkingMilestone.progress) — carried over from working milestones. */
