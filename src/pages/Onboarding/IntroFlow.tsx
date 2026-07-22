@@ -2,20 +2,24 @@
    Intro flow — the opening layer that sits ABOVE the provisioning wizard.
 
    The steps, played in sequence before the numbered wizard begins:
-     1. landing   — Ultron's identity mark + a co-pilot greeting, then a sign-up
-                     block: continue with Google / Microsoft / Apple, or an email
-                     address. Any of them advances (the accounts are mocked — no
-                     real auth wired in a prototype).
-     2. workplace — "Where do you work?" — paste a company website, or switch to
+     1. landing   — Ultron's identity mark + a co-pilot greeting, then a single
+                     email capture with a "Get started free" CTA.
+     2. account   — the sign-in options, centered on the screen: continue with
+                     Google / Microsoft / Apple, or log in with email. Any of
+                     them advances (the accounts are mocked — no real auth wired
+                     in a prototype).
+     3. workplace — "Where do you work?" — paste a company website, or switch to
                      typing the company name. The submission decides the next path.
-     3. loading   — understand the operation. Website path: a centered parse run —
+     4. loading   — understand the operation. Website path: a centered parse run —
                      "reading the site", then the findings pop in one-by-one (no
                      chat thread). Company-name path: a single workforce-type pick
                      (the size / roles / roster intake was removed).
-     4. questions — three quick, high-level workforce questions (how workers are
+     5. questions — three quick, high-level workforce questions (how workers are
                      paid, how clients are billed, where the team works), each a
-                     vertical stack of selectable cards. Shown on BOTH paths.
-     5. build …   — the account-draft / recommendation / provisioning tail (being
+                     vertical stack of selectable cards. Only on the no-website /
+                     didn't-resolve paths — a parsed website already answers this,
+                     so that path skips straight to the roster.
+     6. build …   — the account-draft / recommendation / provisioning tail (being
                      redesigned; the flow currently hands into the existing tail so
                      it stays runnable end-to-end).
 
@@ -36,7 +40,6 @@ import {
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
   Building05Icon,
   BankNote01Icon, ReceiptCheckIcon, CoinsStacked03Icon, ClockIcon, CurrencyDollarIcon, Pin01Icon,
-  AtSignIcon,
 } from 'alloy-design-system';
 import { AgentMark } from '../Ultron';
 import { IntroBackdrop } from './IntroBackdrop';
@@ -160,7 +163,7 @@ const WORKFORCE_QUESTIONS: WorkforceQuestion[] = [
 
 // ── Root ─────────────────────────────────────────────────────────────────────
 
-type Step = 'landing' | 'workplace' | 'loading' | 'questions' | 'roster' | 'schedule';
+type Step = 'landing' | 'auth' | 'workplace' | 'loading' | 'questions' | 'roster' | 'schedule';
 
 export function IntroFlow({ onComplete }: IntroFlowProps) {
   const [step, setStep] = useState<Step>('landing');
@@ -197,8 +200,20 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
     [],
   );
 
-  // Sign-up (landing) → the workplace question.
-  const finishLanding = () => transition(() => setStep('workplace'));
+  // Teambridge logo (top-left) → restart the demo from the top: back to the
+  // landing with everything collected cleared.
+  const restart = () =>
+    transition(() => {
+      setStep('landing');
+      setAnswers({});
+      setConnected(false);
+    });
+
+  // Email captured (landing) → the account page (sign-in options).
+  const finishLanding = () => transition(() => setStep('auth'));
+
+  // Account picked (any provider, or email) → the workplace question.
+  const finishAuth = () => transition(() => setStep('workplace'));
 
   // Workplace answered → the loading step (site fly-through, or workforce pick).
   // The mark forms its first connection line as the operation comes into focus.
@@ -209,10 +224,12 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
   };
 
   // Loading done (workforce type on the no-website path; the fly-through advances
-  // on its own on the website path) → the three workforce questions.
+  // on its own on the website path). The website path already read the operation
+  // off the site, so it skips the three workforce questions and heads straight
+  // to the roster; the no-website / didn't-resolve paths keep them.
   const finishLoading = (collected: IntroAnswers) => {
     setAnswers(a => ({ ...a, ...collected }));
-    transition(() => setStep('questions'));
+    transition(() => setStep(answers.companyWebsite ? 'roster' : 'questions'));
   };
 
   // Workforce questions answered → the roster upload.
@@ -248,7 +265,7 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
       {/* Ambient cursor glow — layered above the backdrop's dots/lines but below
           all content (DOM order does the stacking; both are z-index auto). */}
       <MouseGlow />
-      <LogoCorner>
+      <LogoCorner type="button" aria-label="Restart demo" title="Restart demo" onClick={restart}>
         <TeambridgeMark size={22} />
       </LogoCorner>
       <Scroll>
@@ -277,6 +294,11 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
               incoming step then plays its own entrance. */}
           <Content $exiting={exiting}>
             {step === 'landing' && <LandingStep onNext={finishLanding} />}
+            {step === 'auth' && (
+              <StepIn>
+                <AuthStep onNext={finishAuth} />
+              </StepIn>
+            )}
             {step === 'workplace' && (
               <StepIn>
                 <WorkplaceQuestion onAnswer={finishWorkplace} />
@@ -329,16 +351,59 @@ const CUSTOMER_LOGOS = [
   { name: 'United Staffing Solutions', src: unitedStaffingSolutionsLogo },
 ];
 
-// One operator testimonial — a fictional persona for the prototype.
-const OPERATOR_QUOTE = {
-  quote:
-    'Ultron turned three days of scheduling into ten minutes. It just handles the ' +
-    "busywork so my managers don't have to.",
-  name: 'Dana Okafor',
-  role: 'Director of Operations',
-  org: 'Meridian Care',
-  avatarColor: 'purple' as const,
-};
+// Operator testimonials — fictional personas for the prototype, most voiced for
+// the customers in the logo row so the panel reads as one story. The proof
+// panel loops through them, one card popping in at a time.
+const OPERATOR_QUOTES = [
+  {
+    quote:
+      'Ultron turned three days of scheduling into ten minutes. It just handles the ' +
+      "busywork so my managers don't have to.",
+    name: 'Dana Okafor',
+    role: 'Director of Operations',
+    org: 'Meridian Care',
+    avatarColor: 'purple' as const,
+  },
+  {
+    quote:
+      'Every event used to start with a spreadsheet marathon. Now open shifts fill ' +
+      "themselves before I've finished my coffee.",
+    name: 'Marcus Webb',
+    role: 'Event Staffing Manager',
+    org: "Levi's Stadium",
+    avatarColor: 'blue' as const,
+  },
+  {
+    quote:
+      'Onboarding a class of forty caregivers used to eat my whole week. Ultron ' +
+      'drafts it, I review it, done by lunch.',
+    name: 'Priya Raman',
+    role: 'VP of People',
+    org: 'ProCare HR',
+    avatarColor: 'green' as const,
+  },
+  {
+    quote:
+      "It caught a credential lapse we'd have missed and reworked the schedule " +
+      'around it before anyone had to call in.',
+    name: 'Sofia Delgado',
+    role: 'Compliance Lead',
+    org: 'Express Healthcare',
+    avatarColor: 'orange' as const,
+  },
+  {
+    quote:
+      "It's like giving every team its own ops coordinator without adding " +
+      'headcount. My leads finally lead again.',
+    name: 'Jamie Chen',
+    role: 'Workforce Lead',
+    org: 'ModSquad',
+    avatarColor: 'azure' as const,
+  },
+];
+
+// How long each compliment card holds before the next one pops in.
+const QUOTE_ROTATE_MS = 6000;
 
 // Brand marks for the SSO buttons. Vendor logos aren't (and shouldn't be) part of
 // Alloy's icon set — they're third-party trademarks — so they're inlined here as
@@ -423,57 +488,30 @@ function LandingStep({ onNext }: { onNext: () => void }) {
             <SubGroup>
               <Sub>{GREETING_BODY}</Sub>
 
-              <SignUp aria-label="Create your account">
-                <SsoStack>
-                  {SSO_PROVIDERS.map(p => {
-                    const Mark = p.mark;
-                    return (
-                      <SsoButton
-                        key={p.id}
-                        variant="secondary"
-                        size="lg"
-                        type="button"
-                        leadingArtwork={<Mark />}
-                        onClick={onNext}
-                      >
-                        {p.label}
-                      </SsoButton>
-                    );
-                  })}
-                </SsoStack>
-
-                <OrRow aria-hidden="true">
-                  <OrText>or sign up with email</OrText>
-                </OrRow>
-
-                <EmailForm
+              {/* Page one collects only the email; the sign-in options (SSO +
+                  email log-in) live on the account step that follows. */}
+              <SignUp aria-label="Get started">
+                <GetStartedForm
                   onSubmit={(e: FormEvent) => {
                     e.preventDefault();
                     if (looksLikeEmail(email)) onNext();
                   }}
                 >
-                  <EmailFieldWrap>
-                    <GlassEmailField
-                      aria-label="Work email"
-                      placeholder="you@company.com"
-                      leadingIcon={<AtSignIcon size={16} />}
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                    />
-                  </EmailFieldWrap>
-                  <SubmitButton
+                  <GlassEmailField
+                    aria-label="Work email"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                  />
+                  <GetStartedButton
                     variant="primary"
-                    size="md"
+                    size="lg"
                     type="submit"
-                    iconOnly
-                    aria-label="Continue"
                     disabled={!looksLikeEmail(email)}
                   >
-                    <ArrowNarrowRightIcon size={16} />
-                  </SubmitButton>
-                </EmailForm>
-
-                <Fine>Creating an account means you agree to Teambridge's Terms and Privacy Policy.</Fine>
+                    Get started free
+                  </GetStartedButton>
+                </GetStartedForm>
               </SignUp>
             </SubGroup>
           )}
@@ -486,24 +524,106 @@ function LandingStep({ onNext }: { onNext: () => void }) {
   );
 }
 
+// ── Step 2 — account (sign-in options) ───────────────────────────────────────
+
+// The account page that follows the email capture: the third-party providers
+// plus a plain email log-in, centered on the screen beneath the persistent
+// identity mark (the root wraps it in StepIn like the other centered steps).
+function AuthStep({ onNext }: { onNext: () => void }) {
+  const [email, setEmail] = useState('');
+
+  return (
+    <>
+      <Prompt>Create your account</Prompt>
+      <PromptSub>Continue with your work account, or log in with email.</PromptSub>
+
+      <AuthBlock aria-label="Create your account">
+        <SsoStack>
+          {SSO_PROVIDERS.map(p => {
+            const Mark = p.mark;
+            return (
+              <SsoButton
+                key={p.id}
+                variant="secondary"
+                size="lg"
+                type="button"
+                leadingArtwork={<Mark />}
+                onClick={onNext}
+              >
+                {p.label}
+              </SsoButton>
+            );
+          })}
+        </SsoStack>
+
+        <OrRow aria-hidden="true">
+          <OrText>or log in with email</OrText>
+        </OrRow>
+
+        <EmailForm
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            if (looksLikeEmail(email)) onNext();
+          }}
+        >
+          <EmailFieldWrap>
+            <GlassEmailField
+              aria-label="Work email"
+              placeholder="you@company.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+          </EmailFieldWrap>
+          <SubmitButton
+            variant="primary"
+            size="md"
+            type="submit"
+            iconOnly
+            aria-label="Continue"
+            disabled={!looksLikeEmail(email)}
+          >
+            <ArrowNarrowRightIcon size={16} />
+          </SubmitButton>
+        </EmailForm>
+
+        <Fine>Creating an account means you agree to Teambridge's Terms and Privacy Policy.</Fine>
+      </AuthBlock>
+    </>
+  );
+}
+
 // The proof panel beside the sign-up, read top to bottom as one flow: the live
 // Ultron Index (the metric), one operator quote (the voice), then a quiet row of
 // other operators (the breadth). No boxes — plain type on the page, separated by
 // rhythm and a single footer hairline, so it doesn't read as content crammed
 // into a card.
 function SocialProof() {
+  const [quoteIndex, setQuoteIndex] = useState(0);
+
+  // Loop the compliment cards — every few seconds the next operator pops in.
+  useEffect(() => {
+    const id = setInterval(
+      () => setQuoteIndex(i => (i + 1) % OPERATOR_QUOTES.length),
+      QUOTE_ROTATE_MS,
+    );
+    return () => clearInterval(id);
+  }, []);
+
+  const q = OPERATOR_QUOTES[quoteIndex];
   return (
     <ProofPanel>
       <ProofInner>
       <LiveUltronIndex />
 
-      <Quote>
-        <QuoteText>{`“${OPERATOR_QUOTE.quote}”`}</QuoteText>
+      {/* Keyed by index so each rotation remounts the card and replays its
+          pop-in entrance. */}
+      <Quote key={quoteIndex}>
+        <QuoteText>{`“${q.quote}”`}</QuoteText>
         <QuoteBy>
-          <Avatar name={OPERATOR_QUOTE.name} color={OPERATOR_QUOTE.avatarColor} size="sm" />
+          <Avatar name={q.name} color={q.avatarColor} size="sm" />
           <QuoteMeta>
-            <QuoteName>{OPERATOR_QUOTE.name}</QuoteName>
-            <QuoteRole>{`${OPERATOR_QUOTE.role} · ${OPERATOR_QUOTE.org}`}</QuoteRole>
+            <QuoteName>{q.name}</QuoteName>
+            <QuoteRole>{`${q.role} · ${q.org}`}</QuoteRole>
           </QuoteMeta>
         </QuoteBy>
       </Quote>
@@ -997,8 +1117,9 @@ const Frame = styled.div`
 
 /* Teambridge logo, pinned to the frame's top-left above the backdrop. A 36px
    square wrapper (32px space-8 + 4px space-1 — no 36px space token exists)
-   centers the glyph; content-primary fill follows the theme. */
-const LogoCorner = styled.div`
+   centers the glyph; content-primary fill follows the theme. A quiet button:
+   clicking it restarts the demo from the landing. */
+const LogoCorner = styled.button`
   position: absolute;
   top: var(--space-5);
   left: var(--space-5);
@@ -1008,7 +1129,17 @@ const LogoCorner = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--color-content-primary);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+  }
 `;
 
 /* Back control, pinned to the frame's bottom-left above the backdrop — steps
@@ -1093,12 +1224,16 @@ const MarkBloom = styled.span`
   }
 `;
 
-/* Wraps the active step. On exit it fades + lifts away; the incoming step then
-   plays its own entrance (the greeting types in; intent/questions use StepIn),
-   so each transition reads as one step leaving before the next arrives. */
+/* Wraps the active step. On exit it fades away; the incoming step then plays
+   its own entrance (the greeting types in; intent/questions use StepIn), so
+   each transition reads as one step leaving before the next arrives.
+   Opacity ONLY — animating transform here would make Content the containing
+   block for fixed descendants, and the landing's two panels are position:fixed
+   on wide screens: they'd snap from viewport-anchored to content-anchored and
+   visibly jump for the length of the exit. */
 const stepExit = keyframes`
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 1; }
+  to   { opacity: 0; }
 `;
 
 const Content = styled.div<{ $exiting?: boolean; $augment?: boolean }>`
@@ -1246,6 +1381,28 @@ const OrText = styled.span`
   white-space: nowrap;
 `;
 
+/* Landing email capture — the field stacked over a full-width CTA, reading as
+   one compact "get started" unit. */
+const GetStartedForm = styled.form`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+`;
+
+/* Full-width CTA under the email field. `&&` wins over Button's width rule. */
+const GetStartedButton = styled(Button)`
+  && {
+    width: 100%;
+  }
+`;
+
+/* The account step's sign-in block — the landing's sign-up column, re-centered
+   under the step prompt with a little air above it. */
+const AuthBlock = styled(SignUp)`
+  margin-top: var(--space-2);
+`;
+
 const EmailForm = styled.form`
   display: flex;
   align-items: flex-start;
@@ -1258,10 +1415,13 @@ const EmailFieldWrap = styled.div`
   min-width: 0;
 `;
 
-/* Liquid-glass email field — the glass tint sits on the Alloy field's shell and
-   the inner input goes transparent so it reads as one frosted control. */
+/* Liquid-glass email field — the glass tint sits on the Alloy field's shell
+   (the element that owns the border and radius) and the inner input goes
+   transparent so it reads as one frosted control. Styling the root instead
+   would draw a second border around the shell's own. Alloy's focus-within
+   border/ring rules are more specific, so focus states still win. */
 const GlassEmailField = styled(EmailField)`
-  && {
+  && [class*='shell'] {
     ${liquidGlass}
   }
   && input {
@@ -1304,7 +1464,7 @@ const ProofPanel = styled.div`
   /* Frosted-glass wrapper: a translucent tint of the surface (theme-aware via
      color-mix on the semantic token) plus a backdrop blur, so the ambient
      particles show through softly. */
-  padding: var(--space-8);
+  padding: var(--space-10);
   background: color-mix(in srgb, var(--color-bg-primary) 72%, transparent);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
@@ -1324,6 +1484,8 @@ const ProofPanel = styled.div`
     left: calc(50vw + var(--space-3));
     z-index: 1;
     overflow-y: auto;
+    /* The full-height panel can afford more breathing room than the card. */
+    padding: var(--space-12);
   }
 
   /* Narrow: an ordinary card in the stacked flow. */
@@ -1338,13 +1500,20 @@ const ProofPanel = styled.div`
 `;
 
 /* Caps the proof content's measure inside the wide panel and centers it, so a
-   half-viewport card doesn't stretch the lines too far. */
+   half-viewport card doesn't stretch the lines too far. On wide screens the
+   column fills the panel's full height and spreads its three blocks — stat at
+   the top, quote in the middle, logos anchoring the foot — so the tall panel
+   reads composed instead of clustered at the center. */
 const ProofInner = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
   width: 100%;
-  max-width: 460px;
+
+  @media (min-width: 801px) {
+    flex: 1;
+    justify-content: space-between;
+  }
 `;
 
 /* The live stat — plain on the page (no box), so the big figure carries the
@@ -1413,8 +1582,8 @@ const StatCaption = styled.span`
 const LogoFooter = styled.div`
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding-top: var(--space-5);
+  gap: var(--space-5);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--color-border-opaque);
 `;
 
@@ -1484,7 +1653,7 @@ const LogoTrack = styled.div`
    differently-colored logos reads as one cohesive, muted trust strip rather than a
    clash of brand palettes. */
 const LogoImg = styled.img`
-  height: 22px;
+  height: 30px;
   width: auto;
   flex-shrink: 0;
   display: block;
@@ -1502,11 +1671,27 @@ const LogoImg = styled.img`
   }
 `;
 
+/* One compliment card at a time — the keyed remount replays this pop-in as the
+   loop advances. */
+const quotePop = keyframes`
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+`;
+
 const Quote = styled.figure`
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   margin: 0;
+  /* Room for the tallest card (four relaxed text-md lines plus the byline) —
+     raw px deliberately, so rotating cards of different lengths never reflow
+     the spread panel around them. */
+  min-height: 152px;
+  animation: ${quotePop} var(--duration-slow) var(--ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `;
 
 const QuoteText = styled.blockquote`
@@ -1840,11 +2025,21 @@ const MissNote = styled.p`
 
 /* ── Steps 5 & 6 — uploads ───────────────────────────────────────────────────
    Frames the Alloy FileUploader drop zone to the centered column width. */
+/* The drop area wears the shared liquid-glass surface (tint + blur + edge
+   highlight) in place of Alloy's opaque fill. `border-style: dashed` is
+   restated after the glass mixin (which sets a solid border) so the area keeps
+   reading as a drop zone. Scoped to :not([data-drag-over]) so Alloy's
+   drag-over feedback (secondary fill + focus border) still wins mid-drag. */
 const UploadWrap = styled.div`
   width: 100%;
   max-width: 520px;
   margin-top: var(--space-2);
   text-align: left;
+
+  & [class*='area']:not([data-drag-over]) {
+    ${liquidGlass}
+    border-style: dashed;
+  }
 `;
 
 /* ── Step 4 — workforce questions ────────────────────────────────────────────
@@ -2029,12 +2224,12 @@ const TextButton = styled.button`
   font-size: var(--text-xs);
   font-weight: var(--font-weight-medium);
   color: var(--color-content-tertiary);
-  transition: color var(--duration-fast) var(--ease-default),
-              background var(--duration-fast) var(--ease-default);
+  transition: color var(--duration-fast) var(--ease-default);
 
   &:hover {
     color: var(--color-content-primary);
-    background: var(--color-bg-secondary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   &:focus-visible {

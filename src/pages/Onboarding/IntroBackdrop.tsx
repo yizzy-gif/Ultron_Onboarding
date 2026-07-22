@@ -251,7 +251,11 @@ export function IntroBackdrop({ links = 0 }: IntroBackdropProps) {
 
     paint(1.15);
     let raf = 0;
-    const loop = (now: number) => { paint(now / 1000); raf = requestAnimationFrame(loop); };
+    // Continue time from the initial frame — rAF timestamps start near 0 on a
+    // fresh load, so painting `now / 1000` directly would snap every particle
+    // backwards from T=1.15 one frame after mount.
+    const start = performance.now();
+    const loop = (now: number) => { paint(1.15 + (now - start) / 1000); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);

@@ -266,6 +266,10 @@ export default function App({ introAnswers }: AppProps = {}) {
   // on fresh entry (introAnswers passed in); any nav action drops out of it, but
   // it stays re-openable from the persistent "Welcome" entry in the Pages nav.
   const [onWelcome, setOnWelcome] = useState(Boolean(introAnswers));
+  // Whether the operator has continued the welcome conversation (sent a first
+  // message). Drives where the Welcome entry sits in the sidebar: New until
+  // the conversation continues, Working after.
+  const [welcomeContinued, setWelcomeContinued] = useState(false);
   // Live landing — Ultron's resting presence (large Circle mark, no case open).
   // Ultron's normal home: the user rests here, opening any case in the sidebar
   // leaves it, and clicking the identity returns to it. Starts inactive while the
@@ -355,42 +359,28 @@ export default function App({ introAnswers }: AppProps = {}) {
     <HeadingText>{homeView === 'memory' ? 'Memory' : homeView === 'account' ? 'Account database' : 'Ultron'}</HeadingText>
   );
 
-  // Operator-created pages, listed as a group at the top of the Ultron sidebar
-  // (above the case groups). Selecting one opens it; the active one highlights.
-  const pageMenuEntries: SecondaryNavMenuEntry[] = [
-    {
-      type: 'group',
-      group: {
-        id: 'pages',
-        label: 'Pages',
-        icon: <DocumentIcon />,
-        trailingBadge: <Badge>{pages.length + 1}</Badge>,
-        defaultExpanded: true,
-        outlined: false,
-        children: [
-          // Persistent Welcome entry — the post-onboarding recap, kept here so
-          // it's always reachable instead of vanishing on the first nav click.
-          {
-            id: 'welcome',
-            label: 'Welcome',
-            icon: <DocumentIcon />,
-            isActive: onWelcome,
-            onClick: openWelcome,
-          },
-          // Operator-created pages, each deletable from its ⋯ menu.
-          ...pages.map(p => ({
-            id: p.id,
-            label: p.title,
-            icon: <DocumentIcon />,
-            isActive: activePage === p.id,
-            onClick: () => openPage(p.id),
-            trailingSlot: <PageRowActions onDelete={() => deletePage(p.id)} />,
-          })),
-        ],
-      },
-    },
-    { type: 'divider', id: 'pages-divider' },
-  ];
+  // The Welcome thread's sidebar row — the post-onboarding recap, kept always
+  // reachable. It lives with the cases and follows their lifecycle: listed
+  // under New until the operator continues the conversation, under Working
+  // after (see welcomeContinued).
+  const welcomeNavChild = {
+    id: 'welcome',
+    label: 'Welcome',
+    icon: <DocumentIcon />,
+    isActive: onWelcome,
+    onClick: openWelcome,
+  };
+
+  // Operator-created pages (the identity card's "+") list under the New case
+  // group — a fresh page is new work. Each row keeps its ⋯ delete menu.
+  const pageNavChildren = pages.map(p => ({
+    id: p.id,
+    label: p.title,
+    icon: <DocumentIcon />,
+    isActive: activePage === p.id,
+    onClick: () => openPage(p.id),
+    trailingSlot: <PageRowActions onDelete={() => deletePage(p.id)} />,
+  }));
 
   // Home renders its secondary-nav menu through the standard pipeline (same
   // MenuGroupItem / MenuSingleItem components as every other app) so the rows
@@ -404,7 +394,7 @@ export default function App({ introAnswers }: AppProps = {}) {
           onClick: () => setAccountCollection(c.id),
         },
       }))
-    : [...pageMenuEntries, ...ultron.groups.flatMap<SecondaryNavMenuEntry>(g => {
+    : ultron.groups.flatMap<SecondaryNavMenuEntry>(g => {
         // Each group lists its cases as children; clicking one opens that case
         // on the group's page. New and Done are paged one case per page; the
         // New group relabels the needs-attention bucket.
@@ -418,16 +408,22 @@ export default function App({ introAnswers }: AppProps = {}) {
         const groupThreads = g.id === 'needs_attention'
           ? g.threads.filter(t => t.status === 'analyzing' || ultron.revealedNewIds.includes(t.id))
           : g.threads;
+        // The Welcome thread rides this group's list: New until the operator
+        // continues the conversation, Working after. Operator-created pages
+        // list under New alongside it.
+        const welcomeHere =
+          (g.id === 'needs_attention' && !welcomeContinued) || (g.id === 'live' && welcomeContinued);
+        const pagesHere = g.id === 'needs_attention' ? pageNavChildren : [];
         const groupEntry = {
           type: 'group' as const,
           group: {
             id: g.id,
             label: g.id === 'needs_attention' ? 'New' : g.label,
             icon: HOME_GROUP_ICON[g.id],
-            trailingBadge: <Badge>{groupThreads.length}</Badge>,
+            trailingBadge: <Badge>{groupThreads.length + (welcomeHere ? 1 : 0) + pagesHere.length}</Badge>,
             defaultExpanded: true,
             outlined: false,
-            children: groupThreads.map(t => ({
+            children: [...(welcomeHere ? [welcomeNavChild] : []), ...pagesHere, ...groupThreads.map(t => ({
               id: t.id,
               // Cases Ultron just detected on the Live landing type their title
               // in (the moment of detection); authored cases show it plainly.
@@ -461,7 +457,7 @@ export default function App({ introAnswers }: AppProps = {}) {
                     </Tooltip>
                   )
                 : undefined,
-            })),
+            }))],
           },
         };
         // Divider above the Working and Done groups.
@@ -470,7 +466,7 @@ export default function App({ introAnswers }: AppProps = {}) {
           : g.id === 'live'
           ? [{ type: 'divider' as const, id: 'working-divider' }, groupEntry]
           : [groupEntry];
-      })];
+      });
 
   // Module catalog for PrimarySheet + ModuleDrawer. Groups mirror the
   // three-tier layout of the desktop PrimaryNav (main / tools / bottom).
@@ -537,7 +533,7 @@ export default function App({ introAnswers }: AppProps = {}) {
       ) : homeView === 'account' ? (
         <AccountDatabasePage collectionId={accountCollection} />
       ) : onWelcome ? (
-        <WelcomeThread answers={introAnswers} />
+        <WelcomeThread answers={introAnswers} onContinued={() => setWelcomeContinued(true)} />
       ) : activePage ? (
         <NewPage
           key={activePage}
