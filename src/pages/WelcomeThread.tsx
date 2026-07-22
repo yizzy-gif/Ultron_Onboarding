@@ -503,12 +503,15 @@ const turnIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
+/* The thread column. Its max-width leaves room for the side padding so the
+   inner content runs exactly as wide as the 720px composer below — the recap
+   cards and bubbles line up edge to edge with it. */
 const Thread = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   width: 100%;
-  max-width: 720px;
+  max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
 `;
@@ -524,12 +527,13 @@ const Row = styled.div`
 `;
 
 /* Ultron's opening turn stacks a greeting, the recap card, and the ask as one
-   left-aligned column. */
+   left-aligned column spanning the full thread column, so the recap cards run
+   exactly as wide as the composer. */
 const Stack = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  max-width: 92%;
+  width: 100%;
 `;
 
 const Bubble = styled.div`

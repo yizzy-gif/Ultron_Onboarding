@@ -35,7 +35,7 @@ import styled, { css, keyframes } from 'styled-components';
 import {
   Avatar,
   Button, EmailField, FileUploader, ComposerActions, ComposerSendButton,
-  ArrowNarrowRightIcon, Map01Icon,
+  ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
   Link01Icon, Building02Icon,
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
   Building05Icon,
@@ -259,6 +259,11 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
   // operation comes into focus, a second while it takes in the roster & schedule.
   const identityStreams = step === 'roster' || step === 'schedule' ? 2 : connected ? 1 : 0;
 
+  // While the website activation run is working, the identity shifts into its
+  // `lines` processing form (same size, same slot); every other step keeps the
+  // connected `circle` presence.
+  const processing = step === 'loading' && Boolean(answers.companyWebsite);
+
   return (
     <Frame>
       <IntroBackdrop links={backdropLinks} />
@@ -279,11 +284,11 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
             <Identity>
               <MarkBloom>
                 <AgentMark
-                  mark="circle"
+                  mark={processing ? 'lines' : 'circle'}
                   size={MARK_SIZE}
                   tone="auto"
                   state="active"
-                  streamCount={identityStreams}
+                  {...(processing ? {} : { streamCount: identityStreams })}
                   aria-label="Ultron"
                 />
               </MarkBloom>
@@ -763,29 +768,27 @@ function LoadingStep({
 function SiteParse({ website, onDone }: { website: string; onDone: (a: IntroAnswers) => void }) {
   const reduced = usePrefersReducedMotion();
   const { name } = companyFromUrl(website);
+  const total = ACTIVATION_BEATS.length;
 
-  // `active` = how many beats have flown in (the newest is still "working").
+  // `active` = the 1-based beat currently working (everything before it is on).
   // `allDone` flips once the last beat settles; then the step auto-advances.
   const [active, setActive] = useState(1);
   const [allDone, setAllDone] = useState(false);
 
   useEffect(() => {
     if (allDone) {
-      // Hold the full bar for a moment so the finish can actually be seen
-      // before the step hands off to the questions.
-      const t = window.setTimeout(() => onDone({}), 3000);
+      // Hold the settled bar just long enough for the finish to register, then
+      // hand off — the flow's own exit fade carries the step out gracefully.
+      const t = window.setTimeout(() => onDone({}), reduced ? 400 : 1600);
       return () => window.clearTimeout(t);
     }
     const t = window.setTimeout(
-      () => (active >= ACTIVATION_BEATS.length ? setAllDone(true) : setActive(a => a + 1)),
+      () => (active >= total ? setAllDone(true) : setActive(a => a + 1)),
       reduced ? 140 : BEAT_MS,
     );
     return () => window.clearTimeout(t);
   }, [active, allDone, reduced]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Bar fill: all completed beats plus a partial reach into the one still
-  // working, so the bar visibly advances during a beat, not only between them.
-  const progress = allDone ? 1 : (active - 0.35) / ACTIVATION_BEATS.length;
   const beatLabel = allDone ? 'All set.' : ACTIVATION_BEATS[active - 1];
 
   return (
@@ -793,22 +796,36 @@ function SiteParse({ website, onDone }: { website: string; onDone: (a: IntroAnsw
       <Prompt>{`Turning on ${name}`}</Prompt>
       <PromptSub>Hang tight — I'm getting your workspace ready.</PromptSub>
 
-      {/* One bar for the whole activation: it fills partway into the beat
-          that's currently working and snaps to full when everything's on. The
-          current beat's label sits under the bar and swaps as beats advance
-          (the key remount re-runs its entrance animation). */}
+      {/* The activation run, one segment per beat: done segments hold full,
+          the working segment fills continuously across its beat, upcoming ones
+          wait empty. The current beat's label shimmers under the bar beside a
+          step counter; on completion the fills settle with one soft pulse
+          before the step fades out. */}
       <ProgressWrap role="status" aria-live="polite">
-        <ProgressTrack
+        <SegmentRow
           role="progressbar"
           aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress * 100)}
+          aria-valuemax={total}
+          aria-valuenow={allDone ? total : active - 1}
+          aria-label={`Step ${Math.min(active, total)} of ${total}`}
+          $complete={allDone}
         >
-          <ProgressFill style={{ width: `${progress * 100}%` }} $working={!allDone} />
-        </ProgressTrack>
-        <ProgressLabel key={beatLabel} $working={!allDone}>
-          {beatLabel}
-        </ProgressLabel>
+          {ACTIVATION_BEATS.map((beat, i) => {
+            const status = allDone || i + 1 < active ? 'done' : i + 1 === active ? 'working' : 'pending';
+            return (
+              <Segment key={beat} data-status={status}>
+                {status !== 'pending' && <SegmentFill $working={status === 'working'} />}
+              </Segment>
+            );
+          })}
+        </SegmentRow>
+        <ProgressMeta>
+          <ProgressLabel key={beatLabel} $working={!allDone}>
+            {allDone && <CheckCircleIcon size={14} />}
+            {beatLabel}
+          </ProgressLabel>
+          <ProgressCount>{`${allDone ? total : active} of ${total}`}</ProgressCount>
+        </ProgressMeta>
       </ProgressWrap>
     </StepIn>
   );
@@ -1390,10 +1407,24 @@ const GetStartedForm = styled.form`
   width: 100%;
 `;
 
-/* Full-width CTA under the email field. `&&` wins over Button's width rule. */
+/* Full-width liquid-glass CTA under the email field — the same frosted surface
+   as the field above it, so the pair reads as one glass unit. `&&` wins over
+   Button's width and primary-fill rules; Alloy's disabled styling (all
+   \`!important\`) still takes the surface back while the email is invalid. */
 const GetStartedButton = styled(Button)`
   && {
     width: 100%;
+    ${liquidGlass}
+    color: var(--color-content-primary);
+  }
+
+  &&:hover:not(:disabled) {
+    ${liquidGlassRaised}
+  }
+
+  /* Pressed — the glass firms up a touch past the hover tint. */
+  &&:active:not(:disabled) {
+    background: color-mix(in srgb, var(--color-bg-primary) 76%, transparent);
   }
 `;
 
@@ -1900,10 +1931,10 @@ const OptionDetail = styled.span`
 `;
 
 /* ── Step 3 — activation progress ────────────────────────────────────────────
-   The site-path processing run, condensed to one progress bar — no card chrome
-   (the glass-card treatment stays reserved for actual choices). The bar fills
-   beat by beat; the current beat's label sits underneath and swaps as the run
-   advances. */
+   The site-path processing run: one segment per activation beat, breaking the
+   bar evenly — done segments hold full, the working one fills continuously
+   across its beat, upcoming ones wait empty. Monochrome content-primary fill
+   (dark bar on light surfaces; tracks the theme), no card chrome. */
 const cardPop = keyframes`
   from { opacity: 0; transform: translateY(10px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -1915,10 +1946,17 @@ const shimmer = keyframes`
   to   { background-position: -200% 0; }
 `;
 
-/* Highlight band sweeping along the bar's fill while the run is working. */
-const barSheen = keyframes`
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(350%); }
+/* The working segment's fill draws across its beat, left to right. */
+const segGrow = keyframes`
+  from { width: 0; }
+  to   { width: 100%; }
+`;
+
+/* Completion settle — every fill breathes once as the run lands. */
+const segSettle = keyframes`
+  0%   { opacity: 1; }
+  35%  { opacity: 0.45; }
+  100% { opacity: 1; }
 `;
 
 /* Each new beat label rises in under the bar. */
@@ -1937,55 +1975,82 @@ const ProgressWrap = styled.div`
   margin-top: var(--space-5);
 `;
 
-const ProgressTrack = styled.div`
+/* One equal-width cell per activation beat. On completion the fills settle
+   with a single soft pulse before the step fades out. */
+const SegmentRow = styled.div<{ $complete?: boolean }>`
+  display: flex;
+  gap: var(--space-1);
   width: 100%;
+
+  ${p => p.$complete && css`
+    & > * > * {
+      animation: ${segSettle} 900ms ${SMOOTH_EASE};
+    }
+  `}
+
+  @media (prefers-reduced-motion: reduce) {
+    & > * > * { animation: none; }
+  }
+`;
+
+const Segment = styled.div`
+  flex: 1;
   height: var(--space-1);
   border-radius: var(--radius-full);
   background: var(--color-bg-tertiary);
   overflow: hidden;
 `;
 
-/* The fill's width is set inline by the step; it eases over roughly one beat
-   so growth reads as continuous work rather than discrete jumps. While the run
-   is working a light sheen sweeps along the filled portion. */
-const ProgressFill = styled.div<{ $working?: boolean }>`
-  position: relative;
+/* The fill inside a segment: done segments hold full; the working segment
+   (remounted per beat) draws in across the beat so progress reads as
+   continuous work, not discrete jumps. */
+const SegmentFill = styled.div<{ $working?: boolean }>`
   height: 100%;
+  width: 100%;
   border-radius: var(--radius-full);
-  /* Neon matcha rather than the standard success green — the loading beat is a
-     brand moment, so the fill carries the vivid accent. */
-  background: var(--color-matcha-bg-secondary);
-  transition: width ${BEAT_MS}ms ${SMOOTH_EASE};
-  overflow: hidden;
+  background: var(--color-content-primary);
 
   ${p => p.$working && css`
-    &::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      width: 40%;
-      background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in srgb, var(--color-content-inverse-primary) 45%, transparent),
-        transparent
-      );
-      animation: ${barSheen} 1.4s ease-in-out infinite;
-    }
+    animation: ${segGrow} ${BEAT_MS}ms ${SMOOTH_EASE} both;
   `}
 
   @media (prefers-reduced-motion: reduce) {
-    transition: none;
-    &::after { animation: none; content: none; }
+    animation: none;
   }
 `;
 
+/* Label + step counter, sharing the bar's width. */
+const ProgressMeta = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+`;
+
+const ProgressCount = styled.span`
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+`;
+
 const ProgressLabel = styled.span<{ $working?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-content-secondary);
   animation: ${labelIn} var(--duration-base) ${SMOOTH_EASE} both;
+
+  /* The settled state's check reads as the finish line. */
+  svg {
+    flex-shrink: 0;
+    color: var(--color-success-content);
+  }
 
   ${p => p.$working && css`
     /* Working shimmer — a light band sweeping through the muted label. Both

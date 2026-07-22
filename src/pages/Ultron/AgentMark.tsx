@@ -431,33 +431,42 @@ function drawCircle(e: Ctx, T: number, P: Pal) {
     ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(0.9, r), 0, 6.2832); ctx.fill();
   }
 
-  // Orbiting particle swarm — the Circle identity's signature drift of cells
-  // around the core. Hero only; deterministic (hash, no RNG) so it animates
-  // smoothly and paints identically across frames and instances.
-  if (hero) {
-    const sw = active ? 1 : 0.4;
-    for (let k = 0; k < 46; k++) {
-      const dir = hash(k * 5.1) < 0.5 ? -1 : 1;
-      const ang = hash(k * 1.7) * 6.2832 + T * (0.3 + hash(k * 3.1) * 0.6) * dir * sw;
-      const wob = R * (0.04 + 0.05 * hash(k * 4.7)) * Math.sin(T * (0.8 + hash(k * 6) * 1.0) + hash(k * 7) * 6.28);
-      const off = R * (0.5 + hash(k * 2.3) * 0.5) + wob;
-      const x = cx + Math.cos(ang) * off, y = cy + Math.sin(ang) * off;
-      const tw = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(T * (1.4 + hash(k) * 2) + hash(k * 2) * 6.28));
-      const r = Math.max(0.5, (0.4 + hash(k * 8) * 1.0) * dpr * (0.55 + 0.6 * tw));
-      if (P.glow) {
-        const bloomR = r * 6;
-        const bg = ctx.createRadialGradient(x, y, 0, x, y, bloomR);
-        bg.addColorStop(0, 'rgba(' + P.accent + ',' + (tw * 0.18) + ')');
-        bg.addColorStop(1, 'rgba(' + P.accent + ',0)');
-        ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(x, y, bloomR, 0, 6.2832); ctx.fill();
-      }
-      ctx.fillStyle = 'rgba(' + dotAt(x, y) + ',' + (tw * (P.glow ? 0.8 : 0.42)) + ')';
-      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
-    }
-  }
+  // Orbiting particle swarm — hero only (shared with the Lines mark so the two
+  // identity forms read as one family).
+  if (hero) drawSwarm(e, T, P, dotAt);
 
   drawCore(e, T, P);
   ctx.restore();
+}
+
+// Orbiting particle swarm — the Circle identity's signature drift of cells
+// around the core. Hero scale only; deterministic (hash, no RNG) so it animates
+// smoothly and paints identically across frames and instances. Shared by the
+// Circle and Lines marks (`dotAt` supplies each point's fill so Circle's alert
+// sweep keeps working; Lines passes its flat palette dot). Expects the caller's
+// save/composite state — call inside the mark's own ctx.save() block.
+function drawSwarm(e: Ctx, T: number, P: Pal, dotAt: (x: number, y: number) => string) {
+  const { ctx, w, h, dpr } = e, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.39;
+  const active = e.state !== 'idle';
+  const sw = active ? 1 : 0.4;
+  for (let k = 0; k < 46; k++) {
+    const dir = hash(k * 5.1) < 0.5 ? -1 : 1;
+    const ang = hash(k * 1.7) * 6.2832 + T * (0.3 + hash(k * 3.1) * 0.6) * dir * sw;
+    const wob = R * (0.04 + 0.05 * hash(k * 4.7)) * Math.sin(T * (0.8 + hash(k * 6) * 1.0) + hash(k * 7) * 6.28);
+    const off = R * (0.5 + hash(k * 2.3) * 0.5) + wob;
+    const x = cx + Math.cos(ang) * off, y = cy + Math.sin(ang) * off;
+    const tw = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(T * (1.4 + hash(k) * 2) + hash(k * 2) * 6.28));
+    const r = Math.max(0.5, (0.4 + hash(k * 8) * 1.0) * dpr * (0.55 + 0.6 * tw));
+    if (P.glow) {
+      const bloomR = r * 6;
+      const bg = ctx.createRadialGradient(x, y, 0, x, y, bloomR);
+      bg.addColorStop(0, 'rgba(' + P.accent + ',' + (tw * 0.18) + ')');
+      bg.addColorStop(1, 'rgba(' + P.accent + ',0)');
+      ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(x, y, bloomR, 0, 6.2832); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(' + dotAt(x, y) + ',' + (tw * (P.glow ? 0.8 : 0.42)) + ')';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+  }
 }
 
 function drawLines(e: Ctx, T: number, P: Pal) {
@@ -502,6 +511,12 @@ function drawLines(e: Ctx, T: number, P: Pal) {
     ctx.fillStyle = 'rgba(' + P.dot + ',' + Math.min(1, la + 0.1) + ')';
     ctx.beginPath(); ctx.arc(s.cx2, s.cy2, tipR, 0, 6.2832); ctx.fill();
   }
+
+  // Hero scale carries the Circle identity's flowing particle swarm, so the
+  // Lines (processing) form reads as the same being — spokes swapped in, the
+  // ambient drift unchanged. Nav sizes keep the clean spoke-only mark.
+  if (e.size >= 120) drawSwarm(e, T, P, () => P.dot);
+
   drawCore(e, T, P);
   ctx.restore();
 }
