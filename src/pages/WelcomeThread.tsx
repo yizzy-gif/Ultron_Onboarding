@@ -8,7 +8,7 @@
    nav action drops to Ultron's normal home. DEMO ONLY, in-memory.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import styled, { createGlobalStyle, keyframes } from 'styled-components';
 import {
@@ -17,6 +17,7 @@ import {
   Users03Icon, ClockIcon, File04Icon, CheckVerified01Icon,
 } from 'alloy-design-system';
 import { mockUltronReply } from './Ultron/fixtures';
+import { AgentMark } from './Ultron/AgentMark';
 import { DocumentIcon } from '../components/PrimaryNav/NavIcons';
 
 /** What onboarding collected. Mirrors the onboarding flow's `IntroAnswers`
@@ -40,7 +41,29 @@ interface Msg {
   attachments?: string[];
 }
 
+/** One beat of Ultron's opening turn, delivered on landing one at a time. A
+ *  'text' beat types itself in like a chat message; the 'summary' beat is the
+ *  recap card, which fades in as its own beat. */
+type OpeningBeat = { kind: 'text'; text: string } | { kind: 'summary' };
+
+/** Landing choreography: a brief "Welcoming" processing hold, then the opening
+ *  turn types itself in beat by beat, then the composer + suggestions arrive. */
+type IntroPhase = 'processing' | 'delivering' | 'ready';
+
 const REPLY_DELAY_MS = 1100;
+
+// ── Landing choreography timing ────────────────────────────────────────────
+/** How long the "Preparing your workspace" state holds — the identity mark gets
+ *  a couple of seconds to breathe before the turn transforms in. */
+const PROCESS_MS = 2000;
+/** Typing-dots beat shown before each inbound message lands. */
+const THINK_MS = 440;
+/** Per-character cadence of the typewriter pass on a text beat. */
+const TYPE_CHAR_MS = 26;
+/** Breath between one delivered beat and the next. */
+const BEAT_GAP_MS = 320;
+/** How long the recap card takes to land before the turn continues. */
+const SUMMARY_HOLD_MS = 720;
 
 /** One-tap next steps above the composer — the same offers as Ultron's closing
  *  ask, so the admin can hand one over without typing. A tap sends the label as
@@ -51,9 +74,9 @@ const NEXT_STEP_SUGGESTIONS: { icon: ComponentType<{ size?: number }>; label: st
   { icon: CheckVerified01Icon, label: 'Tidy compliance' },
 ];
 
-/** How long after landing the grant modal opens — lets Ultron's greeting and
- *  the recap card animate in before the conversion ask takes the screen. */
-const GRANT_OPEN_DELAY_MS = 1200;
+/** How long after the opening turn fully lands the grant modal opens — lets the
+ *  whole recap finish delivering before the conversion ask takes the screen. */
+const GRANT_OPEN_DELAY_MS = 600;
 /** How long the "you're set" confirmation shows before the modal closes itself. */
 const GRANT_CONFIRM_HOLD_MS = 1600;
 
@@ -130,6 +153,11 @@ function missingDocsAsk(a: WelcomeAnswers): string | null {
   return null;
 }
 
+/** Stable empty-answers fallback. Referenced as the `answers` default so an
+ *  omitted prop keeps the same object identity across renders — a fresh `{}`
+ *  each render would churn the memoized beats and restart the landing timers. */
+const NO_ANSWERS: WelcomeAnswers = {};
+
 interface WelcomeThreadProps {
   /** Everything onboarding collected — drives the recap card. */
   answers?: WelcomeAnswers;
@@ -139,7 +167,7 @@ interface WelcomeThreadProps {
   onContinued?: () => void;
 }
 
-export function WelcomeThread({ answers = {}, onContinued }: WelcomeThreadProps) {
+export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThreadProps) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
   // Files staged for the next message — chips above the input until sent.
@@ -149,22 +177,128 @@ export function WelcomeThread({ answers = {}, onContinued }: WelcomeThreadProps)
   // DEMO ONLY: held in memory, never sent anywhere.
   const [phone, setPhone] = useState('');
   const [unlocked, setUnlocked] = useState(false);
-  // The grant ask lives in a blocking modal: opens a beat after the thread
-  // lands, closes via the X / backdrop / Escape, and closes itself shortly
-  // after a successful unlock.
+  // The grant ask lives in a blocking modal: opens once the opening turn has
+  // fully delivered, closes via the X / backdrop / Escape, and closes itself
+  // shortly after a successful unlock.
   const [grantOpen, setGrantOpen] = useState(false);
+
+  // Landing choreography. The page opens on a "Welcoming" processing state,
+  // then Ultron's opening turn types itself in one beat at a time; the composer
+  // and suggestions hold back until that whole first batch has landed.
+  const [phase, setPhase] = useState<IntroPhase>('processing');
+  const [revealed, setRevealed] = useState(0);       // beats fully delivered
+  const [activeIdx, setActiveIdx] = useState(-1);    // beat currently arriving
+  const [typed, setTyped] = useState('');            // partial text of the active beat
+  const [showDots, setShowDots] = useState(false);   // typing indicator before a beat
+  // Honor reduced-motion: skip the whole reveal and land the turn at once.
+  const [prefersReduced] = useState(
+    () => typeof window !== 'undefined'
+      && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+  );
+
   const timer = useRef<number | null>(null);
   const grantTimer = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const summary = buildSummary(answers);
-  const docsAsk = missingDocsAsk(answers);
+  const summary = useMemo(() => buildSummary(answers), [answers]);
+  const docsAsk = useMemo(() => missingDocsAsk(answers), [answers]);
+
+  // Ultron's opening turn, split into the beats it delivers on landing: the
+  // greeting, the recap card, the follow-up ask for skipped documents, then the
+  // "what next" prompt. Only the pieces that apply get a beat.
+  const openingBeats = useMemo<OpeningBeat[]>(() => {
+    const beats: OpeningBeat[] = [
+      { kind: 'text', text: 'Your workspace is live — I turned on the essentials from what you shared.' },
+    ];
+    if (summary.length > 0) beats.push({ kind: 'summary' });
+    if (docsAsk) beats.push({ kind: 'text', text: docsAsk });
+    beats.push({
+      kind: 'text',
+      text: 'What would you like me to take on next? I can build out coverage, chase down '
+        + 'open shifts, tidy compliance, or anything else on your plate.',
+    });
+    return beats;
+  }, [summary, docsAsk]);
 
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+
+  // The landing sequence: one scripted chain of timers. Hold on the processing
+  // state, then deliver each opening beat — typing dots, then a typewriter pass
+  // (text) or a fade-in (recap card) — and finally flip to 'ready', which brings
+  // in the composer and suggestions. Reduced-motion lands everything at once.
   useEffect(() => {
+    if (prefersReduced) {
+      setRevealed(openingBeats.length);
+      setActiveIdx(-1);
+      setPhase('ready');
+      return;
+    }
+
+    const timers: number[] = [];
+    let charTimer: number | null = null;
+    const after = (ms: number, fn: () => void) => {
+      timers.push(window.setTimeout(fn, ms));
+    };
+
+    const deliver = (i: number) => {
+      if (i >= openingBeats.length) {
+        setShowDots(false);
+        setPhase('ready');
+        return;
+      }
+      setShowDots(true);
+      after(THINK_MS, () => {
+        setShowDots(false);
+        setActiveIdx(i);
+        const beat = openingBeats[i];
+        if (beat.kind === 'summary') {
+          // The recap card lands as one beat — reveal it, hold, move on.
+          after(SUMMARY_HOLD_MS, () => {
+            setRevealed(i + 1);
+            setActiveIdx(-1);
+            after(BEAT_GAP_MS, () => deliver(i + 1));
+          });
+          return;
+        }
+        // Type the message in a character at a time.
+        setTyped('');
+        const full = beat.text;
+        let n = 0;
+        charTimer = window.setInterval(() => {
+          n += 1;
+          setTyped(full.slice(0, n));
+          if (n >= full.length) {
+            if (charTimer) window.clearInterval(charTimer);
+            charTimer = null;
+            after(BEAT_GAP_MS, () => {
+              setRevealed(i + 1);
+              setActiveIdx(-1);
+              setTyped('');
+              after(BEAT_GAP_MS, () => deliver(i + 1));
+            });
+          }
+        }, TYPE_CHAR_MS);
+      });
+    };
+
+    setPhase('processing');
+    after(PROCESS_MS, () => {
+      setPhase('delivering');
+      deliver(0);
+    });
+
+    return () => {
+      timers.forEach(id => window.clearTimeout(id));
+      if (charTimer) window.clearInterval(charTimer);
+    };
+  }, [openingBeats, prefersReduced]);
+
+  // Bring up the grant ask once the opening turn has fully delivered.
+  useEffect(() => {
+    if (phase !== 'ready') return;
     grantTimer.current = window.setTimeout(() => setGrantOpen(true), GRANT_OPEN_DELAY_MS);
     return () => { if (grantTimer.current) window.clearTimeout(grantTimer.current); };
-  }, []);
+  }, [phase]);
 
   const unlock = () => {
     setUnlocked(true);
@@ -174,7 +308,7 @@ export function WelcomeThread({ answers = {}, onContinued }: WelcomeThreadProps)
   };
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [messages, replying]);
+  }, [messages, replying, phase, revealed, activeIdx, typed, showDots]);
 
   const canSend = (draft.trim().length > 0 || attachments.length > 0) && !replying;
 
@@ -226,80 +360,104 @@ export function WelcomeThread({ answers = {}, onContinued }: WelcomeThreadProps)
         </PageHeaderInner>
       </PageHeader>
       <Scroll>
-        <Thread>
-          {/* Opening turn — Ultron greets, lays out the recap card, then asks
-              for the first task. Rendered as one Ultron-side group. */}
-          <Row data-from="ultron">
-            <Stack>
-              <Bubble data-from="ultron">
-                Your workspace is live — I turned on the essentials from what you shared.
-              </Bubble>
-
-              {summary.length > 0 && (
-                <SummaryBlock aria-label="What Ultron set up">
-                  <SummaryHead>
-                    <SummaryHeadText>Here’s what I set up</SummaryHeadText>
-                  </SummaryHead>
-                  <SummaryList>
-                    {summary.map(item => {
-                      const Icon = item.icon;
-                      return (
-                        <SummaryItemCard key={item.label}>
-                          <RowIcon aria-hidden="true"><Icon size={16} /></RowIcon>
-                          <RowText>
-                            <RowLabel>{item.label}</RowLabel>
-                            <RowDetail>{item.detail}</RowDetail>
-                          </RowText>
-                          <RowStatus aria-hidden="true">
-                            <CheckCircleIcon size={18} />
-                          </RowStatus>
-                        </SummaryItemCard>
-                      );
-                    })}
-                  </SummaryList>
-                </SummaryBlock>
-              )}
-
-              {/* Anything skipped during onboarding gets asked for here, in the
-                  conversation — the composer takes attachments, so the admin
-                  can hand the documents over in place. */}
-              {docsAsk && <Bubble data-from="ultron">{docsAsk}</Bubble>}
-
-              <Bubble data-from="ultron">
-                What would you like me to take on next? I can build out coverage, chase down
-                open shifts, tidy compliance, or anything else on your plate.
-              </Bubble>
-            </Stack>
-          </Row>
-
-          {messages.map((m, i) => (
-            <Row key={i} data-from={m.role}>
-              <MsgGroup data-from={m.role}>
-                {m.text && <Bubble data-from={m.role}>{m.text}</Bubble>}
-                {m.attachments && (
-                  <SentFiles>
-                    {m.attachments.map(name => (
-                      <FileChip key={name}>
-                        <File04Icon size={14} />
-                        {name}
-                      </FileChip>
-                    ))}
-                  </SentFiles>
-                )}
-              </MsgGroup>
-            </Row>
-          ))}
-          {replying && (
+        {phase === 'processing' ? (
+          /* Landing hold — Ultron's identity mark front and center over a
+             "Preparing your workspace" line, held for a beat before the opening
+             turn transforms in and starts typing itself out. */
+          <Processing role="status" aria-live="polite">
+            <ProcessingMark aria-hidden="true">
+              <AgentMark mark="circle" size={132} tone="auto" state="active" aria-label="Ultron" />
+            </ProcessingMark>
+            <ProcessingTitle>Preparing your workspace…</ProcessingTitle>
+          </Processing>
+        ) : (
+          <Thread>
+            {/* Opening turn — Ultron greets, lays out the recap card, then asks
+                for the first task. Delivered one beat at a time: text beats type
+                in, the recap card fades in as its own beat. */}
             <Row data-from="ultron">
-              <Typing aria-label="Ultron is replying">
-                <Dot /><Dot /><Dot />
-              </Typing>
+              <Stack>
+                {openingBeats
+                  .slice(0, activeIdx >= 0 ? activeIdx + 1 : revealed)
+                  .map((beat, i) => {
+                    if (beat.kind === 'summary') {
+                      return (
+                        <BeatReveal key={`beat-${i}`}>
+                          <SummaryBlock aria-label="What Ultron set up">
+                            <SummaryHead>
+                              <SummaryHeadText>Here’s what I set up</SummaryHeadText>
+                            </SummaryHead>
+                            <SummaryList>
+                              {summary.map(item => {
+                                const Icon = item.icon;
+                                return (
+                                  <SummaryItemCard key={item.label}>
+                                    <RowIcon aria-hidden="true"><Icon size={16} /></RowIcon>
+                                    <RowText>
+                                      <RowLabel>{item.label}</RowLabel>
+                                      <RowDetail>{item.detail}</RowDetail>
+                                    </RowText>
+                                    <RowStatus aria-hidden="true">
+                                      <CheckCircleIcon size={18} />
+                                    </RowStatus>
+                                  </SummaryItemCard>
+                                );
+                              })}
+                            </SummaryList>
+                          </SummaryBlock>
+                        </BeatReveal>
+                      );
+                    }
+                    const isActive = i === activeIdx;
+                    return (
+                      <Bubble key={`beat-${i}`} data-from="ultron">
+                        {isActive ? typed : beat.text}
+                        {isActive && <Caret aria-hidden="true" />}
+                      </Bubble>
+                    );
+                  })}
+                {showDots && (
+                  <DotsRow>
+                    <Typing aria-label="Ultron is typing">
+                      <Dot /><Dot /><Dot />
+                    </Typing>
+                  </DotsRow>
+                )}
+              </Stack>
             </Row>
-          )}
-          <div ref={endRef} />
-        </Thread>
+
+            {messages.map((m, i) => (
+              <Row key={i} data-from={m.role}>
+                <MsgGroup data-from={m.role}>
+                  {m.text && <Bubble data-from={m.role}>{m.text}</Bubble>}
+                  {m.attachments && (
+                    <SentFiles>
+                      {m.attachments.map(name => (
+                        <FileChip key={name}>
+                          <File04Icon size={14} />
+                          {name}
+                        </FileChip>
+                      ))}
+                    </SentFiles>
+                  )}
+                </MsgGroup>
+              </Row>
+            ))}
+            {replying && (
+              <Row data-from="ultron">
+                <Typing aria-label="Ultron is replying">
+                  <Dot /><Dot /><Dot />
+                </Typing>
+              </Row>
+            )}
+            <div ref={endRef} />
+          </Thread>
+        )}
       </Scroll>
 
+      {/* Composer + one-tap suggestions hold back until the opening turn has
+          fully delivered, then arrive together. */}
+      {phase === 'ready' && (
       <ComposerWrap>
         {/* One-tap next steps — mirror Ultron's closing offer; a tap sends the
             label as the message. Retire once the conversation has started. */}
@@ -351,6 +509,7 @@ export function WelcomeThread({ answers = {}, onContinued }: WelcomeThreadProps)
           </InputRow>
         </Composer>
       </ComposerWrap>
+      )}
 
       {/* Sales reach-out — one number unlocks the usage grant. The thread's
           single high-emphasis conversion moment, so it blocks the screen as a
@@ -501,6 +660,119 @@ const Scroll = styled.div`
 const turnIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
+`;
+
+/* ── Landing / processing state ────────────────────────────────────────────
+   The "Preparing your workspace" hold that plays before the opening turn types
+   in. Centered in the scroll area; swapped out for the thread once delivery
+   starts. */
+const Processing = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  padding: var(--space-8);
+  animation: ${turnIn} var(--duration-slow, 420ms) var(--ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* Ultron's identity mark, centered over a soft radial bloom so the sphere reads
+   as lit on the flat page (mirrors the Live landing's hero treatment). The mark
+   animates itself — no wrapper animation needed. */
+const ProcessingMark = styled.div`
+  display: grid;
+  place-items: center;
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -24%;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      var(--color-bg-secondary, rgba(70, 108, 255, 0.06)) 0%,
+      transparent 70%
+    );
+    pointer-events: none;
+  }
+
+  & > canvas {
+    position: relative;
+    z-index: 1;
+  }
+`;
+
+/* Headline with a light sweep travelling across it — the "wow" of the hold. */
+const shimmer = keyframes`
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+`;
+
+const ProcessingTitle = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-tight, -0.01em);
+  background: linear-gradient(
+    90deg,
+    var(--color-content-tertiary) 0%,
+    var(--color-content-primary) 50%,
+    var(--color-content-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: ${shimmer} 2.4s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    background: none;
+    color: var(--color-content-primary);
+    -webkit-text-fill-color: currentColor;
+  }
+`;
+
+/* Wraps a beat that arrives without a typewriter pass (the recap card) so it
+   fades + rises in as its own moment. */
+const BeatReveal = styled.div`
+  animation: ${turnIn} var(--duration-slow, 420ms) var(--ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* Left-aligns the typing-dots pill within the opening stack (the stack stretches
+   its children full-width; the pill should hug its content on the left). */
+const DotsRow = styled.div`
+  display: flex;
+  justify-content: flex-start;
+  animation: ${turnIn} var(--duration-base, 240ms) var(--ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* The typewriter caret trailing the text as it types in. */
+const caretBlink = keyframes`
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+`;
+
+const Caret = styled.span`
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--color-content-tertiary);
+  animation: ${caretBlink} 1s step-end infinite;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
 /* The thread column. Its max-width leaves room for the side padding so the
@@ -899,6 +1171,11 @@ const ComposerWrap = styled.div`
   flex-direction: column;
   align-items: center;
   gap: var(--space-3);
+  /* Mounts only once the opening turn lands — rise it in so it arrives rather
+     than pops. */
+  animation: ${turnIn} var(--duration-slow, 420ms) var(--ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
 /* One-tap next steps above the composer — aligned to its left edge. */

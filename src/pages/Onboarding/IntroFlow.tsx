@@ -33,14 +33,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
-  Avatar, Tooltip,
+  Avatar, Tooltip, Tag,
   Button, EmailField, FileUploader, ComposerActions, ComposerSendButton,
   ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
   Link01Icon, Building02Icon,
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
   Building05Icon,
   BankNote01Icon, ReceiptCheckIcon, CoinsStacked03Icon, ClockIcon, CurrencyDollarIcon, Pin01Icon,
+  PlusCircleIcon, AlertTriangleIcon, ChevronDownIcon,
 } from 'alloy-design-system';
+import { generateSampleTeammates, planWeekProblems, scheduleShapesFor, generateWeekShifts, MERIDIAN_ROSTER } from './sampleRoster';
+import type { SampleWorker, WeekProblem, WeekDay } from './sampleRoster';
 import { AgentMark } from '../Ultron';
 import { IntroBackdrop } from './IntroBackdrop';
 import { MouseGlow } from '../../components/MouseGlow';
@@ -259,10 +262,17 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
   // operation comes into focus, a second while it takes in the roster & schedule.
   const identityStreams = step === 'roster' || step === 'schedule' ? 2 : connected ? 1 : 0;
 
-  // While the website activation run is working, the identity shifts into its
-  // `lines` processing form (same size, same slot); every other step keeps the
-  // connected `circle` presence.
-  const processing = step === 'loading' && Boolean(answers.companyWebsite);
+  // Set by the roster / schedule steps while they read a file in — lifted up so
+  // the shared identity mark can shift into its processing form during their work
+  // (the steps own that state internally, so they report it out to here).
+  const [stepProcessing, setStepProcessing] = useState(false);
+
+  // While a working run is in flight — the website activation, or a roster /
+  // schedule reading in — the identity shifts into its `lines` processing form
+  // (same size, same slot); every other moment keeps the connected `circle`
+  // presence. It stays in `lines` until that step's result is displayed.
+  const processing =
+    (step === 'loading' && Boolean(answers.companyWebsite)) || stepProcessing;
 
   return (
     <Frame>
@@ -317,8 +327,12 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
               />
             )}
             {step === 'questions' && <WorkforceQuestionsStep onComplete={finishQuestions} />}
-            {step === 'roster' && <UploadStep kind="roster" onDone={finishRoster} />}
-            {step === 'schedule' && <UploadStep kind="schedule" onDone={finishSchedule} />}
+            {step === 'roster' && (
+              <RosterStep answers={answers} onDone={finishRoster} onProcessingChange={setStepProcessing} />
+            )}
+            {step === 'schedule' && (
+              <ScheduleStep answers={answers} onDone={finishSchedule} onProcessingChange={setStepProcessing} />
+            )}
           </Content>
         </Stage>
       </Scroll>
@@ -539,6 +553,10 @@ function LandingStep({ onNext }: { onNext: () => void }) {
                   >
                     Get started free
                   </GetStartedButton>
+                  <Fine>
+                    No credit card. Free WFM forever. Credits expire — your
+                    workspace doesn't.
+                  </Fine>
                 </GetStartedForm>
               </SignUp>
             </SubGroup>
@@ -1006,68 +1024,638 @@ function WorkforceQuestionsStep({ onComplete }: { onComplete: (a: IntroAnswers) 
   );
 }
 
-// ── Steps 5 & 6 — roster / schedule uploads ───────────────────────────────────
+// ── Step 5 — roster intake ────────────────────────────────────────────────────
+// Unlike the schedule uploader, the roster step performs a believable *import*:
+// the file (or a pasted table / photo of a printed roster) lands, Ultron
+// acknowledges it instantly, then narrates what it found — people, recognised
+// columns, the ones it kept anyway — and quarantines the few messy rows into a
+// review list without ever blocking the import. Testers without a roster (or who
+// want a fuller week to explore) can generate sample teammates instead. None of
+// it parses a real file — the counts are the product spec's, scripted — but the
+// sequence is what makes "nothing's lost" land as an outcome, not a claim.
 
-// Copy for the two upload steps — same shape, different subject. Uploading is
-// optional (a "Skip for now" escape hatch advances without a file), so the demo
-// never dead-ends on a file the tester doesn't have handy.
-const UPLOAD_CONFIG = {
-  roster: {
-    prompt: 'Upload your roster',
-    sub: "Drop in your team roster and I'll bring your people in for you.",
-    title: 'Choose your roster or drag & drop it here.',
-    description: 'Any spreadsheet or document works.',
-    accept: '.csv,.xlsx,.xls,.pdf',
-  },
-  schedule: {
-    prompt: 'Upload your schedule',
-    sub: "Drop in your current schedule and I'll turn it into shifts for you.",
-    title: 'Choose your schedule or drag & drop it here.',
-    description: 'Any spreadsheet or document works.',
-    accept: '.csv,.xlsx,.xls,.pdf',
-  },
-} as const;
+// The scripted import result. These are the spec's numbers verbatim; the demo
+// never reads the file, so the story is the same believable one every time.
+const ROSTER_TOTAL = 84;
+const ROSTER_CLEAN = 81;
 
-// The uploader is the step's one primary action: choosing a file IS the CTA, so
-// picking one hands off on its own (after a beat to show it landed). "Skip for
-// now" is the quiet secondary out.
-function UploadStep({ kind, onDone }: { kind: 'roster' | 'schedule'; onDone: (file: { name: string } | null) => void }) {
-  const cfg = UPLOAD_CONFIG[kind];
+// The three rows the import held back for review — each a real-world mess an ops
+// admin recognises. They're kept, not dropped: the import lands the other 81 and
+// leaves these flagged, so the user is never blocked waiting on a cleanup.
+const QUARANTINE_ROWS: { where: string; reason: string }[] = [
+  { where: 'Row 34 · "J. & M. Alvarez"', reason: 'Two people in one row — we split them out for you to confirm.' },
+  { where: 'Row 51 · Dana Whitfield', reason: 'Home location was blank — pick a site when you get a sec.' },
+  { where: 'Row 72 · start date "13/40/24"', reason: "That date didn't read — everything else came in fine." },
+];
+
+// How many sample teammates each path generates. The self-serve path (no roster
+// handy) fills out a fuller operation; the augment offer rounds out a thin one.
+const SAMPLE_COUNT = 48;
+const AUGMENT_COUNT = 40;
+
+// Below this many imported people, a real week is too thin to run — only then do
+// we offer to round it out with sample teammates. A healthy roster never sees it.
+const AUGMENT_THRESHOLD = 12;
+
+// The roster step's internal sequence:
+//   intake   — the drop zone + paste/photo affordances, or "add sample teammates"
+//   reading  — instant acknowledgement the moment a file lands, before results
+//   mapped   — the import result: mapping voiceover, confidence, review list
+//   sampling — generating sample teammates (self-serve or augment)
+//   sampled  — the generated roster preview, clearly marked, removable
+type RosterPhase = 'intake' | 'reading' | 'mapped' | 'sampling' | 'sampled';
+
+function RosterStep({
+  answers,
+  onDone,
+  onProcessingChange,
+}: {
+  answers: IntroAnswers;
+  onDone: (file: { name: string } | null) => void;
+  /** Reports when the step is reading a file / generating in, so the parent's
+   *  identity mark can shift into its `lines` processing form meanwhile. */
+  onProcessingChange?: (processing: boolean) => void;
+}) {
   const reduced = usePrefersReducedMotion();
+  const [phase, setPhase] = useState<RosterPhase>('intake');
   const [file, setFile] = useState<{ name: string; type?: string } | null>(null);
-  const advanced = useRef(false);
+  // Sample teammates, generated once per run and held stable across re-renders.
+  const [samples, setSamples] = useState<SampleWorker[]>([]);
+  // Set when the sample roster augments a real upload (vs. standing in for one),
+  // so the sampled screen can say "alongside your 84" rather than start fresh.
+  const [augmented, setAugmented] = useState(false);
+  // The quarantined rows collapse by default — the count + alert toggle carries
+  // the signal, and the detail expands only when the admin wants to look.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const busy = useRef(false);
 
-  const handleSelect = (f: File) => {
-    if (advanced.current) return;
-    advanced.current = true;
-    setFile({ name: f.name, type: f.type });
-    // Let the "landed" state show for a beat, then hand off automatically —
-    // carrying the file name so the app can recap what came in.
-    window.setTimeout(() => onDone({ name: f.name }), reduced ? 250 : 1100);
+  // The signal we derive sample workers from: what they typed for their
+  // workforce, falling back to the company name parsed from their website.
+  const sampleSignal =
+    answers.workforceType?.trim() ||
+    (answers.companyWebsite ? companyFromUrl(answers.companyWebsite).name : '') ||
+    '';
+
+  // Report the working phases (reading a file, generating a crew) up to the
+  // parent so the identity mark runs its `lines` form until the result shows.
+  useEffect(() => {
+    onProcessingChange?.(phase === 'reading' || phase === 'sampling');
+  }, [phase, onProcessingChange]);
+  useEffect(() => () => onProcessingChange?.(false), [onProcessingChange]);
+
+  // A file (or pasted table / photo) landed → acknowledge instantly, then run the
+  // read. The acknowledgement shows first so there's no beat where the tester
+  // wonders whether it worked.
+  const receiveFile = useCallback(
+    (f: { name: string; type?: string }) => {
+      if (busy.current) return;
+      busy.current = true;
+      setFile(f);
+      setPhase('reading');
+      window.setTimeout(() => {
+        setPhase('mapped');
+        busy.current = false; // the mapped screen has its own explicit CTAs
+      }, reduced ? 300 : 1300);
+    },
+    [reduced],
+  );
+
+  // Paste-from-clipboard — real ops behaviour is copying a block of cells out of
+  // a spreadsheet. A pasted file wins; otherwise any non-trivial pasted text is
+  // treated as a roster table. Only listens while we're still at intake.
+  useEffect(() => {
+    if (phase !== 'intake') return;
+    const onPaste = (e: ClipboardEvent) => {
+      const dropped = e.clipboardData?.files?.[0];
+      if (dropped) {
+        e.preventDefault();
+        receiveFile({ name: dropped.name, type: dropped.type });
+        return;
+      }
+      const text = e.clipboardData?.getData('text') ?? '';
+      if (text.trim().length > 12) {
+        e.preventDefault();
+        receiveFile({ name: 'Pasted roster', type: 'text/plain' });
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [phase, receiveFile]);
+
+  // Generate sample teammates — either standing in for a roster (self-serve) or
+  // rounding out one that just came in (augment).
+  const runSample = (count: number, asAugment: boolean) => {
+    if (busy.current) return;
+    busy.current = true;
+    setAugmented(asAugment);
+    setPhase('sampling');
+    setSamples(generateSampleTeammates(sampleSignal, count));
+    window.setTimeout(() => {
+      setPhase('sampled');
+      busy.current = false;
+    }, reduced ? 300 : 1200);
   };
 
+  // ── intake ────────────────────────────────────────────────────────────────
+  if (phase === 'intake') {
+    return (
+      <StepIn>
+        <Prompt>Upload your roster</Prompt>
+        <PromptSub>Drop in your team roster and I'll bring your people in for you.</PromptSub>
+
+        <UploadWrap>
+          <FileUploader
+            variant="area"
+            // Photos of a printed roster are fair game, so images join the
+            // spreadsheet / document types the picker accepts.
+            accept=".csv,.xlsx,.xls,.pdf,image/*"
+            state="empty"
+            title="Choose your roster or drag & drop it here."
+            description="Spreadsheet, PDF, or a photo of a printed one."
+            onFileSelect={f => receiveFile({ name: f.name, type: f.type })}
+          />
+        </UploadWrap>
+
+        <IntakeActions>
+          <SampleOffer type="button" onClick={() => runSample(SAMPLE_COUNT, false)}>
+            No roster handy? Start with sample teammates
+          </SampleOffer>
+          <TextButton type="button" onClick={() => onDone(null)}>
+            Skip for now
+          </TextButton>
+        </IntakeActions>
+      </StepIn>
+    );
+  }
+
+  // ── reading — instant acknowledgement ───────────────────────────────────────
+  if (phase === 'reading') {
+    return (
+      <StepIn>
+        <Prompt>Got the file</Prompt>
+        <PromptSub>Reading {file?.name ?? 'your roster'} — one sec.</PromptSub>
+        <ReadingRow role="status" aria-live="polite">
+          <Spinner aria-hidden="true" />
+          <ProgressLabel $working>Bringing your people in</ProgressLabel>
+        </ReadingRow>
+      </StepIn>
+    );
+  }
+
+  // ── mapped — the import result ──────────────────────────────────────────────
+  if (phase === 'mapped') {
+    // A preview of the people who imported clean — the real Meridian roster faces
+    // (the aggregate count stays the demo's narrative total). DEMO ONLY.
+    const importedPreview = MERIDIAN_ROSTER.slice(0, 6);
+    const importedMore = ROSTER_CLEAN - importedPreview.length;
+    return (
+      <StepIn>
+        <Prompt>Here's what came in</Prompt>
+        {/* The mapping moment, voiced as handling — the recognised columns, and
+            the ones we didn't recognise but kept anyway. "Nothing's lost" is the
+            composability proof, stated as an outcome. */}
+        <PromptSub>
+          Got it — {ROSTER_TOTAL} people, licenses, home locations. 3 columns we didn't
+          recognize; we kept them so nothing's lost.
+        </PromptSub>
+
+        <ResultCard $padTop>
+          <CleanStat>
+            <CleanNumber>
+              {ROSTER_CLEAN} <CleanOf>/{ROSTER_TOTAL}</CleanOf>
+            </CleanNumber>
+            <CleanLabel>
+              <CheckCircleIcon size={16} /> imported clean
+            </CleanLabel>
+          </CleanStat>
+
+          {/* The people who imported clean — same row style as the sample crew,
+              minus the "Sample" tag (these are the admin's real teammates). */}
+          <SampleList aria-label="Imported teammates">
+            {importedPreview.map((w, i) => (
+              <SampleRowEl key={w.name} $i={i}>
+                <SampleAvatar aria-hidden="true">{initials(w.name)}</SampleAvatar>
+                <SampleWho>
+                  <SampleName>{w.name}</SampleName>
+                  <SampleMeta>{w.role} · {w.location} · {w.tenure}</SampleMeta>
+                </SampleWho>
+                {w.credentialStatus === 'expiring' ? (
+                  <Tag size="sm" variant="subtle" color="yellow" dot>
+                    {w.credential} · {w.expiresInDays}d
+                  </Tag>
+                ) : (
+                  <Tag size="sm" variant="subtle" color="green">{w.credential}</Tag>
+                )}
+              </SampleRowEl>
+            ))}
+            <SampleMore>+ {importedMore} more imported clean</SampleMore>
+          </SampleList>
+
+          {/* The messy rows quarantine at the bottom of the card — flagged for
+              review, never blocking the import. Collapsed by default: the count +
+              a trailing alert toggle carry the signal; detail expands on click. */}
+          <ReviewList>
+            <ReviewToggle
+              type="button"
+              aria-expanded={reviewOpen}
+              aria-controls="roster-review-rows"
+              onClick={() => setReviewOpen(o => !o)}
+            >
+              <ReviewHead>{QUARANTINE_ROWS.length} rows kept for review</ReviewHead>
+              <ReviewTrail>
+                <ReviewAlert aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewAlert>
+                <ReviewChevron $open={reviewOpen} aria-hidden="true">
+                  <ChevronDownIcon size={16} />
+                </ReviewChevron>
+              </ReviewTrail>
+            </ReviewToggle>
+            {reviewOpen && (
+              <ReviewRows id="roster-review-rows" aria-label="Rows held for review">
+                {QUARANTINE_ROWS.map(row => (
+                  <ReviewRow key={row.where}>
+                    <ReviewRowIcon aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewRowIcon>
+                    <ReviewText>
+                      <ReviewWhere>{row.where}</ReviewWhere>
+                      <ReviewReason>{row.reason}</ReviewReason>
+                    </ReviewText>
+                  </ReviewRow>
+                ))}
+              </ReviewRows>
+            )}
+          </ReviewList>
+        </ResultCard>
+
+        <ActionRow>
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => onDone({ name: file?.name ?? 'your roster' })}
+            trailingArtwork={<ArrowNarrowRightIcon size={18} />}
+          >
+            Bring in {ROSTER_CLEAN} people
+          </Button>
+        </ActionRow>
+
+        {/* Augment offer — only for thin rosters (under a dozen people), where a
+            real week won't have enough to run. A healthy import doesn't need it,
+            so it stays hidden. Rounds out the week with clearly-marked samples. */}
+        {ROSTER_CLEAN < AUGMENT_THRESHOLD && (
+          <SampleOffer type="button" onClick={() => runSample(AUGMENT_COUNT, true)}>
+            <PlusCircleIcon size={16} />
+            Add {AUGMENT_COUNT} sample teammates to see a full week run
+          </SampleOffer>
+        )}
+      </StepIn>
+    );
+  }
+
+  // ── sampling — generating ────────────────────────────────────────────────────
+  if (phase === 'sampling') {
+    return (
+      <StepIn>
+        <Prompt>Building a sample crew</Prompt>
+        <PromptSub>Spinning up teammates that look like your operation.</PromptSub>
+        <ReadingRow role="status" aria-live="polite">
+          <Spinner aria-hidden="true" />
+          <ProgressLabel $working>Generating sample teammates</ProgressLabel>
+        </ReadingRow>
+      </StepIn>
+    );
+  }
+
+  // ── sampled — the generated roster preview ──────────────────────────────────
+  // The visible faces are the real Meridian roster; the count stays the generated
+  // narrative total (a full week's worth), so "+N more" reads as a full crew.
+  const preview = MERIDIAN_ROSTER.slice(0, 6);
+  const sampleLabel = `${samples.length} sample teammates`;
   return (
-    <StepIn key={kind}>
-      <Prompt>{cfg.prompt}</Prompt>
-      <PromptSub>{cfg.sub}</PromptSub>
+    <StepIn>
+      <Prompt>{augmented ? 'Rounded out your week' : 'Your sample crew is ready'}</Prompt>
+      <PromptSub>
+        {augmented
+          ? `Added ${samples.length} sample teammates alongside your ${ROSTER_CLEAN} — clearly marked, one tap to remove.`
+          : `${samples.length} teammates, ready to run a full week — clearly marked, one tap to remove.`}
+      </PromptSub>
 
-      <UploadWrap>
-        <FileUploader
-          variant="area"
-          accept={cfg.accept}
-          state={file ? 'complete' : 'empty'}
-          file={file}
-          title={cfg.title}
-          description={cfg.description}
-          onFileSelect={handleSelect}
-        />
-      </UploadWrap>
+      <ResultCard>
+        <SampleList aria-label="Sample teammates">
+          {preview.map((w, i) => (
+            <SampleRowEl key={w.name} $i={i}>
+              <SampleAvatar aria-hidden="true">{initials(w.name)}</SampleAvatar>
+              <SampleWho>
+                <SampleName>{w.name}</SampleName>
+                <SampleMeta>{w.role} · {w.location} · {w.tenure}</SampleMeta>
+              </SampleWho>
+              {w.credentialStatus === 'expiring' ? (
+                <Tag size="sm" variant="subtle" color="yellow" dot>
+                  {w.credential} · {w.expiresInDays}d
+                </Tag>
+              ) : (
+                <Tag size="sm" variant="subtle" color="green">{w.credential}</Tag>
+              )}
+              <Tag size="sm" variant="outline" color="purple">Sample</Tag>
+            </SampleRowEl>
+          ))}
+          <SampleMore>+ {samples.length - preview.length} more · every one tagged “Sample”</SampleMore>
+        </SampleList>
+      </ResultCard>
 
-      <AltRow>
-        <TextButton type="button" onClick={() => onDone(null)}>
-          Skip for now
-        </TextButton>
-      </AltRow>
+      <ActionRow>
+        <Button
+          variant="primary"
+          size="lg"
+          onClick={() => onDone({ name: sampleLabel })}
+          trailingArtwork={<ArrowNarrowRightIcon size={18} />}
+        >
+          Bring them in
+        </Button>
+      </ActionRow>
+      {!augmented && (
+        <SkipRow>
+          <TextButton type="button" onClick={() => onDone(null)}>
+            Skip for now
+          </TextButton>
+        </SkipRow>
+      )}
+    </StepIn>
+  );
+}
+
+// Two-letter initials for the sample avatar tiles.
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
+
+// ── Step 6 — schedule intake ──────────────────────────────────────────────────
+// Two ways in, one destination. Upload a real schedule (any format) and it gets
+// the roster step's mapping treatment — read, voiced, nothing lost. Or answer one
+// structured question — "what's the shape of your week?" — with vertical-aware
+// pattern chips, and we build a realistic week instead. Either way the tester
+// lands on the same thing: a week seeded with the problems Ultron is about to
+// handle (one callout, one credential expiring inside two weeks, two missing
+// punches), so the very next screen has real work waiting. All scripted — nothing
+// parses a real file — but it's the setup that makes the app's first act land.
+
+// The scripted shape of a built week — plausible for any shift operation.
+const WEEK_DAYS = 7;
+const WEEK_SHIFTS = 24;
+
+// The schedule step's sequence mirrors the roster step:
+//   intake   — the drop zone, plus the "shape of your week" question + chips
+//   reading  — instant acknowledgement while a real upload is mapped
+//   building — generating a week from the described shape
+//   built    — the week preview: what came in, and the problems waiting in it
+type SchedulePhase = 'intake' | 'reading' | 'building' | 'built';
+
+function ScheduleStep({
+  answers,
+  onDone,
+  onProcessingChange,
+}: {
+  answers: IntroAnswers;
+  onDone: (file: { name: string } | null) => void;
+  /** Reports when the step is reading a file / building in, so the parent's
+   *  identity mark can shift into its `lines` processing form meanwhile. */
+  onProcessingChange?: (processing: boolean) => void;
+}) {
+  const reduced = usePrefersReducedMotion();
+  const [phase, setPhase] = useState<SchedulePhase>('intake');
+  const [file, setFile] = useState<{ name: string } | null>(null);
+  // The described shape (chip or typed), when the build path is taken.
+  const [shape, setShape] = useState<string>('');
+  const [draft, setDraft] = useState('');
+  // The planted problems, generated once and held stable across re-renders.
+  const [problems, setProblems] = useState<WeekProblem[]>([]);
+  // The week of shifts shown in the calendar view.
+  const [week, setWeek] = useState<WeekDay[]>([]);
+  // The "waiting in your week" card collapses by default — the count carries it.
+  const [waitingOpen, setWaitingOpen] = useState(false);
+  const busy = useRef(false);
+
+  const signal =
+    answers.workforceType?.trim() ||
+    (answers.companyWebsite ? companyFromUrl(answers.companyWebsite).name : '') ||
+    '';
+  const shapes = scheduleShapesFor(signal);
+
+  // Report the working phases (reading a file, building the week) up to the
+  // parent so the identity mark runs its `lines` form until the result shows.
+  useEffect(() => {
+    onProcessingChange?.(phase === 'reading' || phase === 'building');
+  }, [phase, onProcessingChange]);
+  useEffect(() => () => onProcessingChange?.(false), [onProcessingChange]);
+
+  // A real schedule landed → acknowledge, map it, then land on the built week.
+  const receiveFile = useCallback(
+    (f: { name: string }) => {
+      if (busy.current) return;
+      busy.current = true;
+      setFile(f);
+      setProblems(planWeekProblems(signal));
+      setWeek(generateWeekShifts(signal));
+      setPhase('reading');
+      window.setTimeout(() => {
+        setPhase('built');
+        busy.current = false;
+      }, reduced ? 300 : 1300);
+    },
+    [reduced, signal],
+  );
+
+  // A described shape (chip tap or typed answer) → build a week around it.
+  const buildFromShape = (value: string) => {
+    const v = value.trim();
+    if (!v || busy.current) return;
+    busy.current = true;
+    setShape(v);
+    setProblems(planWeekProblems(signal));
+    setWeek(generateWeekShifts(signal));
+    setPhase('building');
+    window.setTimeout(() => {
+      setPhase('built');
+      busy.current = false;
+    }, reduced ? 300 : 1200);
+  };
+
+  // Paste-a-schedule, same as the roster step — a block of cells or a file.
+  useEffect(() => {
+    if (phase !== 'intake') return;
+    const onPaste = (e: ClipboardEvent) => {
+      const dropped = e.clipboardData?.files?.[0];
+      if (dropped) {
+        e.preventDefault();
+        receiveFile({ name: dropped.name });
+        return;
+      }
+      const text = e.clipboardData?.getData('text') ?? '';
+      if (text.trim().length > 12) {
+        e.preventDefault();
+        receiveFile({ name: 'Pasted schedule' });
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [phase, receiveFile]);
+
+  // ── intake ──────────────────────────────────────────────────────────────────
+  if (phase === 'intake') {
+    return (
+      <StepIn>
+        <Prompt>Upload your schedule</Prompt>
+        <PromptSub>Drop in your current schedule — any format — and I'll turn it into shifts.</PromptSub>
+
+        <UploadWrap>
+          <FileUploader
+            variant="area"
+            accept=".csv,.xlsx,.xls,.pdf,image/*"
+            state="empty"
+            title="Choose your schedule or drag & drop it here."
+            description="Spreadsheet, PDF, or a photo of a printed one."
+            onFileSelect={f => receiveFile({ name: f.name })}
+          />
+        </UploadWrap>
+
+        {/* The described path — one structured question, not a form. Tap a chip
+            or type the shape, and we build a realistic week around it. */}
+        <ShapeSection>
+          <ShapeAsk>Or tell me the shape of your week and I'll build one:</ShapeAsk>
+          <ShapeChipRow>
+            {shapes.map(s => (
+              <ShapeChip key={s} type="button" onClick={() => buildFromShape(s)}>
+                {s}
+              </ShapeChip>
+            ))}
+          </ShapeChipRow>
+          <ShapeForm
+            onSubmit={(e: FormEvent) => { e.preventDefault(); buildFromShape(draft); }}
+          >
+            <ShapeField
+              value={draft}
+              placeholder="e.g. 12-hour shifts, around the clock"
+              aria-label="Describe the shape of your week"
+              onChange={e => setDraft(e.target.value)}
+            />
+            <BuildButton variant="secondary" size="md" type="submit" disabled={!draft.trim()}>
+              Build week
+            </BuildButton>
+          </ShapeForm>
+        </ShapeSection>
+
+        <SkipRow>
+          <TextButton type="button" onClick={() => onDone(null)}>
+            Skip for now
+          </TextButton>
+        </SkipRow>
+      </StepIn>
+    );
+  }
+
+  // ── reading / building ───────────────────────────────────────────────────────
+  if (phase === 'reading' || phase === 'building') {
+    const isUpload = phase === 'reading';
+    return (
+      <StepIn>
+        <Prompt>{isUpload ? 'Got the file' : 'Building your week'}</Prompt>
+        <PromptSub>
+          {isUpload
+            ? `Reading ${file?.name ?? 'your schedule'} — turning it into shifts.`
+            : `Laying out a realistic week — ${shape.toLowerCase()}.`}
+        </PromptSub>
+        <ReadingRow role="status" aria-live="polite">
+          <Spinner aria-hidden="true" />
+          <ProgressLabel $working>{isUpload ? 'Turning it into shifts' : 'Building the week'}</ProgressLabel>
+        </ReadingRow>
+      </StepIn>
+    );
+  }
+
+  // ── built — the week (calendar) + the problems waiting in it ─────────────────
+  const built = Boolean(file);
+  return (
+    // Wider step so the seven-day calendar has room to lay out its columns.
+    <StepIn $wide>
+      <Prompt>Your week is ready</Prompt>
+      {/* Upload path gets the roster step's mapping voice; the described path
+          says what it built. Both land on the same week + the same problems. */}
+      <PromptSub>
+        {built
+          ? `Read ${file?.name} — turned it into next week's shifts. A few columns I didn't recognize, kept so nothing's lost.`
+          : `Built a realistic week — ${shape.toLowerCase()}. Here's what it looks like.`}
+      </PromptSub>
+
+      {/* The planted problems lead — their own card, collapsed by default; the
+          count + alert toggle carry the signal, the detail expands on tap. Sits
+          above the calendar so the work Ultron's about to take on comes first. */}
+      <WaitingCard>
+        <ReviewToggle
+          type="button"
+          aria-expanded={waitingOpen}
+          aria-controls="schedule-waiting-rows"
+          onClick={() => setWaitingOpen(o => !o)}
+        >
+          <ReviewHead>{problems.length} things waiting in your week</ReviewHead>
+          <ReviewTrail>
+            <ReviewAlert aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewAlert>
+            <ReviewChevron $open={waitingOpen} aria-hidden="true">
+              <ChevronDownIcon size={16} />
+            </ReviewChevron>
+          </ReviewTrail>
+        </ReviewToggle>
+        {waitingOpen && (
+          <ProblemList id="schedule-waiting-rows" aria-label="Waiting in your week">
+            {problems.map((p, i) => (
+              <ProblemRow key={`${p.worker}-${i}`}>
+                <ProblemIcon $kind={p.kind} aria-hidden="true">
+                  {p.kind === 'missing' ? <ClockIcon size={15} /> : <AlertTriangleIcon size={15} />}
+                </ProblemIcon>
+                <ProblemText>
+                  <ProblemWho>{p.worker} · {p.role}</ProblemWho>
+                  <ProblemDetail>{p.detail}</ProblemDetail>
+                </ProblemText>
+              </ProblemRow>
+            ))}
+          </ProblemList>
+        )}
+      </WaitingCard>
+
+      {/* The week itself — a calendar of shifts across the seven days. */}
+      <CalendarCard>
+        <WeekStat>
+          <WeekStatItem><WeekStatNum>{WEEK_DAYS}</WeekStatNum> days</WeekStatItem>
+          <WeekStatDot aria-hidden="true">·</WeekStatDot>
+          <WeekStatItem><WeekStatNum>{WEEK_SHIFTS}</WeekStatNum> shifts</WeekStatItem>
+          <WeekStatDot aria-hidden="true">·</WeekStatDot>
+          <WeekStatItem><WeekStatNum>{problems.length}</WeekStatNum> to handle</WeekStatItem>
+        </WeekStat>
+        <CalScroll>
+          <CalGrid role="table" aria-label="Next week's shifts">
+            {week.map(day => (
+              <CalDay key={day.label} role="column">
+                <CalDayHead>{day.label}</CalDayHead>
+                {day.shifts.map((s, i) => (
+                  <ShiftChip key={`${day.label}-${i}`} $flag={s.flag}>
+                    <ShiftTime>{s.time}</ShiftTime>
+                    <ShiftWho>{s.who}</ShiftWho>
+                  </ShiftChip>
+                ))}
+              </CalDay>
+            ))}
+          </CalGrid>
+        </CalScroll>
+      </CalendarCard>
+
+      <ActionRow>
+        <Button
+          variant="primary"
+          size="lg"
+          onClick={() => onDone({ name: file?.name ?? `${shape} week` })}
+        >
+          Take me in
+        </Button>
+      </ActionRow>
     </StepIn>
   );
 }
@@ -2137,6 +2725,632 @@ const UploadWrap = styled.div`
   & [class*='area']:not([data-drag-over]) {
     ${liquidGlass}
     border-style: dashed;
+  }
+`;
+
+/* ── Step 5 — roster intake ──────────────────────────────────────────────────
+   The intake affordances, the read spinner, and the import-result / sample
+   cards. All tokenised; the result card wears the shared liquid-glass surface. */
+
+/* Centered action column for the intake step (sample offer over the skip out). */
+const IntakeActions = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+`;
+
+/* The "add sample teammates" affordance — a glass pill, used both as the
+   no-roster entry and as the post-import augment offer. */
+const SampleOffer = styled.button`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  ${liquidGlass}
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-content-secondary);
+  transition: color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
+
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
+
+  &:hover {
+    color: var(--color-content-primary);
+    transform: translateY(-1px);
+  }
+  &:hover svg { color: var(--color-content-primary); }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: color var(--duration-fast) var(--ease-default);
+    &:hover { transform: none; }
+  }
+`;
+
+/* Primary CTA row + quiet skip row for the result screens. */
+const ActionRow = styled.div`
+  margin-top: var(--space-5);
+`;
+
+const SkipRow = styled.div`
+  margin-top: var(--space-3);
+`;
+
+/* Read / generate spinner — a spinning ring beside the working label. */
+const spin = keyframes`
+  to { transform: rotate(360deg); }
+`;
+
+const ReadingRow = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+`;
+
+const Spinner = styled.span`
+  width: var(--space-4);
+  height: var(--space-4);
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-border-opaque);
+  border-top-color: var(--color-content-primary);
+  animation: ${spin} 720ms linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: 1600ms;
+  }
+`;
+
+/* The import-result / sample surface — the shared liquid-glass card. */
+const ResultCard = styled.div<{ $padTop?: boolean }>`
+  ${liquidGlassRaised}
+  border-radius: var(--radius-lg);
+  padding: var(--space-1) var(--space-5) var(--space-4);
+  width: 100%;
+  max-width: 480px;
+  margin-top: var(--space-4);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+
+  /* The import result leads with the big "81 of 84" stat, which wants room to
+     breathe above it; the sample preview leads with a list and keeps the tighter
+     top edge. */
+  ${p => p.$padTop && css`padding-top: var(--space-5);`}
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+/* Confidence summary — "81 of 84 imported clean". */
+const CleanStat = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+`;
+
+const CleanNumber = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-3xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--color-content-primary);
+  font-variant-numeric: tabular-nums;
+`;
+
+const CleanOf = styled.span`
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-content-tertiary);
+`;
+
+const CleanLabel = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-success-content);
+
+  svg { flex-shrink: 0; }
+`;
+
+/* Quarantined rows — flagged for review, never blocking the import. Collapsed
+   by default behind a toggle whose trailing side carries the alert + chevron. */
+const ReviewList = styled.div`
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-opaque);
+`;
+
+/* The header row is the toggle: label on the lead, alert + chevron trailing. */
+const ReviewToggle = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+  }
+`;
+
+const ReviewHead = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-content-tertiary);
+`;
+
+/* Trailing cluster — the warning marker beside a chevron that rotates on open. */
+const ReviewTrail = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+`;
+
+const ReviewAlert = styled.span`
+  display: inline-flex;
+  color: var(--color-warning-content);
+`;
+
+const ReviewChevron = styled.span<{ $open?: boolean }>`
+  display: inline-flex;
+  color: var(--color-content-tertiary);
+  transition: transform var(--duration-base) ${SMOOTH_EASE};
+  transform: rotate(${p => (p.$open ? '180deg' : '0deg')});
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+`;
+
+/* The expanded detail — the rows themselves, revealed under the toggle. Styled to
+   match the sample-teammate list items: leading tile + text, hairline separators. */
+const ReviewRows = styled.div`
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-2);
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+const ReviewRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+
+  & + & {
+    border-top: 1px solid var(--color-border-opaque);
+  }
+`;
+
+/* Leading tile — the sample list's avatar slot, here carrying the warning glyph. */
+const ReviewRowIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-full);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-content);
+`;
+
+const ReviewText = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+`;
+
+const ReviewWhere = styled.span`
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-content-secondary);
+`;
+
+const ReviewReason = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-content-primary);
+`;
+
+/* Generated sample teammates — the preview list. */
+const SampleList = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
+
+/* Each teammate fades + pops in on a per-row delay, so the crew cascades in
+   top to bottom once the card lands. `$i` is the row's position; `both` holds
+   the hidden start state through the delay so nothing flashes early. */
+const SampleRowEl = styled.div<{ $i?: number }>`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+  animation-delay: calc(120ms + ${p => p.$i ?? 0} * 80ms);
+
+  & + & {
+    border-top: 1px solid var(--color-border-opaque);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+const SampleAvatar = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-secondary);
+`;
+
+const SampleWho = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-right: auto;
+`;
+
+const SampleName = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-content-primary);
+`;
+
+const SampleMeta = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const SampleMore = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-opaque);
+  /* Lands just after the last teammate row (6 rows · 80ms + the 120ms base). */
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+  animation-delay: 600ms;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+/* ── Step 6 — schedule intake ─────────────────────────────────────────────────
+   The "shape of your week" question + chips, and the built-week preview with its
+   planted problems. Reuses the roster step's ResultCard / list rhythm. */
+
+/* The described-path block — one structured question, sitting under the drop zone. */
+const ShapeSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 520px;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border-opaque);
+`;
+
+const ShapeAsk = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-secondary);
+  text-align: center;
+`;
+
+const ShapeChipRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+`;
+
+/* A one-tap week shape — glass pill, same family as the workforce suggestion chips. */
+const ShapeChip = styled.button`
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  ${liquidGlass}
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-secondary);
+  transition: color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
+
+  &:hover {
+    color: var(--color-content-primary);
+    transform: translateY(-1px);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:hover { transform: none; }
+  }
+`;
+
+const ShapeForm = styled.form`
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+`;
+
+const ShapeField = styled.input`
+  flex: 1;
+  min-width: 0;
+  ${liquidGlass}
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+  height: var(--space-10);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-primary);
+
+  &::placeholder { color: var(--color-content-tertiary); }
+  &:focus-visible {
+    outline: none;
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 2px var(--color-border-focus);
+  }
+`;
+
+/* The build action, held to the field's height so the row lines up cleanly. */
+const BuildButton = styled(Button)`
+  && {
+    flex-shrink: 0;
+    height: var(--space-10);
+  }
+`;
+
+/* Built-week summary line — days · shifts · things to handle. */
+const WeekStat = styled.div`
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-secondary);
+`;
+
+const WeekStatItem = styled.span`
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+`;
+
+const WeekStatNum = styled.span`
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+  font-variant-numeric: tabular-nums;
+`;
+
+const WeekStatDot = styled.span`
+  color: var(--color-content-tertiary);
+`;
+
+/* The planted problems — styled like the roster review/sample list items. */
+const ProblemList = styled.div`
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-opaque);
+`;
+
+const ProblemRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+
+  & + & {
+    border-top: 1px solid var(--color-border-opaque);
+  }
+`;
+
+/* Leading tile — colour tracks the kind of problem (callout / expiry / punch). */
+const ProblemIcon = styled.span<{ $kind: WeekProblem['kind'] }>`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-full);
+
+  ${p => p.$kind === 'callout' && css`
+    background: var(--color-error-bg);
+    color: var(--color-error-content);
+  `}
+  ${p => p.$kind === 'expiring' && css`
+    background: var(--color-warning-bg);
+    color: var(--color-warning-content);
+  `}
+  ${p => p.$kind === 'missing' && css`
+    background: var(--color-info-bg);
+    color: var(--color-info-content);
+  `}
+`;
+
+const ProblemText = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+`;
+
+const ProblemWho = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-content-primary);
+`;
+
+const ProblemDetail = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+`;
+
+/* The built week's calendar — a wide card holding the seven-day shift grid. */
+const CalendarCard = styled.div`
+  ${liquidGlassRaised}
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  width: 100%;
+  max-width: 920px;
+  margin-top: var(--space-4);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+/* Lets the grid scroll sideways when the viewport is too narrow for 7 columns. */
+const CalScroll = styled.div`
+  overflow-x: auto;
+  margin: 0 calc(-1 * var(--space-1));
+  padding: 0 var(--space-1) var(--space-1);
+`;
+
+const CalGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(7, minmax(112px, 1fr));
+  gap: var(--space-2);
+`;
+
+const CalDay = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+`;
+
+const CalDayHead = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-content-tertiary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border-opaque);
+`;
+
+/* A single shift block. 'open' reads as a gap needing a fill; 'watch' carries a
+   quiet flag (a punch problem) — both echo the "waiting" card. */
+const ShiftChip = styled.div<{ $flag?: 'open' | 'watch' }>`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-transparent);
+
+  ${p => p.$flag === 'open' && css`
+    background: var(--color-error-bg);
+    border: 1px dashed var(--color-error-content);
+  `}
+  ${p => p.$flag === 'watch' && css`
+    background: var(--color-warning-bg);
+    border-color: var(--color-warning-content);
+  `}
+`;
+
+const ShiftTime = styled.span`
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-content-secondary);
+  font-variant-numeric: tabular-nums;
+`;
+
+const ShiftWho = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-content-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+/* The waiting-problems card — its own surface, sibling to the calendar. */
+const WaitingCard = styled.div`
+  ${liquidGlassRaised}
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  width: 100%;
+  max-width: 920px;
+  margin-top: var(--space-4);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
   }
 `;
 
