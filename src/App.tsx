@@ -244,9 +244,13 @@ interface AppProps {
    *  welcome landing (a chat thread that recaps the setup and asks what's next).
    *  Absent on a refresh, so the app then opens on Ultron's normal home. */
   introAnswers?: WelcomeAnswers;
+  /** Restart the whole demo from the top of onboarding — wired to the primary-nav
+   *  Settings icon. Supplied by Root, which drops the onboarding-complete flag and
+   *  reloads. */
+  onRestartOnboarding?: () => void;
 }
 
-export default function App({ introAnswers }: AppProps = {}) {
+export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}) {
   // The rail is kept for fidelity but Ultron is the only wired module, so
   // `activeId` never leaves 'ultron'. The other nav-state fields are retained
   // only to satisfy the hash-sync + mobile-shell contracts.
@@ -486,6 +490,8 @@ export default function App({ introAnswers }: AppProps = {}) {
       bottomItems={withActive(BOTTOM_ITEMS)}
       workspace={{ id: 'acme', name: '{Account.name}', initial: 'A' }}
       user={{ name: 'Tito Goldstein', initials: 'TG', avatarColor: '#ee9c2d' }}
+      // The Settings icon restarts the demo from the top of onboarding.
+      onSettingsClick={onRestartOnboarding}
       newItemId="app-tool"
       aiItemId="ai-home"
       // SecondaryNav — always the Ultron sidebar; no header bar (heading +

@@ -71,9 +71,19 @@ export default function Root() {
     setEntered(true);
   };
 
+  // Restart the demo from the top of onboarding (wired to the primary-nav
+  // Settings icon). Drop the entered flag and hard-reload, so everything —
+  // the Ultron store, the URL hash, IntroFlow's own state — comes up fresh on
+  // the onboarding landing rather than resuming mid-flow.
+  const restartOnboarding = () => {
+    try { window.sessionStorage.removeItem(ENTERED_KEY); } catch { /* ignore */ }
+    window.location.hash = '';
+    window.location.reload();
+  };
+
   return entered ? (
     <AppEnter>
-      <App introAnswers={answers ?? undefined} />
+      <App introAnswers={answers ?? undefined} onRestartOnboarding={restartOnboarding} />
     </AppEnter>
   ) : (
     <OnboardingApp onEnterApp={enterApp} />

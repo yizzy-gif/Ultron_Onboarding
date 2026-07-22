@@ -33,7 +33,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
-  Avatar,
+  Avatar, Tooltip,
   Button, EmailField, FileUploader, ComposerActions, ComposerSendButton,
   ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
   Link01Icon, Building02Icon,
@@ -464,12 +464,25 @@ function LandingStep({ onNext }: { onNext: () => void }) {
   // group. Advancing is the admin's own action (any sign-up control) — no auto-jump.
   const [headingDone, setHeadingDone] = useState(false);
   const [email, setEmail] = useState('');
+  // Email-validity feedback shown via an Alloy Tooltip (replacing the browser's
+  // native constraint-validation bubble). An object, not a bare string, so each
+  // failed attempt is a fresh value — the focus effect below re-fires even when
+  // the message is unchanged. Empty stays valid: the demo advances without one.
+  const [error, setError] = useState<{ text: string } | null>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
   const reduced = usePrefersReducedMotion();
 
   useEffect(() => {
     const t = window.setTimeout(() => setHeadingDone(true), reduced ? 0 : 500);
     return () => window.clearTimeout(t);
   }, [reduced]);
+
+  // Alloy's Tooltip shows on hover/focus, so surface a submit-time error by
+  // focusing the field once the error is set (after the render that enables the
+  // tooltip) — its focus handler then pops the bubble.
+  useEffect(() => {
+    if (error) emailRef.current?.focus();
+  }, [error]);
 
   return (
     <LandingPanels>
@@ -497,22 +510,32 @@ function LandingStep({ onNext }: { onNext: () => void }) {
                   email log-in) live on the account step that follows. */}
               <SignUp aria-label="Get started">
                 <GetStartedForm
+                  noValidate
                   onSubmit={(e: FormEvent) => {
                     e.preventDefault();
-                    if (looksLikeEmail(email)) onNext();
+                    // Empty or valid → advance (no email required for the demo).
+                    // Anything else → hold and flag it via the Alloy tooltip
+                    // instead of the browser's native validation bubble.
+                    if (email.trim() === '' || looksLikeEmail(email)) {
+                      onNext();
+                    } else {
+                      setError({ text: "That doesn't look like an email — try you@company.com." });
+                    }
                   }}
                 >
-                  <GlassEmailField
-                    aria-label="Work email"
-                    placeholder="you@company.com"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                  />
+                  <Tooltip content={error?.text ?? ''} placement="top" disabled={!error}>
+                    <GlassEmailField
+                      ref={emailRef}
+                      aria-label="Work email"
+                      placeholder="you@company.com"
+                      value={email}
+                      onChange={e => { setEmail(e.target.value); if (error) setError(null); }}
+                    />
+                  </Tooltip>
                   <GetStartedButton
                     variant="primary"
                     size="lg"
                     type="submit"
-                    disabled={!looksLikeEmail(email)}
                   >
                     Get started free
                   </GetStartedButton>
@@ -536,6 +559,15 @@ function LandingStep({ onNext }: { onNext: () => void }) {
 // identity mark (the root wraps it in StepIn like the other centered steps).
 function AuthStep({ onNext }: { onNext: () => void }) {
   const [email, setEmail] = useState('');
+  // Same email feedback as the landing step: an Alloy Tooltip in place of the
+  // browser's native validation bubble, surfaced by focusing the field once the
+  // error is set (Alloy's Tooltip shows on hover/focus). Empty still advances.
+  const [error, setError] = useState<{ text: string } | null>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (error) emailRef.current?.focus();
+  }, [error]);
 
   return (
     <>
@@ -566,18 +598,28 @@ function AuthStep({ onNext }: { onNext: () => void }) {
         </OrRow>
 
         <EmailForm
+          noValidate
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
-            if (looksLikeEmail(email)) onNext();
+            // Empty or valid → advance; anything else → flag it via the Alloy
+            // tooltip rather than the browser's native validation bubble.
+            if (email.trim() === '' || looksLikeEmail(email)) {
+              onNext();
+            } else {
+              setError({ text: "That doesn't look like an email — try you@company.com." });
+            }
           }}
         >
           <EmailFieldWrap>
-            <GlassEmailField
-              aria-label="Work email"
-              placeholder="you@company.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
+            <Tooltip content={error?.text ?? ''} placement="top" disabled={!error}>
+              <GlassEmailField
+                ref={emailRef}
+                aria-label="Work email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={e => { setEmail(e.target.value); if (error) setError(null); }}
+              />
+            </Tooltip>
           </EmailFieldWrap>
           <SubmitButton
             variant="primary"
@@ -585,7 +627,6 @@ function AuthStep({ onNext }: { onNext: () => void }) {
             type="submit"
             iconOnly
             aria-label="Continue"
-            disabled={!looksLikeEmail(email)}
           >
             <ArrowNarrowRightIcon size={16} />
           </SubmitButton>
@@ -1407,24 +1448,12 @@ const GetStartedForm = styled.form`
   width: 100%;
 `;
 
-/* Full-width liquid-glass CTA under the email field — the same frosted surface
-   as the field above it, so the pair reads as one glass unit. `&&` wins over
-   Button's width and primary-fill rules; Alloy's disabled styling (all
-   \`!important\`) still takes the surface back while the email is invalid. */
+/* Full-width CTA under the email field. Keeps Alloy's default primary button
+   fill (no glass override) so it reads as a standard primary action; `&&` only
+   stretches it to the field's width. */
 const GetStartedButton = styled(Button)`
   && {
     width: 100%;
-    ${liquidGlass}
-    color: var(--color-content-primary);
-  }
-
-  &&:hover:not(:disabled) {
-    ${liquidGlassRaised}
-  }
-
-  /* Pressed — the glass firms up a touch past the hover tint. */
-  &&:active:not(:disabled) {
-    background: color-mix(in srgb, var(--color-bg-primary) 76%, transparent);
   }
 `;
 
@@ -1444,6 +1473,10 @@ const EmailForm = styled.form`
 const EmailFieldWrap = styled.div`
   flex: 1;
   min-width: 0;
+  /* Flex so the Alloy Tooltip's inline-flex wrapper stretches to fill, keeping
+     the email field full-width beside the submit button. */
+  display: flex;
+  & > * { flex: 1; min-width: 0; }
 `;
 
 /* Liquid-glass email field — the glass tint sits on the Alloy field's shell
