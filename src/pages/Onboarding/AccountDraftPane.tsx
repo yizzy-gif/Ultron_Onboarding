@@ -26,6 +26,7 @@ import {
 import type { DropdownMenuGroup } from 'alloy-design-system';
 import type { ProvisioningStore } from './logStore';
 import type { MutationEntry, MutationDomain } from './provisioningLog';
+import { liquidGlass } from './glass';
 import {
   RISK_COLOR, RISK_LABEL,
 } from './shared';
@@ -1390,8 +1391,7 @@ const AccordionList = styled.div`
 
 const AccordionItem = styled.div`
   position: relative;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border-opaque);
+  ${liquidGlass}
   border-radius: var(--radius-lg);
   overflow: hidden;
   ${freshFlash}

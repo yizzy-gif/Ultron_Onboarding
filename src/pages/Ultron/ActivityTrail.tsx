@@ -5,14 +5,15 @@
    list / labeled check list).
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import styled, { keyframes, css } from 'styled-components';
 import {
-  Avatar, Button, ChevronRightIcon, ChevronSelectorVerticalIcon,
+  Avatar, Button, ChevronRightIcon, ChevronSelectorVerticalIcon, PlusIcon, MinusIcon,
   AIMessageActions, ThumbsUpIcon, ThumbsDownIcon, RefreshCw04Icon,
 } from 'alloy-design-system';
 import type { ActivityMilestone, RecordRef, ActivityUsage } from './fixtures';
 import { avatarUrl } from './fixtures';
+import { stepLabel, type StepState } from './stepLabels';
 import { RecordCard } from './RecordCard';
 import { RunDetailsPanel } from './RunDetailsPanel';
 
@@ -38,7 +39,7 @@ export function ActivityTrail({ milestones }: { milestones: ActivityMilestone[] 
  *  below the last step and morphs it into the resting magnetic mark once the work
  *  is done; `collapsed` starts the session shut (used for reasoning the operator
  *  has already acted past — the active session streams open). */
-export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors, reasoning, expandAll }: {
+export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusBeat, collapsed, hideActions, running, animateIn, showConnectors, reasoning }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   /** While running, the index of the step Ultron is currently working. Every step
@@ -75,11 +76,6 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
    *  and shared a plan"), matching the collapsed look of superseded groups — the
    *  operator reopens it to read the reasoning on demand. */
   reasoning?: boolean;
-  /** Keep every step expanded — never fold settled/completed steps behind the
-   *  "show earlier steps" toggle. Used where the trail is a short, fixed recap
-   *  meant to be read in full (e.g. the onboarding findings), rather than a long
-   *  run that should anchor on its current/last step. */
-  expandAll?: boolean;
 }) {
   return (
     <ActivitySession
@@ -93,16 +89,12 @@ export function ActivityTrailCards({ milestones, typingIndex, focusIndex, focusB
       animateIn={animateIn}
       showConnectors={showConnectors}
       reasoning={reasoning}
-      expandAll={expandAll}
     />
   );
 }
 
-/** A settled run keeps its last N steps in view; anything earlier folds behind the
- *  collapse toggle. Set to 1 — only the final step (the outcome) stays visible. */
-const COLLAPSE_MIN_STEPS = 1;
 
-function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false, reasoning = false, expandAll = false }: {
+function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideActions, running, animateIn = true, showConnectors = true, defaultCollapsed = false, reasoning = false }: {
   milestones: ActivityMilestone[];
   typingIndex?: number;
   focusIndex?: number;
@@ -111,8 +103,6 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
   running?: boolean;
   /** Reasoning group — folds to a single lighter recap line once settled. */
   reasoning?: boolean;
-  /** Never fold steps behind the collapse toggle — keep the whole trail expanded. */
-  expandAll?: boolean;
   /** The group is history — a newer activity group has triggered below it. The
    *  session stays fully expanded (it no longer collapses), but its settled step
    *  icons demote to a single muted checkmark so the success accent stays with
@@ -128,25 +118,16 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
   // How many leading steps fold behind the single toggle. Cases:
   //  · reasoning (settled) or superseded — history: fold the WHOLE group to a single
   //    lighter recap line (nothing shows until the operator reopens it).
-  //  · running — fold the already-done steps ahead of the working one so the trail
-  //    stays anchored on current work + what's left. Skipped for a short run (≤2
-  //    steps), which stays fully open so the two steps read in place.
-  //  · settled & still latest — keep just the tail (the last step, the outcome).
+  //  · everything else (running OR settled-latest) shows EVERY step as its own line —
+  //    the plan's steps persist top-to-bottom, each carrying its own status mark
+  //    (done → green check, working → spinner, upcoming → dimmed placeholder), so
+  //    completed steps stack up rather than condensing back into a recap line.
   const [stepsExpanded, setStepsExpanded] = useState(false);
   const superseded = defaultCollapsed;
-  const hasFocus = running && typeof focusIndex === 'number';
   // The reasoning group folds only once its analysis has settled — while it's still
   // running (analyzing) it shows its live status like any other running group.
   const foldEntire = superseded || (reasoning && !running);
-  const foldCount = expandAll
-    ? 0
-    : foldEntire
-    ? milestones.length
-    : hasFocus
-      ? (milestones.length > 2 ? Math.min(Math.max(0, focusIndex), milestones.length - 1) : 0)
-      : running
-        ? 0
-        : Math.max(0, milestones.length - COLLAPSE_MIN_STEPS);
+  const foldCount = foldEntire ? milestones.length : 0;
   const collapsible = foldCount > 0;
   const startIndex = collapsible && !stepsExpanded ? foldCount : 0;
   // The collapsed toggle stands in for the folded steps, so it reads as a one-line
@@ -159,12 +140,16 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
   return (
     <SessionShell $animate={animateIn}>
       <SessionBody $compact={fullyFolded}>
-          {collapsible && (
+          {/* The one-line recap toggle stands in for the folded steps while the
+              group is CLOSED. Once expanded it hides — the steps themselves carry
+              their titles (so the summary no longer duplicates the first step), and
+              clicking any step title folds the group back up (see onCollapse). */}
+          {collapsible && !stepsExpanded && (
             <RowAnchor $tight $last={fullyFolded} $connected={showConnectors}>
               <CollapseToggle type="button" aria-expanded={stepsExpanded} onClick={() => setStepsExpanded(v => !v)}>
                 <CollapseMark aria-hidden="true"><ChevronSelectorVerticalIcon size={16} /></CollapseMark>
                 <CollapseLabel>
-                  {stepsExpanded ? 'Show fewer steps' : foldedSummary}
+                  {foldedSummary}
                 </CollapseLabel>
               </CollapseToggle>
             </RowAnchor>
@@ -178,6 +163,10 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
             // reaches them, at which point they light up in turn.
             const upcoming = running && typeof focusIndex === 'number' && i > focusIndex;
             const isFocus = running && typeof focusIndex === 'number' && i === focusIndex;
+            // The step's title tracks its lifecycle — imperative while queued (plan),
+            // gerund while it's the working step, past tense once complete — the same
+            // Plan → Working → Done shift the sidebar case labels use.
+            const stepState: StepState = upcoming ? 'plan' : isFocus ? 'working' : 'done';
             // The connector below this step links it to the next activity, and its look
             // tracks whether that NEXT activity is done yet: once the lower activity
             // completes, the segment fills solid green; the segment feeding into the
@@ -202,6 +191,7 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
                 {showConnectors && !isLast && connectorState !== 'upcoming' && <SessionConnector aria-hidden="true" $state={connectorState} $tight={!hasSecondary} $superseded={defaultCollapsed} />}
                 <MilestoneContent
                   milestone={m}
+                  label={stepLabel(m.headline, stepState)}
                   last
                   /* Each step is its own accordion — collapsed to its headline, with
                      a chevron that reveals the step's supplemental line. */
@@ -211,6 +201,17 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
                   placeholder={upcoming}
                   /* The currently-working step reads bolder than the settled ones. */
                   focused={isFocus}
+                  /* A completed (settled) group, once its top-level accordion is
+                     expanded, reveals every sub-step already expanded — so opening
+                     a finished run shows all its thinking and actions at once. A
+                     running group stays collapsed per-step (the operator opens the
+                     actioning step itself via its leading +/− toggle). */
+                  startOpen={!running && stepsExpanded}
+                  /* A settled step shown in the EXPANDED session is a session-unit
+                     header: its content sits fully open (no per-step accordion) and
+                     clicking its title folds the whole group back up. The actioning
+                     (focused) step is excluded — it keeps its own sub-line toggle. */
+                  onCollapse={collapsible && stepsExpanded && !isFocus ? () => setStepsExpanded(false) : undefined}
                   /* In a T-stepped run, the focused step's progress line is driven
                      by the operator's beat index rather than its internal timer. */
                   progressBeat={isFocus ? focusBeat : undefined}
@@ -226,19 +227,25 @@ function ActivitySession({ milestones, typingIndex, focusIndex, focusBeat, hideA
                      Upcoming placeholder rows carry none yet. */
                   extra={!upcoming && m.usage?.length ? <UsageSummary usage={m.usage} title={m.headline} /> : undefined}
                   icon={
-                    <MilestoneIcon
-                      icon={m.icon}
-                      /* The focused step spins; completed steps check; upcoming steps
-                         show a blank placeholder dot. While running with a focus index,
-                         the spinner rides the focused step (not the last) so the work
-                         visibly advances down the list. */
-                      loading={typingIndex === i || isFocus || (running && typeof focusIndex !== 'number' && i === milestones.length - 1)}
-                      placeholder={upcoming}
-                      /* A superseded group demotes its settled checks to the muted
-                         content-tertiary mark, so the success accent stays with the
-                         latest group. */
-                      muted={defaultCollapsed}
-                    />
+                    /* The settled reasoning line ("Analyzed the event and shared a
+                       plan") carries NO checkmark in any state — it reads as an
+                       expandable recap, so it takes the group's expand mark instead
+                       of a status check. Every other step keeps its status icon:
+                       the focused step spins; completed steps check; upcoming steps
+                       show a blank placeholder dot. */
+                    reasoning && !running && !upcoming
+                      ? <CollapseMark aria-hidden="true"><ChevronSelectorVerticalIcon size={16} /></CollapseMark>
+                      : (
+                          <MilestoneIcon
+                            icon={m.icon}
+                            loading={typingIndex === i || isFocus || (running && typeof focusIndex !== 'number' && i === milestones.length - 1)}
+                            placeholder={upcoming}
+                            /* A superseded group demotes its settled checks to the muted
+                               content-tertiary mark, so the success accent stays with the
+                               latest group. */
+                            muted={defaultCollapsed}
+                          />
+                        )
                   }
                 />
               </RowAnchor>
@@ -433,7 +440,10 @@ function MilestoneIcon({ slotRef, hidden, loading, placeholder, muted }: {
  *  trail row and the standalone step card. While `typing`, the headline pulses
  *  (a live "thinking" blink) and the secondary text types out beneath it —
  *  Ultron mid-thought. */
-function MilestoneContent({ milestone, last, typing, icon, collapsible = true, extra, placeholder, focused, progressBeat, superseded }: { milestone: ActivityMilestone; last?: boolean; typing?: boolean; icon?: ReactNode; collapsible?: boolean; extra?: ReactNode; placeholder?: boolean; focused?: boolean; progressBeat?: number; superseded?: boolean }) {
+function MilestoneContent({ milestone, label, last, typing, icon, collapsible = true, extra, placeholder, focused, progressBeat, superseded, startOpen, onCollapse }: { milestone: ActivityMilestone; label?: string; last?: boolean; typing?: boolean; icon?: ReactNode; collapsible?: boolean; extra?: ReactNode; placeholder?: boolean; focused?: boolean; progressBeat?: number; superseded?: boolean; startOpen?: boolean; onCollapse?: () => void }) {
+  // The displayed title — the lifecycle-shifted step label when the parent supplies
+  // one (plan → working → done), else the authored headline.
+  const headline = label ?? milestone.headline;
   // A not-yet-reached step renders dull, with a blank leading icon — but it shows
   // its real label text so the operator can read what's queued; the icon fills in
   // (loader → check) once the work reaches it.
@@ -442,7 +452,7 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
       <Content $last={last} $dim>
         <Header as="div">
           {icon}
-          <Headline>{milestone.headline}</Headline>
+          <Headline>{headline}</Headline>
         </Header>
       </Content>
     );
@@ -453,8 +463,23 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
   // Collapsible steps start collapsed (an accordion the operator opens to reveal
   // the supplemental line); always-on steps stay expanded. A step flagged
   // `defaultOpen` (the folded analysis line, whose bullets are its content)
-  // starts open but stays collapsible.
-  const [open, setOpen] = useState(!collapsible || !!milestone.defaultOpen);
+  // starts open but stays collapsible. `startOpen` opens it by default too — the
+  // parent passes it for a completed group whose top-level accordion is expanded,
+  // so revealing a settled group reveals its sub-steps already expanded.
+  //
+  // `autoOpen` is the default (recomputed each render, so it tracks startOpen as
+  // the group folds/unfolds); once the operator clicks the step, `userOpen` takes
+  // over and their choice sticks.
+  const autoOpen = !collapsible || !!milestone.defaultOpen || !!startOpen;
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+
+  // `onCollapse` marks this row as the SESSION-UNIT header: it's a step of a
+  // settled group shown in the expanded session, so its content is fully open
+  // (no per-step accordion — "no sub accordions") and clicking its title folds
+  // the whole session back up (the group toggles as a unit). Otherwise the row is
+  // a normal step whose own accordion reveals its supplemental content.
+  const sessionUnit = !!onCollapse;
+  const open = sessionUnit ? true : (userOpen ?? autoOpen);
 
   // Whether this step CAN toggle (has hidden content to reveal). This drives the
   // element TYPE (button vs div) and stays stable across the step's lifecycle — it
@@ -463,75 +488,76 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
   // of animating. That re-mount was why only the last step (whose typing dropped
   // before it settled) appeared to animate.
   const canToggle = collapsible && (hasBlocks || hasExtra);
-  // A collapsible step toggles its own supplemental sub-context via a trailing
-  // chevron (the prompt-card step accordion). While typing it's inert — the chevron
-  // and click only activate once the step has settled (but the element stays a button
-  // throughout, per canToggle, so nothing re-mounts).
-  const interactive = canToggle && !typing;
+  // A collapsible step toggles its own supplemental sub-context. A settled step
+  // activates once its text stops typing; the currently-actioning (focused) step
+  // stays interactive throughout its run so the operator can expand it live.
+  const interactive = !sessionUnit && canToggle && (!typing || !!focused);
+  // The actioning (focused) step carries its +/− toggle on the sub-line ("Reaching
+  // out …") rather than the title, so the title keeps its live loading spinner.
+  const sublineToggle = interactive && !!focused && !!milestone.progress?.length;
+  const toggleOpen = () => setUserOpen(() => !open);
   // Blocks reveal immediately (even while typing) so the secondary text can type
   // out in place rather than popping in after the headline.
-  const showBlocks = hasBlocks && (collapsible ? open : true);
-  // The usage trigger lives inside the step's accordion — revealed only when the
-  // operator opens the step, so it reads as detail tucked under the activity
-  // rather than a permanently-on inline control.
-  const showExtra = hasExtra && (collapsible ? open : true);
+  const showBlocks = hasBlocks && (sessionUnit || !collapsible || open);
+  // The usage ("tools used") trigger — shown with the rest of the content.
+  const showExtra = hasExtra && (sessionUnit || !collapsible || open);
 
   return (
     <Content $last={last}>
       <Header
-        as={canToggle ? 'button' : 'div'}
-        type={canToggle ? 'button' : undefined}
-        $interactive={interactive}
-        aria-expanded={interactive ? open : undefined}
-        onClick={interactive ? () => setOpen(o => !o) : undefined}
+        as={sessionUnit || canToggle ? 'button' : 'div'}
+        type={sessionUnit || canToggle ? 'button' : undefined}
+        $interactive={sessionUnit || interactive}
+        aria-expanded={sessionUnit ? true : (interactive ? open : undefined)}
+        onClick={sessionUnit ? onCollapse : (interactive ? toggleOpen : undefined)}
       >
-        {/* Card layout rides the icon inline here, so it centers against the
-            title (top row: icon + title); the connected trail leaves it out
-            (the icon lives in the left rail instead). */}
+        {/* The leading marker (loader while working / check once done / the group's
+            expand mark for a reasoning line). The actioning step keeps its spinner
+            here — its expand affordance lives on the sub-line below instead. */}
         {icon}
-        {/* The title stays static — only the sub-context (progress line / typewriter)
-            animates while the step runs. */}
-        <Headline $focused={!!focused}>{milestone.headline}</Headline>
-        {interactive && (
+        {/* The title reflects the step's lifecycle (plan → working → done); only the
+            sub-context (progress line / typewriter) animates while it runs. */}
+        <Headline $focused={!!focused}>{headline}</Headline>
+        {/* A per-step chevron only for a normal collapsible step (not the focused
+            step, whose toggle is on the sub-line, and not a session-unit row, which
+            toggles the whole group). */}
+        {interactive && !focused && (
           <Chevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></Chevron>
         )}
       </Header>
 
-      {/* Summary line under the headline. While the step is running (focused) it
-          reads as Ultron thinking — cycling probe beats in the muted tertiary tone
-          with a live blink; once the step completes it settles to the summary in
-          the success green. Stays put whether collapsed or expanded (the richer
-          `blocks` detail is what the chevron reveals/hides). */}
-      {milestone.summary && (
-        <MilestoneSummary
-          text={milestone.summary}
-          probe={milestone.probe}
-          running={!!focused}
-          indent={!!icon}
-        />
-      )}
-
       {/* Running progress sub-row — a live status line that keeps cycling through the
-          step's progress beats (each pops in as it replaces the last) for the WHOLE
-          time the step is the running/focused one, then settles to the final result in
-          the success tone. Driven by `focused` (not just the brief typing window) so
-          the context keeps updating while the activity runs. */}
+          step's progress beats, then settles to the final result. For the actioning
+          step the +/− accordion toggle sits at the head of this line, so its live
+          thinking/actions open right where the status reads. */}
       {milestone.progress?.length ? (
         <ProgressWrap $indent={!!icon}>
-          <MilestoneProgress
-            steps={milestone.progress}
-            avatars={milestone.avatars}
-            avatarsOnSettle={milestone.avatarsOnSettle}
-            reached={milestone.reached}
-            live={!!(typing || focused)}
-            beat={progressBeat}
-            superseded={superseded}
-            /* The trailing matched-user avatars show while the step is running (as the
-               people are reached) and whenever it's expanded. Once it settles and
-               collapses they tuck away, leaving just the status line — reopening the
-               step brings them back. */
-            showAvatars={open || typing || focused}
-          />
+          <SublineRow>
+            {sublineToggle && (
+              <SublineToggle
+                type="button"
+                aria-expanded={open}
+                aria-label={open ? 'Hide details' : 'Show details'}
+                onClick={toggleOpen}
+              >
+                {open ? <MinusIcon size={16} /> : <PlusIcon size={16} />}
+              </SublineToggle>
+            )}
+            <MilestoneProgress
+              steps={milestone.progress}
+              avatars={milestone.avatars}
+              avatarsOnSettle={milestone.avatarsOnSettle}
+              reached={milestone.reached}
+              live={!!(typing || focused)}
+              beat={progressBeat}
+              superseded={superseded}
+              /* The trailing matched-user avatars show while the step is running (as the
+                 people are reached) and whenever it's expanded. Once it settles and
+                 collapses they tuck away, leaving just the status line — reopening the
+                 step brings them back. */
+              showAvatars={open || typing || focused}
+            />
+          </SublineRow>
         </ProgressWrap>
       ) : null}
 
@@ -561,61 +587,6 @@ function MilestoneContent({ milestone, last, typing, icon, collapsible = true, e
 
       {showExtra && <ExtraSlot $indent={!!icon}>{extra}</ExtraSlot>}
     </Content>
-  );
-}
-
-/** How long the FIRST thinking-probe beat holds before the next cycles in. Brisk
- *  at the start; each subsequent beat then holds progressively longer (see
- *  PROBE_BEAT_DECEL) so the line visibly slows as the step converges on its
- *  result. */
-const PROBE_BEAT_MS = 380;
-
-/** Each probe beat holds this factor longer than the one before it — an eased
- *  (fast → slow) cadence, so the reveal decelerates into the settled green state
- *  rather than ticking at a flat rate. */
-const PROBE_BEAT_DECEL = 1.32;
-
-/** Ceiling on the decelerating beat interval, so a long-running step slows to a
- *  calm pulse rather than freezing outright. */
-const PROBE_BEAT_MAX_MS = 1600;
-
-/** The step's summary sub-text. While the step is running (`running`, i.e. it's
- *  the focused step Ultron is working) and it carries `probe` beats, the line
- *  reads as live thinking: each beat POPS IN and blinks (one per-beat animation),
- *  in the muted tertiary tone, and the cadence decelerates beat over beat so the
- *  line eases toward rest. Once the step completes (no longer running) it settles
- *  to the real `summary` in the success green — matching the leading loader→check
- *  hand-off. A summary with no probe beats just reads settled. */
-function MilestoneSummary({ text, probe, running, indent }: { text: string; probe?: string[]; running?: boolean; indent?: boolean }) {
-  const beats = probe && probe.length ? probe : null;
-  const thinking = !!running && !!beats;
-  // `i` counts monotonically across the WHOLE thinking run (not reset per loop),
-  // so the deceleration keeps ramping even as the beats cycle; the shown beat is
-  // `i % beats.length`.
-  const [i, setI] = useState(0);
-  // Restart the cycle (and the deceleration ramp) each time the step re-enters
-  // its running state.
-  useEffect(() => { if (thinking) setI(0); }, [thinking]);
-  // Each successive beat holds longer than the last (eased cadence), capped so it
-  // settles to a slow pulse instead of stalling. Drives both the JS advance timer
-  // and — via the --beat-ms custom property — the per-beat pop-in/blink duration.
-  const beatMs = Math.min(PROBE_BEAT_MS * Math.pow(PROBE_BEAT_DECEL, i), PROBE_BEAT_MAX_MS);
-  useEffect(() => {
-    if (!thinking || !beats) return;
-    const t = setTimeout(() => setI(n => n + 1), beatMs);
-    return () => clearTimeout(t);
-  }, [thinking, i, beats, beatMs]);
-  return (
-    <Summary
-      $indent={indent}
-      $thinking={thinking}
-      aria-live="polite"
-      style={thinking ? ({ ['--beat-ms']: `${Math.round(beatMs)}ms` } as CSSProperties) : undefined}
-    >
-      {/* Each beat re-mounts (keyed on `i`) so its pop-in + blink replays; as
-          beatMs grows, that per-beat motion slows in lockstep with the cadence. */}
-      {thinking && beats ? <ProbeBeat key={i}>{beats[i % beats.length]}</ProbeBeat> : text}
-    </Summary>
   );
 }
 
@@ -773,10 +744,11 @@ const SessionBody = styled.div<{ $compact?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
-  /* Symmetric breathing room above and below the activity stack. A fully-folded
-     (superseded) group is a single recap line, so it packs tight — just enough to
-     separate it from the turns around it without a full row of padding. */
-  padding-top: ${p => (p.$compact ? 'var(--space-1)' : 'var(--space-3)')};
+  /* Symmetric breathing room above and below the activity stack. The top padding
+     is constant so the first row (the collapse toggle) holds its vertical position
+     when the group opens/closes — expanding no longer nudges the accordion down.
+     Only the bottom padding tightens for a fully-folded (superseded) recap line. */
+  padding-top: var(--space-3);
   padding-bottom: ${p => (p.$compact ? 'var(--space-1)' : 'var(--space-3)')};
 `;
 
@@ -1228,6 +1200,38 @@ const Chevron = styled.span`
   @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
+/* Holds the actioning step's sub-line: its +/− expand toggle followed by the live
+   status line. A flex row so the toggle sits flush at the head of "Reaching out …". */
+const SublineRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+`;
+
+/* Bare +/− toggle (no background) at the head of the actioning step's sub-line —
+   opens the step's live thinking and actions in place. Shows + collapsed, −
+   expanded. */
+const SublineToggle = styled.button`
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-5);
+  height: var(--space-5);
+  color: var(--color-content-tertiary);
+  cursor: pointer;
+  transition: color var(--duration-base) var(--ease-out);
+
+  &:hover { color: var(--color-content-primary); }
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-border-focus);
+    border-radius: var(--radius-sm);
+  }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+`;
+
 /* Running-progress sub-row — sits directly under the headline. Hangs under the
    title (clears the inline icon column like Blocks) when the icon rides inline;
    in the connected trail the row is already offset so no indent is needed. */
@@ -1236,11 +1240,15 @@ const ProgressWrap = styled.div<{ $indent?: boolean }>`
 `;
 
 /* Holds the status line and the trailing matched-user avatar group on one row —
-   the line takes the lead, the avatars sit flush to the right edge. */
+   the line takes the lead, the avatars sit flush to the right edge. Fills the
+   remaining width of its parent (the sub-line row, which may lead with a +/−
+   toggle) so the avatar cluster stays pinned to the far right edge. */
 const ProgressRow = styled.div`
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
 `;
 
 /* While a step is running, a highlight band sweeps across its status line from
@@ -1372,60 +1380,6 @@ const Blocks = styled.div<{ $indent?: boolean }>`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-/* Pop-in for each probe beat: a soft fade + small upward settle as the beat lands. */
-const probePop = keyframes`
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
-
-/* One thinking-probe beat. Wraps the changing probe text so its motion replays on
-   mount (the span is keyed per beat). Two things play, both scaled to --beat-ms
-   (set on the parent Summary) so they decelerate in lockstep with the cadence:
-   · a quick pop-in (fade + rise), then
-   · the "blink" — a bright highlight band that sweeps the text LEFT → RIGHT once
-     (via a clipped moving gradient, same direction as the running progress line),
-     rather than a whole-line opacity pulse. */
-const ProbeBeat = styled.span`
-  display: inline-block;
-  /* Muted base with a brighter band the sweep animation slides across the text. */
-  background: linear-gradient(
-    90deg,
-    var(--color-content-tertiary) 0%,
-    var(--color-content-tertiary) 40%,
-    var(--color-content-primary) 50%,
-    var(--color-content-tertiary) 60%,
-    var(--color-content-tertiary) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation:
-    ${probePop} calc(var(--beat-ms, 460ms) * 0.35) var(--ease-out) both,
-    ${progressShimmer} var(--beat-ms, 460ms) linear both;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-    -webkit-text-fill-color: currentColor;
-  }
-`;
-
-/* An always-on one-line summary under the headline (see ActivityMilestone.summary).
-   Matches the collapsed-block detail tone/size, hung under the title by clearing the
-   inline icon column so it lines up with the step's other sub-content.
-   · thinking (step running) — muted tertiary; the probe beats pop in + blink (see
-     ProbeBeat), decelerating beat over beat.
-   · settled (step complete)  — the summary in the success green. */
-const Summary = styled.p<{ $indent?: boolean; $thinking?: boolean }>`
-  margin: 0;
-  padding-top: var(--space-2);
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
-  font-size: var(--text-sm);
-  line-height: var(--line-height-normal);
-  color: ${p => (p.$thinking ? 'var(--color-content-tertiary)' : 'var(--color-success-content)')};
-  transition: color var(--duration-base) var(--ease-out);
-`;
-
 const Block = styled.div`
   display: flex;
   flex-direction: column;
@@ -1434,13 +1388,13 @@ const Block = styled.div`
 
 const BlockText = styled.p`
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   line-height: var(--line-height-normal);
   color: var(--color-content-tertiary);
 `;
 
 const BlockLabel = styled.span`
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-content-secondary);
 `;
@@ -1483,7 +1437,7 @@ const BulletList = styled.ul`
   list-style: disc;
 
   & li {
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: var(--line-height-normal);
     /* Lighter than the standard tertiary detail tone — the bullets are deep
        sub-context, so they sit a step quieter than the step's other text. */
@@ -1503,7 +1457,7 @@ const CheckList = styled.ul`
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: var(--line-height-normal);
     color: var(--color-content-tertiary);
   }

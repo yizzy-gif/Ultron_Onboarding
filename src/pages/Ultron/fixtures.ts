@@ -1340,17 +1340,6 @@ export interface ActivityBlock {
 export interface ActivityMilestone {
   icon: WorkingIcon;
   headline: string;
-  /** An always-visible one-line sub-text shown directly under the headline —
-   *  stays put whether the step is collapsed or expanded (unlike `blocks`, which
-   *  the step's accordion hides while collapsed). Used where a step should read
-   *  as headline + summary at rest, with its richer detail (bullets) tucked
-   *  behind the chevron. */
-  summary?: string;
-  /** Short "thinking context" beats cycled through the summary line WHILE the step
-   *  is running (focused): each reads as Ultron working the step, in the muted
-   *  tertiary tone with a live blink. Once the step completes, the line settles to
-   *  `summary` in the success green. Omit for a summary that reads settled at rest. */
-  probe?: string[];
   blocks?: ActivityBlock[];
   /** Running progress beats shown as a sub-row under the headline (see
    *  WorkingMilestone.progress) — carried over from working milestones. */
@@ -1462,15 +1451,29 @@ export interface UsageCandidate {
 /** One Engage message thread — who it reached, the latest line in the thread, and
  *  its current status. `tone` reads the status chip: `positive` (a warm reply)
  *  shows green; `muted` (still delivered, no reply) shows quiet. */
+/** One line in an Engage thread transcript — who sent it and when. */
+export interface ThreadMessage {
+  /** `them` = the worker; `ultron` = the outbound Engage message. */
+  from: 'them' | 'ultron';
+  text: string;
+  /** Short clock label, e.g. "2:04 PM". */
+  time: string;
+}
+
 export interface UsageThread {
   /** Avatar seed (see avatarUrl). */
   seed: string;
   name: string;
   /** Latest line in the thread — their reply, or the delivery state. */
   preview: string;
-  /** Status chip text, e.g. "Interested" / "Delivered". */
+  /** Status chip text, e.g. "Interested" / "Chatting" / "Delivered". */
   status: string;
-  tone: 'positive' | 'muted';
+  /** Drives the status chip + sort order: `positive` (warm reply → green),
+   *  `chatting` (active back-and-forth → blue), `muted` (delivered, no reply). */
+  tone: 'positive' | 'chatting' | 'muted';
+  /** Full back-and-forth, shown when the row is expanded. Present on warm threads
+   *  (interested / chatting); absent for the delivered long tail (nothing to show). */
+  conversation?: ThreadMessage[];
 }
 
 /** A one-way Engage notification — a single recipient (with their role + the
@@ -1587,8 +1590,8 @@ export type UsageToolKind = 'read' | 'match' | 'policy' | 'credential' | 'incent
 
 /* Compact constructors for the per-thread content below. */
 const cand = (name: string, match: string, distance: string): UsageCandidate => ({ name, match, distance });
-const thr = (seed: string, name: string, preview: string, status: string, tone: 'positive' | 'muted'): UsageThread =>
-  ({ seed, name, preview, status, tone });
+const thr = (seed: string, name: string, preview: string, status: string, tone: 'positive' | 'chatting' | 'muted', conversation?: ThreadMessage[]): UsageThread =>
+  ({ seed, name, preview, status, tone, ...(conversation ? { conversation } : {}) });
 
 /* Reusable Policy Engine checklists by role — the headline gates a fill runs
    against (policiesTotal counts the full active set; the list shows the top few). */
@@ -1628,11 +1631,62 @@ interface ThreadUsageContext {
   task?: { description: string; query: string; fields: DetailRow[] };
 }
 
+/** The outbound ICU shift offer — reused as the Engage blast body and as the
+ *  opening line of every thread transcript for that case. */
+const RN_OFFER = 'An ICU RN shift just opened at Riverside Clinic today at 2:00 PM. Reply YES to claim it — first to confirm takes the shift.';
+const rnOffer = (time: string): ThreadMessage => ({ from: 'ultron', text: RN_OFFER, time });
+
 const THREAD_USAGE: Record<string, ThreadUsageContext> = {
   shift_drop_maria: {
     policy: { description: 'Evaluated scheduling policies, returned eligible RNs', policies: RN_POLICIES, policiesTotal: 24,
       eligible: { total: 20, unit: 'eligible RNs', moreNoun: 'eligible candidates', items: [cand('Jordan Pierce', '4.9 match', '3.2 mi'), cand('Aisha Karim', '4.7 match', '5.1 mi'), cand('Marcus Lewis', '4.6 match', '6.8 mi')] } },
-    engage: { name: 'Engage: SMS', description: 'Sent the shift offer to 20 matched RNs', message: 'An ICU RN shift just opened at Riverside Clinic today at 2:00 PM. Reply YES to claim it — first to confirm takes the shift.', total: 20, threads: [thr('aisha_karim', 'Aisha Karim', '“Yes — I can take the 2pm.”', 'Interested', 'positive'), thr('jordan_pierce', 'Jordan Pierce', 'Delivered · no reply yet', 'Delivered', 'muted'), thr('marcus_lewis', 'Marcus Lewis', 'Delivered · no reply yet', 'Delivered', 'muted')] },
+    engage: { name: 'Engage: SMS', description: 'Sent the shift offer to 20 matched RNs', message: RN_OFFER, total: 20, threads: [
+      // 2 interested (clean yes) → 5 chatting (active back-and-forth) → 13 delivered
+      // no-reply, synthesized in ThreadList to reach total. Sorted for display in
+      // ThreadList by tone, so order here is just for readability.
+      thr('aisha_karim', 'Aisha Karim', '“Yes — I can take the 2pm.”', 'Interested', 'positive', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'Yes — I can take the 2pm.', time: '1:54 PM' },
+        { from: 'ultron', text: 'You’re confirmed for the 2:00 PM ICU shift at Riverside. Check in at the 3rd-floor ICU desk for handoff.', time: '1:54 PM' },
+        { from: 'them', text: 'On my way. Thanks!', time: '1:55 PM' },
+      ]),
+      thr('priya_nguyen', 'Priya Nguyen', '“Count me in — confirming now.”', 'Interested', 'positive', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'Count me in — confirming now.', time: '1:57 PM' },
+        { from: 'ultron', text: 'Great — you’re first backup if the 2pm falls through. I’ll ping you the moment another opens.', time: '1:57 PM' },
+        { from: 'them', text: 'Sounds good.', time: '1:58 PM' },
+      ]),
+      thr('jordan_pierce', 'Jordan Pierce', '“Is this the full ICU wing?”', 'Chatting', 'chatting', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'Is this the full ICU wing or step-down?', time: '1:56 PM' },
+        { from: 'ultron', text: 'Full ICU wing — 12-hour shift, 2:00 PM start.', time: '1:56 PM' },
+        { from: 'them', text: 'Checking my childcare, give me a few.', time: '1:59 PM' },
+      ]),
+      thr('marcus_lewis', 'Marcus Lewis', '“Any flex on the start? Could do 2:30.”', 'Chatting', 'chatting', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'Any flex on the start? Could do 2:30.', time: '1:55 PM' },
+        { from: 'ultron', text: 'Start is fixed at 2:00 for handoff, but I can flag you first for the next opening.', time: '1:55 PM' },
+        { from: 'them', text: 'Ok — let me see if I can make 2.', time: '1:58 PM' },
+      ]),
+      thr('lena_reyes', 'Lena Reyes', '“What’s the rate on this one?”', 'Chatting', 'chatting', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'What’s the rate on this one?', time: '1:53 PM' },
+        { from: 'ultron', text: '$68/hr with the ICU differential included.', time: '1:53 PM' },
+        { from: 'them', text: 'Tempting — give me an hour to sort a ride.', time: '1:57 PM' },
+      ]),
+      thr('omar_mori', 'Omar Mori', '“Is parking validated?”', 'Chatting', 'chatting', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'Is parking validated at Riverside?', time: '1:54 PM' },
+        { from: 'ultron', text: 'Yes — validated parking in the north garage.', time: '1:54 PM' },
+        { from: 'them', text: 'Good to know. Still deciding.', time: '1:56 PM' },
+      ]),
+      thr('devon_diaz', 'Devon Diaz', '“Might be a few min late.”', 'Chatting', 'chatting', [
+        rnOffer('1:52 PM'),
+        { from: 'them', text: 'I’m on shift til 1 — might be a few min late.', time: '1:55 PM' },
+        { from: 'ultron', text: 'A few minutes is fine if you make handoff by 2:15. Want me to hold it?', time: '1:55 PM' },
+        { from: 'them', text: 'Yeah, hold it — I’ll confirm by 1:30.', time: '1:59 PM' },
+      ]),
+    ] },
     notify: { description: 'Notified the Riverside location manager', seed: 'scheduler_dana', name: 'Dana Brooks', role: 'Location manager', channel: 'push + email', message: 'Heads up — the 2:00pm ICU shift was reassigned to Aisha Karim after Maria Ellis dropped it. No action needed.' },
     notifyScheduler: { description: 'Notified the Riverside scheduler the gap is closed', seed: 'priya_nair', name: 'Priya Nair', role: 'Scheduler', channel: 'push + email', message: 'The 2:00pm ICU shift gap is closed — Aisha Karim assigned, roster and timesheet updated. No action needed.' },
     update: { description: 'Wrote the assignment to the shift record', recordType: 'Shift', fields: [

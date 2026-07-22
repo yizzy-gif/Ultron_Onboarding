@@ -1,50 +1,46 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    Ultron — identity card.
    Sits at the top of the Ultron secondary-nav body. Shows the Ultron identity
-   (animated gradient mark) over a soft drifting "working" aurora, with a status
-   line that cycles through what Ultron is doing — typing-style, reusing the
-   slide-up + blinking-ellipsis motion of the live activity trail.
+   (the animated Circle mark used on the Live landing) beside the Ultron name and
+   a trailing "+" action — a compact presence card, no cycling status line.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useState } from 'react';
-import styled, { keyframes } from 'styled-components';
+import styled from 'styled-components';
+import { PlusIcon } from 'alloy-design-system';
+import { AgentMark } from './AgentMark';
 
-const STATUS_MESSAGES = [
-  'Monitoring 142 active shifts',
-  'Scanning for coverage risks',
-  'Analyzing attendance trends',
-  'Optimizing open orders',
-];
+/** Rendered px of the Circle mark in the identity card — small enough to ride the
+ *  nav row while still reading as Ultron's living presence (same mark shown at
+ *  hero scale on the Live landing). */
+const MARK_SIZE = 32;
 
-const STATUS_INTERVAL_MS = 2800;
-
-/** Identity row for the Ultron secondary nav: the name plus the cycling "what
- *  Ultron is doing" status line. The status always shows, so the card keeps the
- *  same height whether or not the Live view is the selected page (no jump on
- *  navigation). */
-export function UltronIdentityCard() {
-  const [i, setI] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => setI(x => (x + 1) % STATUS_MESSAGES.length), STATUS_INTERVAL_MS);
-    return () => clearInterval(t);
-  }, []);
-
+/** Identity row for the Ultron secondary nav: the animated Circle mark, the name,
+ *  and a trailing "+" action that opens a new (empty) Ultron page. The card itself
+ *  is a button (returns to Live), so the "+" is a focusable role="button" span
+ *  rather than a nested <button>, and it stops propagation so it doesn't also
+ *  trigger the card's Live navigation. */
+export function UltronIdentityCard({ onNew }: { onNew?: () => void }) {
   return (
     <Card>
-      <Content>
-        <TextGroup>
-          <Name>Ultron</Name>
-          <Status role="status" aria-live="polite">
-            {/* Text + dots share one keyed line so they slide up + fade in
-                together on each swap; the dots keep their own blink inside. */}
-            <StatusLine key={i}>
-              <StatusText>{STATUS_MESSAGES[i]}</StatusText>
-              <Dots aria-hidden="true"><span>.</span><span>.</span><span>.</span></Dots>
-            </StatusLine>
-          </Status>
-        </TextGroup>
-      </Content>
+      <Mark aria-hidden="true">
+        <AgentMark mark="circle" size={MARK_SIZE} tone="auto" state="active" aria-label="Ultron" />
+      </Mark>
+      <Name>Ultron</Name>
+      <AddButton
+        role="button"
+        tabIndex={0}
+        aria-label="New page"
+        onClick={e => { e.stopPropagation(); onNew?.(); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onNew?.();
+          }
+        }}
+      >
+        <PlusIcon size={16} />
+      </AddButton>
     </Card>
   );
 }
@@ -52,78 +48,54 @@ export function UltronIdentityCard() {
 // ── Styled ───────────────────────────────────────────────────────────────────
 
 const Card = styled.div`
-  font-family: var(--font-sans);
-`;
-
-/* The text column (name + status), no leading mark. */
-const Content = styled.div`
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+  font-family: var(--font-sans);
 `;
 
-/* Title + status line share one left edge, stacked. */
-const TextGroup = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
+/* Holds the animated Circle mark at a fixed size so the name + badge keep a
+   stable left edge as the mark breathes. */
+const Mark = styled.span`
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: ${MARK_SIZE}px;
+  height: ${MARK_SIZE}px;
 `;
 
 const Name = styled.span`
   min-width: 0;
+  flex: 1;
   font-size: var(--text-lg);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--tracking-wide);
   color: var(--color-content-primary);
 `;
 
-const Status = styled.div`
-  display: flex;
-  align-items: baseline;
-  min-height: var(--space-4);
-`;
-
-/* Each status line slides up + fades in as it swaps (keyed remount). The text
-   AND its trailing dots ride this one element, so they move together. */
-const statusIn = keyframes`
-  from { opacity: 0; transform: translateY(var(--space-2)); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
-
-const StatusLine = styled.span`
+/* Trailing "+" action. A role="button" span (the card wrapping it is already a
+   button, so a nested <button> would be invalid) — still keyboard-focusable. */
+const AddButton = styled.span`
   display: inline-flex;
-  align-items: baseline;
-  min-width: 0;
-  animation: ${statusIn} var(--duration-slow) var(--ease-out);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-6);
+  height: var(--space-6);
+  border-radius: var(--radius-md);
+  color: var(--color-content-secondary);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default),
+              color var(--duration-fast) var(--ease-default);
 
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
+  &:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-content-primary);
   }
-`;
 
-const StatusText = styled.span`
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-`;
-
-/* Animated trailing ellipsis — three dots blink in sequence (typing). */
-const blink = keyframes`
-  0%, 100% { opacity: 0.2; }
-  50%      { opacity: 1; }
-`;
-
-const Dots = styled.span`
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-
-  & > span {
-    animation: ${blink} 1.2s ease-in-out infinite;
-  }
-  & > span:nth-child(2) { animation-delay: 0.15s; }
-  & > span:nth-child(3) { animation-delay: 0.3s; }
-
-  @media (prefers-reduced-motion: reduce) {
-    & > span { animation: none; }
+  &:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
   }
 `;

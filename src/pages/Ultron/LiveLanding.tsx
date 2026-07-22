@@ -11,7 +11,7 @@
    DEMO ONLY.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import styled, { keyframes } from 'styled-components';
 import {
   ClockIcon, Users03Icon, CurrencyDollarIcon, CheckVerified01Icon,
@@ -96,9 +96,17 @@ interface LiveLandingProps {
    *  entering tick) — escalates it into a fresh New case. Each signal fires at
    *  most once. */
   onDetectRisk?: (event: IncomingEvent) => void;
+  /** True while the New-case deck (press T) is open. The resting landing UI —
+   *  ambient activity feed swaps out for the deck (passed as `deck`) in the same
+   *  slot, while Ultron's orb stays put in the hero. */
+  deckActive?: boolean;
+  /** The New-case deck, rendered in place of the ambient feed while `deckActive`
+   *  (so the actionable cards appear where the activity feed was, with the orb
+   *  unchanged above). */
+  deck?: ReactNode;
 }
 
-export function LiveLanding({ onDetectRisk }: LiveLandingProps) {
+export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLandingProps) {
   const [i, setI] = useState(0);
 
   // Latest detect callback held in a ref so the conveyor effect below never
@@ -165,6 +173,10 @@ export function LiveLanding({ onDetectRisk }: LiveLandingProps) {
       setCards([]);
       return;
     }
+    // While the deck is open the conveyor pauses — leave the current cards frozen
+    // (they fade out via CSS) and stop advancing / escalating new risks. Closing
+    // the deck re-runs this effect and re-seeds a fresh feed.
+    if (deckActive) return;
     // Reset the sequencer, then seed a full window already settled in place
     // (begins mid-gap so the landing opens on routine signals), then run. Every
     // seeded card has already resolved except the last, which sits at the bottom
@@ -247,7 +259,7 @@ export function LiveLanding({ onDetectRisk }: LiveLandingProps) {
       timers.forEach(clearTimeout);
       if (riskTimerRef.current) clearTimeout(riskTimerRef.current);
     };
-  }, [windowSize]);
+  }, [windowSize, deckActive]);
 
   return (
     <Stage>
@@ -266,8 +278,13 @@ export function LiveLanding({ onDetectRisk }: LiveLandingProps) {
         </Status>
       </Hero>
 
-      {cards.length > 0 && (
-        <Feed aria-label="Live event feed">
+      {/* The feed's slot: the ambient activity feed when idle, the New-case deck
+          once the operator presses T. They're mutually exclusive, so the deck sits
+          exactly where the feed was — the orb above is untouched. */}
+      {deckActive ? (
+        <DeckSlot key="deck">{deck}</DeckSlot>
+      ) : cards.length > 0 && (
+        <Feed key="feed" aria-label="Live event feed">
           {cards.map(c => {
             // Leading category glyph for this row's capability.
             const CapIcon = capIcon(c.event.capability);
@@ -491,6 +508,21 @@ const Feed = styled.div`
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
+`;
+
+/* The deck's slot — the same region the ambient feed occupies, so the actionable
+   cards appear exactly where the activity feed was (the orb hero above is
+   untouched). Rises in as the feed swaps out. */
+const DeckSlot = styled.div`
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  animation: ${landingIn} var(--duration-slow, 420ms) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
 /* Conveyor row. Drives all three motions off the data-phase attribute:

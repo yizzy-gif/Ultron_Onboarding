@@ -165,7 +165,7 @@ export const NavItemWrapper = styled.div<{ $isActive: boolean; $isAi?: boolean }
 // Unified nav item button — used in both collapsed and expanded states.
 // Height is always exactly 32px so there is no reflow when toggling.
 // $isAiActive suppresses the hover overlay so the AI gradient shows cleanly.
-export const NavItemBtn = styled.button<{ $isActive: boolean; $isAiActive?: boolean }>`
+export const NavItemBtn = styled.button<{ $isActive: boolean; $isAiActive?: boolean; $disabled?: boolean }>`
   all: unset;
   box-sizing: border-box;
   position: relative;
@@ -174,17 +174,19 @@ export const NavItemBtn = styled.button<{ $isActive: boolean; $isAiActive?: bool
   width: 100%;
   height: 32px;
   border-radius: 6px;
-  cursor: pointer;
+  cursor: ${p => (p.$disabled ? 'default' : 'pointer')};
   /* Color cascades to icon (currentColor) and label (inherit) */
   color: ${p => p.$isAiActive
     ? 'var(--color-content-inverse, white)'
     : 'var(--color-content-primary, #151515)'};
-  opacity: ${p => (p.$isActive ? 1 : 0.6)};
+  opacity: ${p => (p.$disabled ? 0.32 : p.$isActive ? 1 : 0.6)};
   transition: background 150ms ease-in-out, opacity 150ms ease-in-out, color 150ms ease-in-out;
 
   &:hover {
-    background: ${p => p.$isAiActive ? 'transparent' : 'var(--color-bg-transparent, rgba(21, 21, 21, 0.05))'};
-    opacity: 1;
+    background: ${p => (p.$disabled || p.$isAiActive)
+      ? 'transparent'
+      : 'var(--color-bg-transparent, rgba(21, 21, 21, 0.05))'};
+    opacity: ${p => (p.$disabled ? 0.32 : 1)};
   }
 
   &:focus-visible {

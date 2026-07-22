@@ -180,16 +180,16 @@ export function UltronCard({ thread, stage, expanded, detachActionable, detachAn
             {subtitle && <CardSubtitle>{subtitle}</CardSubtitle>}
           </HeaderText>
         </HeaderToggle>
-        <Button
+        <HeaderAction
           variant="ghost"
-          size="xs"
+          size={onClose ? 'sm' : 'xs'}
           iconOnly
-          aria-label={onClose ? 'Close case and return to Live' : effectiveExpanded ? 'Collapse case' : 'Expand case'}
+          aria-label={onClose ? 'Open record' : effectiveExpanded ? 'Collapse case' : 'Expand case'}
           tabIndex={onClose ? undefined : -1}
           onClick={onClose ?? onToggle}
         >
-          {onClose ? <LinkExternal01Icon size={16} /> : effectiveExpanded ? <ChevronSelectorVerticalIcon size={16} /> : <MinusIcon size={16} />}
-        </Button>
+          {onClose ? <LinkExternal01Icon size={20} /> : effectiveExpanded ? <ChevronSelectorVerticalIcon size={16} /> : <MinusIcon size={16} />}
+        </HeaderAction>
       </CardHeader>
 
       {effectiveExpanded && showInCardTrail && (
@@ -311,9 +311,13 @@ interface UltronActionCardProps {
   replying?: boolean;
   /** Interrupt Ultron's in-flight reply from the inline composer. */
   onStop?: () => void;
+  /** Embedded flat inside another surface (the deck's combined card) — drops the
+   *  card's own border / shadow / fill / padding so it reads as one block of the
+   *  host card rather than a nested card. */
+  flat?: boolean;
 }
 
-export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow, saved = false, saveIntent = false, onToggleSaveWorkflow, savedConversationally = false, onSend, replying = false, onStop }: UltronActionCardProps) {
+export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow, saved = false, saveIntent = false, onToggleSaveWorkflow, savedConversationally = false, onSend, replying = false, onStop, flat = false }: UltronActionCardProps) {
   // The decision-card pill reads as "on" when the play is already saved or the
   // operator has flagged it to save on resolve (the deferred-save intent).
   const wantsSave = saved || saveIntent;
@@ -442,7 +446,7 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
   // riding the corner.
 
   return (
-    <ActionCard data-tone={toneFor(thread)}>
+    <ActionCard $flat={flat} data-tone={toneFor(thread)}>
       {actionable && (
         <ActionHeader>
           <Prompt>{prompt}</Prompt>
@@ -521,6 +525,69 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
         </InlineComposer>
       )}
     </ActionCard>
+  );
+}
+
+// ── Deck combined card ────────────────────────────────────────────────────────
+// One case rendered as a single self-contained card for the Live-landing deck
+// (press T). It fuses the triggering header (the avatar + title + meta seen on
+// each individual case page) with the decision surface (the question, the plan,
+// and the CTAs) in one card. Collapsed cards show only the header; the single
+// expanded (front) card unfolds the full decision beneath it.
+interface UltronDeckCardProps {
+  thread: ThreadItem;
+  stage: number;
+  /** The front card is expanded (header + question + plan + CTAs); the rest sit
+   *  collapsed, showing just the triggering header. */
+  expanded: boolean;
+  onAction: (threadId: string, label: string) => void;
+  onRefinement: (label: string) => void;
+  onSaveWorkflow: (thread: ThreadItem) => void;
+  onToggleSaveWorkflow?: (threadId: string) => void;
+  /** Deferred save-as-workflow intent flagged on this card. */
+  saveIntent?: boolean;
+  /** Whether this play has already been saved as a workflow. */
+  saved?: boolean;
+}
+
+export function UltronDeckCard({
+  thread, stage, expanded, onAction, onRefinement, onSaveWorkflow, onToggleSaveWorkflow, saveIntent = false, saved = false,
+}: UltronDeckCardProps) {
+  const tone = toneFor(thread);
+  // The same glanceable sub-context the individual case header carries
+  // (Role · Shift time · Location), falling back to Ultron's prose read.
+  const subtitle = threadMeta(thread.id) || thread.assessment;
+
+  return (
+    <DeckCard data-tone={tone} $expanded={expanded}>
+      <DeckHead $expanded={expanded}>
+        <Avatar
+          size="md"
+          src={threadAvatarUrl(thread.id)}
+          name={THREAD_SUBJECTS[thread.id]}
+          alt={THREAD_SUBJECTS[thread.id] ?? ''}
+        />
+        <HeaderText>
+          <CardTitle>{threadDisplayTitle(thread)}</CardTitle>
+          {subtitle && <CardSubtitle>{subtitle}</CardSubtitle>}
+        </HeaderText>
+      </DeckHead>
+      {expanded && (
+        <DeckBody>
+          <UltronActionCard
+            flat
+            thread={thread}
+            stage={stage}
+            onAction={onAction}
+            onRefinement={onRefinement}
+            onSaveWorkflow={onSaveWorkflow}
+            onToggleSaveWorkflow={onToggleSaveWorkflow}
+            saveIntent={saveIntent}
+            saved={saved}
+          />
+        </DeckBody>
+      )}
+    </DeckCard>
   );
 }
 
@@ -1540,10 +1607,70 @@ const Card = styled.div<{ $expanded: boolean }>`
   &[data-tone='slate']  { ${p => (p.$expanded ? '' : `background-color: var(--color-slate-bg-tertiary);`)} }
 `;
 
+/* Deck combined card (Live-landing T deck). One self-contained surface holding
+   the triggering header and — when it's the front card — the full decision
+   beneath it. Collapsed cards take the flat tonal status fill (matching the feed
+   list cards) and lift on hover; the expanded front card reads as a raised white
+   panel with a neutral border + shadow. */
+const DeckCard = styled.div<{ $expanded: boolean }>`
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: box-shadow var(--duration-base) var(--ease-out),
+              transform var(--duration-base) var(--ease-out),
+              background-color var(--duration-base) var(--ease-out);
+
+  ${p => p.$expanded
+    ? css`
+        background: var(--color-bg-primary);
+        border: 1px solid var(--color-border-opaque);
+        box-shadow: var(--shadow-below-md);
+      `
+    : css`
+        background: var(--color-bg-primary);
+        border: 1px solid transparent;
+        &:hover {
+          transform: translateY(-1px);
+          box-shadow: var(--shadow-below-md);
+        }
+      `}
+
+  /* Collapsed cards carry the semantic tonal fill (shared with the feed list
+     cards + sidebar dots); the expanded front card stays on the white panel. */
+  &[data-tone='orange'] { ${p => (p.$expanded ? '' : 'background-color: var(--color-orange-bg-tertiary);')} }
+  &[data-tone='green']  { ${p => (p.$expanded ? '' : 'background-color: var(--color-green-bg-tertiary);')} }
+  &[data-tone='blue']   { ${p => (p.$expanded ? '' : 'background-color: var(--color-blue-bg-tertiary);')} }
+  &[data-tone='slate']  { ${p => (p.$expanded ? '' : 'background-color: var(--color-slate-bg-tertiary);')} }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: box-shadow var(--duration-base) var(--ease-out);
+    &:hover { transform: none; }
+  }
+`;
+
+/* The deck card's triggering header — avatar + title + meta, mirroring the
+   individual case page header. When the card is expanded it gains a hairline
+   separator above the decision body. */
+const DeckHead = styled.div<{ $expanded: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  ${p => p.$expanded && css`
+    border-bottom: 1px solid var(--color-border-opaque);
+  `}
+`;
+
+/* Holds the embedded (flat) decision surface inside the expanded card. */
+const DeckBody = styled.div`
+  padding: var(--space-4);
+`;
+
 /* Detached actionable card — the prompt + decision buttons, docked at the page
    bottom. Solid surface with a neutral opaque border + small lift shadow so it
    reads above the scrolling feed without a heavy drop. */
-const ActionCard = styled.div`
+const ActionCard = styled.div<{ $flat?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1566,6 +1693,18 @@ const ActionCard = styled.div`
     transition: box-shadow var(--duration-base) var(--ease-out);
     &:hover { transform: none; }
   }
+
+  /* Flat: the card is embedded inside another surface (the deck's combined
+     card), so it drops its own border / shadow / fill / padding and reads as a
+     plain block of the host card. */
+  ${p => p.$flat && css`
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    &:hover { transform: none; box-shadow: none; }
+  `}
 `;
 
 /* The prompt row: the question takes the lead, the subject's avatar (when the
@@ -1590,7 +1729,35 @@ const CardHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-2) 0;
+  /* Extra breathing room above the title; the bottom stays tight to the body. */
+  padding: var(--space-4) 0 var(--space-2);
+`;
+
+/* Trailing header control. On the paged event card (onClose set) this is the
+   open-record affordance — a ghost icon button that lights up on hover (a light
+   neutral fill + intensified glyph + subtle lift) to read as tappable; a later
+   version will open the triggering record. In the feed it toggles the card. */
+const HeaderAction = styled(Button)`
+  flex-shrink: 0;
+  color: var(--color-content-inverse-tertiary);
+  transition: background-color var(--duration-base) var(--ease-out),
+              color var(--duration-base) var(--ease-out),
+              transform var(--duration-base) var(--ease-out);
+
+  &:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-content-primary);
+    transform: translateY(-1px);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-border-focus);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &:hover { transform: none; }
+  }
 `;
 
 /* The title region is the accordion toggle — a real button reset to look like
@@ -1638,7 +1805,8 @@ const CardTitle = styled.span`
    muted (content-inverse-tertiary), truncated to a single line. */
 const CardSubtitle = styled.span`
   font-family: var(--font-sans);
-  font-size: var(--text-xs);
+  /* Matches the title size (14px) — one unified header font, per the design. */
+  font-size: var(--text-sm);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-normal);

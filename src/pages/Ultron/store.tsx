@@ -135,6 +135,13 @@ export interface UltronStore {
   savedWorkflowIds: string[];
   /** Mark a thread's play saved inline (used by the deferred toggle on resolve). */
   markWorkflowSaved: (threadId: string) => void;
+  /** New-case ids that have animated in on the top-level deck. The New sidebar
+   *  group only lists cases once they've revealed here — so the group builds up in
+   *  lockstep with the deck's one-by-one reveal rather than showing them all up
+   *  front. */
+  revealedNewIds: string[];
+  /** Record that a New case has animated in on the deck (idempotent). */
+  revealNew: (threadId: string) => void;
 }
 
 export function useUltronStore(): UltronStore {
@@ -220,6 +227,12 @@ export function useUltronStore(): UltronStore {
   const markWorkflowSaved = (threadId: string) => {
     setSavedWorkflowIds(prev => (prev.includes(threadId) ? prev : [...prev, threadId]));
   };
+
+  // New cases that have animated in on the top-level deck. The New sidebar group
+  // reads this so it fills one-by-one alongside the deck reveal.
+  const [revealedNewIds, setRevealedNewIds] = useState<string[]>([]);
+  const revealNew = (threadId: string) =>
+    setRevealedNewIds(prev => (prev.includes(threadId) ? prev : [...prev, threadId]));
 
   // A risk surfaced on the Live landing → Ultron opens a case. Lands a fresh
   // analyzing case at the top of New (orbit/working mark + typing title in the
@@ -348,5 +361,5 @@ export function useUltronStore(): UltronStore {
     replyTimers.current[threadId] = timer;
   };
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved, revealedNewIds, revealNew };
 }

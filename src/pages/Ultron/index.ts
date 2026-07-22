@@ -1,5 +1,9 @@
 export { UltronPage } from './UltronPage';
 export type { UltronSection } from './UltronPage';
+export { NewPage } from './NewPage';
+export type { NewPageMessage } from './NewPage';
+export { mockUltronReply } from './fixtures';
+export { caseLabel } from './caseLabels';
 export { UltronIdentityCard } from './UltronIdentityCard';
 export { AgentMark } from './AgentMark';
 export { TypingText } from './TypingText';

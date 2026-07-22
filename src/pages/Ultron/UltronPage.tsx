@@ -17,6 +17,7 @@ import { UltronCard, UltronActionCard, UltronActivityCards, UltronAnalyzingTrigg
 import { UltronComposer } from './UltronComposer';
 import type { UltronComposerHandle } from './UltronComposer';
 import { LiveLanding } from './LiveLanding';
+import { NewCaseDeck } from './NewCaseDeck';
 import type { IncomingEvent } from './fixtures';
 
 /** Which lifecycle bucket the page is showing. Mirrors the sidebar groups.
@@ -82,6 +83,9 @@ interface UltronPageProps {
   onClose: () => void;
   /** Fired when a risk signal surfaces on the Live landing — opens a New case. */
   onDetectRisk: (event: IncomingEvent) => void;
+  /** Report that a New case animated in on the deck — the sidebar New group fills
+   *  in lockstep with the reveal. */
+  onRevealNew: (threadId: string) => void;
 }
 
 /** How long the close animation plays before the page swaps to Live. Kept in
@@ -90,6 +94,7 @@ const CLOSE_MS = 280;
 
 export function UltronPage({
   threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onCompleteRun, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectRisk,
+  onRevealNew,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
   // we hand off to the parent, which swaps the page to the Live landing.
@@ -99,6 +104,23 @@ export function UltronPage({
     setClosing(true);
     window.setTimeout(() => { setClosing(false); onClose(); }, CLOSE_MS);
   };
+
+  // The Live-landing New-case deck: pressing T on the top-level (Live) page
+  // surfaces every New case as a stacked deck of combined cards (see
+  // NewCaseDeck). Only armed on the Live landing; ignored while typing.
+  const [deckOpen, setDeckOpen] = useState(false);
+  useEffect(() => {
+    if (section !== 'live') { setDeckOpen(false); return; }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 't' && e.key !== 'T') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (el && el.closest('input, textarea, [contenteditable="true"]')) return;
+      setDeckOpen(o => !o);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [section]);
   const bySeverity = (a: { t: ThreadItem; index: number }, b: { t: ThreadItem; index: number }) =>
     // Needs-attention cases float above still-analyzing ones, then severity, then recency.
     ((a.t.status === 'analyzing' ? 1 : 0) - (b.t.status === 'analyzing' ? 1 : 0)) ||
@@ -244,7 +266,27 @@ export function UltronPage({
   if (section === 'live') {
     return (
       <Page key="live" $static>
-        <LiveLanding onDetectRisk={onDetectRisk} />
+        {/* The landing shows its ambient activity feed until the operator presses
+            T; opening the deck swaps that feed slot for the actionable cards while
+            Ultron's orb stays put in the hero above. */}
+        <LiveLanding
+          onDetectRisk={onDetectRisk}
+          deckActive={deckOpen}
+          deck={deckOpen ? (
+            <NewCaseDeck
+              threads={threads}
+              stageById={stageById}
+              onAction={onAction}
+              onRefinement={handleRefinement}
+              onSaveWorkflow={onSaveWorkflow}
+              onToggleSaveWorkflow={onToggleSaveWorkflow}
+              pendingWorkflowIds={pendingWorkflowIds}
+              savedWorkflowIds={savedWorkflowIds}
+              onReveal={onRevealNew}
+              onClose={() => setDeckOpen(false)}
+            />
+          ) : null}
+        />
       </Page>
     );
   }

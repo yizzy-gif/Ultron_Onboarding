@@ -26,13 +26,16 @@ function NavItem({
   isAi?: boolean;
 }) {
   const isActive = item.isActive ?? false;
+  const disabled = item.disabled ?? false;
 
   return (
     <NavItemWrapper $isActive={isActive} $isAi={isAi}>
       <NavItemBtn
         $isActive={isActive}
         $isAiActive={isActive && !!isAi}
-        onClick={item.onClick}
+        $disabled={disabled}
+        disabled={disabled}
+        onClick={disabled ? undefined : item.onClick}
         aria-current={isActive ? 'page' : undefined}
         title={!isExpanded ? item.label : undefined}
       >

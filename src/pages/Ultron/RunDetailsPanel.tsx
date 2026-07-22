@@ -14,44 +14,48 @@
    candidate to promote into Alloy.
    ───────────────────────────────────────────────────────────────────────────── */
 
-import { useState, useEffect, type ComponentType, type ReactNode } from 'react';
+import { useState, useEffect, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import styled from 'styled-components';
+import styled, { keyframes } from 'styled-components';
 import {
   Accordion, AccordionItem, Avatar, ListItem, StatusTag, Eyebrow, Button,
-  XCloseIcon, ChevronRightIcon, CheckCircleIcon, CheckIcon, Copy01Icon, Users03Icon, ClipboardCheckIcon,
-  CheckVerified01Icon, CurrencyDollarIcon, MessageCircle02Icon,
-  TriangleUpIcon, File04Icon, LinkExternal01Icon, SearchMdIcon, Edit02Icon,
+  XCloseIcon, ChevronRightIcon, ChevronDownIcon, CheckCircleIcon, CheckIcon, Copy01Icon, ClipboardCheckIcon,
+  CheckVerified01Icon, LineChartUp01Icon, MessageCircle02Icon,
+  File04Icon, LinkExternal01Icon, SearchMdIcon, Edit02Icon,
 } from 'alloy-design-system';
 import { avatarUrl } from './fixtures';
 import type {
-  ActivityUsage, UsageEntry, UsageIconKey, UsageCandidate, UsageThread,
+  ActivityUsage, UsageEntry, UsageIconKey, UsageCandidate, UsageThread, ThreadMessage,
 } from './fixtures';
 
 // ── Presentation (derived from each entry's icon — keeps the data layer component-free) ──
 
 type IconCmp = ComponentType<{ size?: number }>;
 
-/** Per-icon leading glyph for the Avatar tile + the inline "tool used" tag. */
+/** Per-icon leading glyph for the Avatar tile + the inline "tool used" tag.
+ *  Each glyph is chosen to read as its tool type: a magnifying glass for the
+ *  replacement search, a checklist clipboard for policy, a verified shield for
+ *  the credential check, a chat bubble for Engage, a trending-up chart for the
+ *  incentive analysis. */
 const USAGE_ICON: Record<UsageIconKey, IconCmp> = {
-  search: Users03Icon,
+  /* Replacement matching — a magnifying glass over the candidate pool. */
+  search: SearchMdIcon,
   /* Read Data — a magnifying glass, reading the record before planning. */
   read: SearchMdIcon,
   message: MessageCircle02Icon,
   policy: ClipboardCheckIcon,
   shield: ClipboardCheckIcon,
   schedule: ClipboardCheckIcon,
-  analytics: CurrencyDollarIcon,
+  /* Incentive analysis — a trending-up line chart (compares past fills). */
+  analytics: LineChartUp01Icon,
   clock: CheckCircleIcon,
+  /* Credential verification — a verified shield. */
   monitor: CheckVerified01Icon,
   /* Engage notification — a chat glyph (matches the Engage outreach section). */
   bell: MessageCircle02Icon,
   record: File04Icon,
   task: ClipboardCheckIcon,
 };
-
-/** The Policy check's read-only evaluation — fronts its tile with a triangle. */
-const isPolicy = (e: UsageEntry): boolean => e.icon === 'shield' || e.icon === 'policy';
 
 /** A friendly section title per category (distinct from the tool's own name, which
  *  shows as the "Tool used" tag). Keyed by the entry's glyph. */
@@ -71,13 +75,11 @@ const titleFor = (e: UsageEntry): string =>
   e.updateData ? `Update Data: ${e.updateData.recordType}` : SECTION_TITLE[e.icon] ?? e.name;
 
 /** A reply-bearing thread reads as success; a still-delivered one stays neutral. */
-const threadStatus = (t: UsageThread): 'success' | 'neutral' => (t.tone === 'positive' ? 'success' : 'neutral');
+const threadStatus = (t: UsageThread): 'success' | 'info' | 'neutral' =>
+  t.tone === 'positive' ? 'success' : t.tone === 'chatting' ? 'info' : 'neutral';
 
-/** Drill into a thread on the Engage surface. The Engaged page isn't wired into
- *  this prototype's navigation yet, so this is a placeholder for that link. */
-function openEngageThread(_t: UsageThread): void {
-  // TODO: navigate to the Engage thread view once the Engaged surface is routable.
-}
+/** Display sort: interested (positive) first, then chatting, then delivered no-reply. */
+const TONE_ORDER: Record<UsageThread['tone'], number> = { positive: 0, chatting: 1, muted: 2 };
 
 // ── Panel ───────────────────────────────────────────────────────────────────────
 
@@ -87,10 +89,13 @@ function openEngageThread(_t: UsageThread): void {
      `.size_md` defaults regardless of cascade order).
    · Header — 12px top/bottom breathing room (Alloy's default is 8px). Targets the
      header row by the hit-target button it wraps.
-   · Chevron — a 32×32 box (matches the leading avatar tile) with the glyph centered.
-   · Body gutters — the expanded body (`[role=region] > .bodyInner > .bodyContent`)
-     left-aligns under the title (header gutter + avatar tile + gap), with a 12px
-     right gutter. */
+   · Chevron — moved to the trailing (right) edge via flex `order` and shrunk to a
+     small 16px glyph (Alloy renders it leading and larger by default). Reordering
+     it past the flex-1 label block also pulls the avatar tile + label flush LEFT.
+   · Body — the expanded body (`[role=region] > .bodyInner > .bodyContent`) sheds
+     Alloy's inset card and indents to align its sections LEFT under the title text
+     (header pad + avatar tile + header gap = 12 + 32 + 12 = 56px), with a 12px
+     right gutter — so each section hangs nested beneath the row's label. */
 const RunItem = styled(AccordionItem)`
   && {
     --accordion-label-size: var(--text-sm);
@@ -100,9 +105,18 @@ const RunItem = styled(AccordionItem)`
     padding-top: var(--space-3);
     padding-bottom: var(--space-3);
   }
+  /* Chevron to the trailing edge, smaller. order:1 reorders it past the order-0
+     label block (which is flex: 1), so it lands flush right; the 16px box/glyph
+     reads smaller than the 32px tile it occupied before. */
   & [class*='_chevron_'] {
-    width: var(--space-8);
-    height: var(--space-8);
+    order: 1;
+    width: var(--space-4);
+    height: var(--space-4);
+    color: var(--color-content-tertiary);
+  }
+  & [class*='_chevron_'] svg {
+    width: var(--space-4);
+    height: var(--space-4);
   }
   & [class*='_description_'] {
     color: var(--color-content-disabled);
@@ -121,13 +135,13 @@ const RunItem = styled(AccordionItem)`
     gap: var(--space-3);
   }
   & [role='region'] > div > div {
-    /* The expanded body reads as a tinted inset card: 12px margin off the item
-       edges (none on top — the header row above provides the spacing), 16px
-       padding inside, secondary fill, 12px radius. */
-    margin: 0 var(--space-3) var(--space-3);
-    padding: var(--space-4);
-    background: var(--color-bg-secondary);
-    border-radius: var(--radius-lg);
+    /* No inset card — the body indents so its sections line up LEFT under the
+       title text (header pad + avatar tile + header gap = 12 + 32 + 12 = 56px),
+       with a 12px right gutter and 16px below the last section. */
+    margin: 0;
+    padding: 0 var(--space-3) var(--space-4)
+      calc(var(--space-8) + var(--space-3) + var(--space-3));
+    background: none;
   }
   /* Inset the inter-item divider 12px on each side. Suppress Alloy's full-bleed
      border (its selector needs &&& to override) and draw the line with a pseudo.
@@ -145,6 +159,22 @@ const RunItem = styled(AccordionItem)`
     height: 1px;
     background: var(--color-border-opaque);
   }
+`;
+
+/* The leading tile fronting each tool section — a neutral rounded square (matching
+   the 32px avatar footprint used elsewhere in the panel) with the tool's glyph
+   centered. Alloy's Avatar renders no icon slot (image/initials only), so this is
+   a purpose-built tile for the tool glyphs. */
+const ToolTile = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-content-secondary);
 `;
 
 export interface RunDetailsPanelProps {
@@ -210,29 +240,18 @@ export function RunDetailsPanel({ open, onClose, title = 'Run details', usage }:
           <HeaderFade aria-hidden="true" />
           <Accordion type="single" collapsible value={openId} onValueChange={v => setOpenId(typeof v === 'string' ? v : '')}>
             {indexed.map(({ entry, index }) => {
-              // Policy check fronts its tile with a triangle; an Update Data write
-              // fronts a pencil (matching its titleFor special case — the read keeps
-              // the file glyph); other tiles keep their per-icon glyph. (The "Tool
-              // used" tag keeps the tool's own glyph.)
-              const Icon = entry.updateData ? Edit02Icon : isPolicy(entry) ? TriangleUpIcon : USAGE_ICON[entry.icon];
+              // An Update Data write fronts a pencil (matching its titleFor special
+              // case — the read keeps the file glyph); every other tile keeps its
+              // per-tool glyph (magnifying glass, clipboard, shield, chat, chart).
+              const Icon = entry.updateData ? Edit02Icon : USAGE_ICON[entry.icon];
               return (
                 <RunItem
                   key={index}
                   value={String(index)}
                   label={titleFor(entry)}
                   description={entry.description}
-                  chevronPosition="trailing"
                   leadingSlot={
-                    <Avatar
-                      shape="square"
-                      variant="subtle"
-                      color="neutral"
-                      size="md"
-                      icon={<Icon size={18} />}
-                      aria-hidden="true"
-                      /* Neutral secondary tile rather than a per-category hue. */
-                      style={{ ['--avatar-bg' as never]: 'var(--color-bg-secondary)' }}
-                    />
+                    <ToolTile aria-hidden="true"><Icon size={18} /></ToolTile>
                   }
                 >
                   <SectionBody>
@@ -411,39 +430,23 @@ function EntryResult({ entry }: { entry: UsageEntry }) {
           </RecommendationCard>
         </Field>
       )}
-      {/* Query and "What it does" both tuck to the bottom, collapsed by default —
-          the raw invocation and the plain-language recap sit under the concrete
-          results rather than leading them. Query sits just above "What it does". */}
+      {/* Query and "What it does" both tuck to the bottom — the raw invocation and
+          the plain-language recap sit under the concrete results rather than
+          leading them. Both are always expanded (no sub-accordion), each a plain
+          labeled field like the sections above. Query sits above "What it does". */}
       {entry.query && (
-        <CollapsibleField label="Query">
+        <Field>
+          <Eyebrow>Query</Eyebrow>
           <QueryBlock>{entry.query}</QueryBlock>
-        </CollapsibleField>
+        </Field>
       )}
-      {/* "What it does" sits last in every tool section and is collapsed by
-          default — the plain-language recap tucks under the concrete detail
-          (query, results, record) rather than leading it. */}
       {entry.summary && (
-        <CollapsibleField label="What it does">
+        <Field>
+          <Eyebrow>What it does</Eyebrow>
           <SummaryText>{entry.summary}</SummaryText>
-        </CollapsibleField>
+        </Field>
       )}
     </>
-  );
-}
-
-/** A field whose content collapses under a clickable eyebrow header (chevron
- *  rotates open). Starts collapsed — used for the low-priority "What it does"
- *  recap so it stays out of the way until the operator asks for it. */
-function CollapsibleField({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Field>
-      <CollapseHeader type="button" aria-expanded={open} onClick={() => setOpen(o => !o)}>
-        <Eyebrow>{label}</Eyebrow>
-        <CollapseChevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></CollapseChevron>
-      </CollapseHeader>
-      {open && children}
-    </Field>
   );
 }
 
@@ -606,41 +609,75 @@ function fillerCandidate(i: number, baseMatch: number): UsageCandidate {
  *  toggle that expands the full list in place. Each row drills into its thread on
  *  the Engage surface. Fixtures only ship the top rows, so the overflow rows are
  *  synthesized as delivered-no-reply threads (the common state for the long tail). */
+const COLLAPSED_THREADS = 3;
+
 function ThreadList({ threads }: { threads: { total: number; moreNoun: string; items: UsageThread[] } }) {
   const [expanded, setExpanded] = useState(false);
-  const shown = threads.items.slice(0, 3);
-  const more = threads.total - shown.length;
-  const overflow = expanded ? Array.from({ length: more }, (_, i) => fillerThread(i)) : [];
-  const rows = [...shown, ...overflow];
+  // Which warm thread's conversation is open (only one at a time). Keyed by row identity.
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  // Sort the fixture threads interested → chatting → delivered, then synthesize the
+  // delivered no-reply long tail to reach `total` (the common state for the rest).
+  const real = [...threads.items].sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone]);
+  const fillerCount = Math.max(0, threads.total - real.length);
+  const all = [...real, ...Array.from({ length: fillerCount }, (_, i) => fillerThread(i))];
+  const shown = expanded ? all : all.slice(0, COLLAPSED_THREADS);
+  const hidden = all.length - COLLAPSED_THREADS;
+
   return (
     <>
       <CandidateRows>
-        {rows.map((t, i) => (
-          <ListItem
-            key={i}
-            size="md"
-            /* The row drills into this thread on the Engage page (routing TBD —
-               the Engaged surface isn't wired into this prototype yet). */
-            interactive
-            onClick={() => openEngageThread(t)}
-            leadingSlot={<Avatar size="sm" src={avatarUrl(t.seed)} name={t.name} alt="" style={{ ['--avatar-bg' as never]: 'var(--color-bg-secondary)' }} />}
-            label={t.name}
-            description={t.preview}
-            trailingSlot={
-              <ThreadTrailing>
-                <StatusTag status={threadStatus(t)} size="sm">{t.status}</StatusTag>
-                <ChevronRightIcon size={16} />
-              </ThreadTrailing>
-            }
-          />
-        ))}
+        {shown.map((t, i) => {
+          const hasConvo = !!t.conversation?.length;
+          const key = `${t.name}-${i}`;
+          const open = hasConvo && openKey === key;
+          return (
+            <ThreadEntry key={key} data-open={open || undefined}>
+              <ListItem
+                size="md"
+                /* Warm threads (interested / chatting) expand in place to reveal the
+                   full transcript. The delivered no-reply tail has nothing to show. */
+                interactive={hasConvo}
+                onClick={hasConvo ? () => setOpenKey(open ? null : key) : undefined}
+                aria-expanded={hasConvo ? open : undefined}
+                leadingSlot={<Avatar size="sm" src={avatarUrl(t.seed)} name={t.name} alt="" style={{ ['--avatar-bg' as never]: 'var(--color-bg-secondary)' }} />}
+                label={t.name}
+                description={t.preview}
+                trailingSlot={
+                  <ThreadTrailing>
+                    <StatusTag status={threadStatus(t)} size="sm">{t.status}</StatusTag>
+                    {hasConvo
+                      ? <ExpandChevron data-open={open || undefined}><ChevronDownIcon size={16} /></ExpandChevron>
+                      : <ChevronRightIcon size={16} />}
+                  </ThreadTrailing>
+                }
+              />
+              {open && <Conversation messages={t.conversation!} />}
+            </ThreadEntry>
+          );
+        })}
       </CandidateRows>
-      {more > 0 && (
+      {hidden > 0 && (
         <MoreButton type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
-          {expanded ? `Show fewer ${threads.moreNoun}` : `+${more} more ${threads.moreNoun}`}
+          {expanded ? `Show fewer ${threads.moreNoun}` : `+${hidden} more ${threads.moreNoun}`}
         </MoreButton>
       )}
     </>
+  );
+}
+
+/** SMS-style transcript revealed under an expanded warm thread. Their lines sit
+ *  left on a neutral surface; Ultron's outbound sits right on a solid fill. */
+function Conversation({ messages }: { messages: ThreadMessage[] }) {
+  return (
+    <Convo>
+      {messages.map((m, i) => (
+        <Bubble key={i} $from={m.from}>
+          <BubbleText>{m.text}</BubbleText>
+          <BubbleTime>{m.time}</BubbleTime>
+        </Bubble>
+      ))}
+    </Convo>
   );
 }
 
@@ -755,31 +792,6 @@ const Field = styled.div`
   gap: var(--space-2);
 `;
 
-/* Clickable header for a collapsible field — the eyebrow label with a trailing
-   chevron that rotates open. Resets the button chrome so it reads as the plain
-   eyebrow row it replaces. */
-const CollapseHeader = styled.button`
-  all: unset;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  cursor: pointer;
-
-  &:focus-visible {
-    box-shadow: 0 0 0 2px var(--color-border-focus);
-    border-radius: var(--radius-sm);
-  }
-`;
-
-/* Chevron points right when collapsed, rotates down when the field is open. */
-const CollapseChevron = styled.span`
-  display: inline-flex;
-  color: var(--color-content-disabled);
-  transition: transform var(--duration-base) var(--ease-default);
-  &[data-open] { transform: rotate(90deg); }
-`;
-
 /* FLAGGED: Teambridge-local monospace surface. Alloy has no Code/CodeBlock
    primitive — only the --font-mono token. This is a candidate to promote into
    Alloy as a `Code` / `CodeBlock` component. Token-only, so dark mode follows.
@@ -842,6 +854,67 @@ const RowMeta = styled.span`
   font-size: var(--text-xs);
   color: var(--color-content-tertiary);
   white-space: nowrap;
+`;
+
+/* One thread + its (optional) expandable conversation. Direct child of the
+   CandidateRows card, so it inherits the row padding vars and gets the inset
+   divider drawn by CandidateRows' `& > div::after`. */
+const ThreadEntry = styled.div``;
+
+/* Expand affordance — a chevron that rotates to point up when the row is open.
+   Replaces the static drill-down chevron on warm (expandable) rows. */
+const ExpandChevron = styled.span`
+  display: inline-flex;
+  color: var(--color-content-disabled);
+  transition: transform var(--duration-fast) var(--ease-default);
+
+  &[data-open] {
+    transform: rotate(180deg);
+    color: var(--color-content-tertiary);
+  }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
+`;
+
+const convoIn = keyframes`
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+/* SMS transcript under an expanded row. Indented left to clear the avatar so the
+   bubbles align under the row's text column. */
+const Convo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-3);
+  animation: ${convoIn} var(--duration-base) var(--ease-out);
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+const Bubble = styled.div<{ $from: ThreadMessage['from'] }>`
+  max-width: 80%;
+  align-self: ${p => (p.$from === 'them' ? 'flex-start' : 'flex-end')};
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  background: ${p => (p.$from === 'them' ? 'var(--color-bg-secondary)' : 'var(--color-info-fill)')};
+  color: ${p => (p.$from === 'them' ? 'var(--color-content-primary)' : 'var(--color-content-inverse)')};
+  /* Squared-off tail corner on the side the bubble is anchored to. */
+  border-bottom-${p => (p.$from === 'them' ? 'left' : 'right')}-radius: var(--radius-xs);
+`;
+
+const BubbleText = styled.div`
+  font-size: var(--text-xs);
+  line-height: var(--line-height-snug);
+`;
+
+const BubbleTime = styled.div`
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.65;
+  text-align: right;
 `;
 
 /* Thread row trailing cluster — status tag + a drill-down chevron (the chevron

@@ -8,6 +8,8 @@ export interface PrimaryNavItem {
   activeIcon?: ReactNode;
   isActive?: boolean;
   hasUnread?: boolean;
+  /** Render greyed-out and non-interactive (module not wired in this build). */
+  disabled?: boolean;
   onClick?: () => void;
 }
 
