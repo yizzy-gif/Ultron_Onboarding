@@ -3,8 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Declares both schemes up front so the browser's own pre-CSS paint uses
+         the OS theme instead of defaulting to white — without this, every
+         refresh in dark mode flashes a white canvas before the app mounts. -->
+    <meta name="color-scheme" content="light dark" />
     <title>Ultron</title>
-    <script type="module" crossorigin src="/Ultron_Onboarding/assets/index-07b5Tc3L.js"></script>
+    <style>
+      /* Pre-boot paint — the app's surfaces come from Alloy tokens injected by
+         JS, so until React mounts nothing else colors the page. Mirror
+         --color-bg-primary here (light: --Alloy-white #ffffff, dark:
+         --Alloy-slate-950 #07090B); raw hex is unavoidable since tokens.css
+         isn't loaded yet. Keep in sync with Alloy if those tokens change. */
+      html { background: #ffffff; color-scheme: light; }
+      @media (prefers-color-scheme: dark) {
+        html { background: #07090b; color-scheme: dark; }
+      }
+      /* Manual override classes win over the OS preference (matches Alloy). */
+      html.light { background: #ffffff; color-scheme: light; }
+      html.dark { background: #07090b; color-scheme: dark; }
+    </style>
+    <script>
+      // Apply the stored theme override before first paint, so a refresh with
+      // an override set doesn't flash the OS theme until useTheme() re-applies
+      // it after mount. Key mirrors useTheme's STORAGE_KEY.
+      try {
+        var t = localStorage.getItem('ultron-theme');
+        if (t === 'dark' || t === 'light') document.documentElement.classList.add(t);
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/Ultron_Onboarding/assets/index-B0NXgtm1.js"></script>
     <link rel="stylesheet" crossorigin href="/Ultron_Onboarding/assets/index-DqcMBItZ.css">
   </head>
   <body>
