@@ -1,8 +1,9 @@
 /* Root gate — plays the self-serve onboarding flow, then hands off to the live
  * Ultron app once onboarding completes.
  *
- * The onboarding flow ends on the schedule-upload step; finishing it flips
- * `entered`, swapping OnboardingApp for the Ultron app (`./App`). The flag is
+ * The onboarding flow ends on the site activation (or the workforce questions);
+ * finishing it flips `entered`, swapping OnboardingApp for the Ultron app
+ * (`./App`), whose welcome chat collects the roster + schedule. The flag is
  * kept in sessionStorage so a refresh past onboarding stays in the app — we
  * can't gate on the URL hash, since the app's own hash-sync overwrites it with
  * its nav state (`#ultron/...`). The Ultron screen is kept in sync with the

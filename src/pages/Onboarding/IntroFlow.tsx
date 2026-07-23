@@ -2,26 +2,27 @@
    Intro flow — the opening layer that sits ABOVE the provisioning wizard.
 
    The steps, played in sequence before the numbered wizard begins:
-     1. landing   — Ultron's identity mark + a co-pilot greeting, then a single
-                     email capture with a "Get started free" CTA.
-     2. account   — the sign-in options, centered on the screen: continue with
-                     Google / Microsoft / Apple, or log in with email. Any of
-                     them advances (the accounts are mocked — no real auth wired
-                     in a prototype).
-     3. workplace — "Where do you work?" — paste a company website, or switch to
+     1. landing   — Ultron's identity mark + a co-pilot greeting, followed by
+                     one combined sign-up block: Google / Microsoft / Apple, or
+                     email with a "Start for free" CTA. Any option advances (the
+                     accounts are mocked — no real auth wired in a prototype).
+     2. workplace — "Where do you work?" — paste a company website, or switch to
                      typing the company name. The submission decides the next path.
-     4. loading   — understand the operation. Website path: a centered parse run —
+     3. loading   — understand the operation. Website path: a centered parse run —
                      "reading the site", then the findings pop in one-by-one (no
                      chat thread). Company-name path: a single workforce-type pick
                      (the size / roles / roster intake was removed).
-     5. questions — three quick, high-level workforce questions (how workers are
+     4. questions — three quick, high-level workforce questions (how workers are
                      paid, how clients are billed, where the team works), each a
                      vertical stack of selectable cards. Only on the no-website /
                      didn't-resolve paths — a parsed website already answers this,
-                     so that path skips straight to the roster.
-     6. build …   — the account-draft / recommendation / provisioning tail (being
-                     redesigned; the flow currently hands into the existing tail so
-                     it stays runnable end-to-end).
+                     so that path completes onboarding straight from the loading
+                     step.
+
+   Onboarding ends there and hands into the live app. The roster and schedule
+   intake that used to close this flow now happens IN the app, as part of the
+   Ultron welcome chat (see pages/WelcomeThread.tsx) — Ultron asks for each
+   document in the conversation and shows what it imported in place.
 
    Local components: the selectable cards, the URL composer, and the SSO buttons
    have no Alloy primitive (checked the inventory — Radio / ToggleButton / DataCard
@@ -29,21 +30,21 @@
    composer). They're built here from tokens + Alloy icons/controls and FLAGGED for
    promotion to Alloy (a `SelectableCard` and a `Composer`). */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
-  Avatar, Tooltip, Tag,
-  Button, EmailField, FileUploader, ComposerActions, ComposerSendButton,
+  Avatar, Tooltip,
+  Button, EmailField, ComposerActions, ComposerSendButton,
   ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
   Link01Icon, Building02Icon,
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
   Building05Icon,
   BankNote01Icon, ReceiptCheckIcon, CoinsStacked03Icon, ClockIcon, CurrencyDollarIcon, Pin01Icon,
-  PlusCircleIcon, AlertTriangleIcon, ChevronDownIcon,
+  Users03Icon, Grid01Icon, Globe01Icon, CheckVerified01Icon,
 } from 'alloy-design-system';
-import { generateSampleTeammates, planWeekProblems, scheduleShapesFor, generateWeekShifts, MERIDIAN_ROSTER } from './sampleRoster';
-import type { SampleWorker, WeekProblem, WeekDay } from './sampleRoster';
+import { matchWorkforceSample } from './workforceSamples';
+import type { WorkforceSample } from './workforceSamples';
 import { AgentMark } from '../Ultron';
 import { IntroBackdrop } from './IntroBackdrop';
 import { MouseGlow } from '../../components/MouseGlow';
@@ -77,17 +78,14 @@ export interface IntroAnswers {
   pay?: string;      // W-2 | 1099 | Both
   billing?: string;  // Hourly | By month | By post
   worksite?: string; // One location | Multiple locations | Client sites
-  /** Roster file the admin uploaded (name only; absent when they skipped). */
-  rosterFile?: { name: string };
-  /** Schedule file the admin uploaded (name only; absent when they skipped). */
-  scheduleFile?: { name: string };
 }
 
 interface IntroFlowProps {
-  /** Fired once the admin finishes the last onboarding step (schedule upload) —
-   *  the onboarding is done and the flow drops into the live Ultron app. Carries
-   *  everything collected across the run so the app's welcome landing can recap
-   *  what was set up. */
+  /** Fired once the admin finishes the last onboarding step (the site
+   *  activation, or the workforce questions) — the onboarding is done and the
+   *  flow drops into the live Ultron app. Carries everything collected across
+   *  the run so the app's welcome chat can recap what was set up and collect
+   *  the roster + schedule in the conversation. */
   onComplete: (answers: IntroAnswers) => void;
 }
 
@@ -107,8 +105,18 @@ const SMOOTH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 // The identity is a single persistent element held at one fixed size and
 // position across every step — no pop-in, no size morph, no repositioning. Kept
 // at/above AgentMark's hero threshold (120) so it always renders the full Ultron
-// identity (dense cell sphere + flowing particle swarm), never the sparse form.
+// identity, never the sparse form.
 const MARK_SIZE = 140;
+
+// The identity is the Magnetics globe, built progressively: the landing shows
+// only the breathing core, then each step appends a batch of cells — every new
+// spot emerging from the core and settling onto the sphere surface — until the
+// globe is complete (58 cells: AgentMark's magnetic N at hero size) as the setup
+// hands into the app. Paths that skip a step (website → done) just append a
+// bigger batch; the counts only ever grow.
+const MARK_CELLS: Record<Step, number> = {
+  landing: 0, workplace: 20, loading: 40, questions: 58,
+};
 
 // ── Content ──────────────────────────────────────────────────────────────────
 
@@ -166,7 +174,7 @@ const WORKFORCE_QUESTIONS: WorkforceQuestion[] = [
 
 // ── Root ─────────────────────────────────────────────────────────────────────
 
-type Step = 'landing' | 'auth' | 'workplace' | 'loading' | 'questions' | 'roster' | 'schedule';
+type Step = 'landing' | 'workplace' | 'loading' | 'questions';
 
 export function IntroFlow({ onComplete }: IntroFlowProps) {
   const [step, setStep] = useState<Step>('landing');
@@ -212,11 +220,8 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
       setConnected(false);
     });
 
-  // Email captured (landing) → the account page (sign-in options).
-  const finishLanding = () => transition(() => setStep('auth'));
-
-  // Account picked (any provider, or email) → the workplace question.
-  const finishAuth = () => transition(() => setStep('workplace'));
+  // Account started (any provider, or email) → the workplace question.
+  const finishLanding = () => transition(() => setStep('workplace'));
 
   // Workplace answered → the loading step (site fly-through, or workforce pick).
   // The mark forms its first connection line as the operation comes into focus.
@@ -226,53 +231,43 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
     transition(() => setStep('loading'));
   };
 
-  // Loading done (workforce type on the no-website path; the fly-through advances
-  // on its own on the website path). The website path already read the operation
-  // off the site, so it skips the three workforce questions and heads straight
-  // to the roster; the no-website / didn't-resolve paths keep them.
+  // Loading done (workforce type on the no-website path; the fly-through is
+  // advanced by the 't' key on the website path). The website path already read
+  // the operation off the site, so it skips the three workforce questions and
+  // completes onboarding right here — the roster + schedule intake continues in
+  // the app's welcome chat. The no-website / didn't-resolve paths keep the
+  // questions as their last step.
   const finishLoading = (collected: IntroAnswers) => {
-    setAnswers(a => ({ ...a, ...collected }));
-    transition(() => setStep(answers.companyWebsite ? 'roster' : 'questions'));
+    const merged = { ...answers, ...collected };
+    setAnswers(merged);
+    if (merged.companyWebsite) {
+      onComplete(merged);
+      return;
+    }
+    transition(() => setStep('questions'));
   };
 
-  // Workforce questions answered → the roster upload.
-  const finishQuestions = (collected: IntroAnswers) => {
-    setAnswers(a => ({ ...a, ...collected }));
-    transition(() => setStep('roster'));
-  };
-
-  // Roster uploaded (or skipped) → the schedule upload. A picked file is recorded
-  // so the app's welcome recap can note the roster came in.
-  const finishRoster = (file: { name: string } | null) => {
-    if (file) setAnswers(a => ({ ...a, rosterFile: file }));
-    transition(() => setStep('schedule'));
-  };
-
-  // Schedule uploaded (or skipped) → onboarding is done; drop into the app with
-  // everything collected so the welcome landing can recap the setup.
-  const finishSchedule = (file: { name: string } | null) =>
-    onComplete({ ...answers, ...(file ? { scheduleFile: file } : {}) });
+  // Workforce questions answered → onboarding is done; drop into the app with
+  // everything collected. The welcome chat recaps the setup and collects the
+  // roster + schedule in the conversation.
+  const finishQuestions = (collected: IntroAnswers) =>
+    onComplete({ ...answers, ...collected });
 
   // The ambient backdrop's network builds with progress: bare particles on the
   // landing, a first scatter of lines on the workplace step, the full web once
   // the workplace is submitted (echoing the identity forming its connection line).
   const backdropLinks = connected ? 1 : step === 'landing' ? 0 : 0.4;
 
-  // The identity's own connections deepen with the flow: a first line once the
-  // operation comes into focus, a second while it takes in the roster & schedule.
-  const identityStreams = step === 'roster' || step === 'schedule' ? 2 : connected ? 1 : 0;
-
-  // Set by the roster / schedule steps while they read a file in — lifted up so
-  // the shared identity mark can shift into its processing form during their work
-  // (the steps own that state internally, so they report it out to here).
+  // Set by the loading step while it reads the site in — lifted up so the
+  // shared identity mark can signal the work (the step owns that state
+  // internally, so it reports it out to here).
   const [stepProcessing, setStepProcessing] = useState(false);
 
-  // While a working run is in flight — the website activation, or a roster /
-  // schedule reading in — the identity shifts into its `lines` processing form
-  // (same size, same slot); every other moment keeps the connected `circle`
-  // presence. It stays in `lines` until that step's result is displayed.
-  const processing =
-    (step === 'loading' && Boolean(answers.companyWebsite)) || stepProcessing;
+  // While a working run is in flight — the website activation — the identity
+  // shifts into its `lines` processing form, sped up (same size, same slot);
+  // the moment the work completes it settles back into the Magnetics globe at
+  // its resting pace.
+  const processing = stepProcessing;
 
   return (
     <Frame>
@@ -294,11 +289,14 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
             <Identity>
               <MarkBloom>
                 <AgentMark
-                  mark={processing ? 'lines' : 'circle'}
+                  mark={processing ? 'lines' : 'magnetic'}
                   size={MARK_SIZE}
                   tone="auto"
                   state="active"
-                  {...(processing ? {} : { streamCount: identityStreams })}
+                  motionSpeed={processing ? 1.7 : 1}
+                  /* Kept through the lines form too (it ignores it) so the
+                     magnetic⇄lines morph gathers exactly the revealed cells. */
+                  cellCount={MARK_CELLS[step]}
                   aria-label="Ultron"
                 />
               </MarkBloom>
@@ -309,11 +307,6 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
               incoming step then plays its own entrance. */}
           <Content $exiting={exiting}>
             {step === 'landing' && <LandingStep onNext={finishLanding} />}
-            {step === 'auth' && (
-              <StepIn>
-                <AuthStep onNext={finishAuth} />
-              </StepIn>
-            )}
             {step === 'workplace' && (
               <StepIn>
                 <WorkplaceQuestion onAnswer={finishWorkplace} />
@@ -324,15 +317,10 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
                 website={answers.companyWebsite}
                 failedWebsite={answers.failedWebsite}
                 onDone={finishLoading}
+                onProcessingChange={setStepProcessing}
               />
             )}
             {step === 'questions' && <WorkforceQuestionsStep onComplete={finishQuestions} />}
-            {step === 'roster' && (
-              <RosterStep answers={answers} onDone={finishRoster} onProcessingChange={setStepProcessing} />
-            )}
-            {step === 'schedule' && (
-              <ScheduleStep answers={answers} onDone={finishSchedule} onProcessingChange={setStepProcessing} />
-            )}
           </Content>
         </Stage>
       </Scroll>
@@ -373,6 +361,9 @@ const CUSTOMER_LOGOS = [
 // Operator testimonials — fictional personas for the prototype, most voiced for
 // the customers in the logo row so the panel reads as one story. The proof
 // panel loops through them, one card popping in at a time.
+// Operator photos use a deterministic stock-portrait service (stable per seed, so
+// each operator keeps the same face across rotations). The Alloy Avatar falls
+// back to the coloured initials on its own if an image can't load (offline, etc.).
 const OPERATOR_QUOTES = [
   {
     quote:
@@ -382,6 +373,7 @@ const OPERATOR_QUOTES = [
     role: 'Director of Operations',
     org: 'Meridian Care',
     avatarColor: 'purple' as const,
+    photo: 'https://i.pravatar.cc/160?u=dana.okafor',
   },
   {
     quote:
@@ -391,6 +383,7 @@ const OPERATOR_QUOTES = [
     role: 'Event Staffing Manager',
     org: "Levi's Stadium",
     avatarColor: 'blue' as const,
+    photo: 'https://i.pravatar.cc/160?u=marcus.webb',
   },
   {
     quote:
@@ -400,6 +393,7 @@ const OPERATOR_QUOTES = [
     role: 'VP of People',
     org: 'ProCare HR',
     avatarColor: 'green' as const,
+    photo: 'https://i.pravatar.cc/160?u=priya.raman',
   },
   {
     quote:
@@ -409,6 +403,7 @@ const OPERATOR_QUOTES = [
     role: 'Compliance Lead',
     org: 'Express Healthcare',
     avatarColor: 'orange' as const,
+    photo: 'https://i.pravatar.cc/160?u=sofia.delgado',
   },
   {
     quote:
@@ -418,6 +413,7 @@ const OPERATOR_QUOTES = [
     role: 'Workforce Lead',
     org: 'ModSquad',
     avatarColor: 'azure' as const,
+    photo: 'https://i.pravatar.cc/160?u=jamie.chen',
   },
 ];
 
@@ -506,12 +502,14 @@ function LandingStep({ onNext }: { onNext: () => void }) {
       <LeftPanel>
         <LeftInner>
           <MarkBloom>
+            {/* The build's starting point: the Magnetics globe with zero cells —
+                only the breathing core. Every step after this appends spots. */}
             <AgentMark
-              mark="circle"
+              mark="magnetic"
               size={MARK_SIZE}
               tone="auto"
               state="active"
-              streamCount={0}
+              cellCount={MARK_CELLS.landing}
               aria-label="Ultron"
             />
           </MarkBloom>
@@ -520,9 +518,31 @@ function LandingStep({ onNext }: { onNext: () => void }) {
             <SubGroup>
               <Sub>{GREETING_BODY}</Sub>
 
-              {/* Page one collects only the email; the sign-in options (SSO +
-                  email log-in) live on the account step that follows. */}
+              {/* One combined sign-up block: quick SSO choices, or email with
+                  the free-start CTA. */}
               <SignUp aria-label="Get started">
+                <SsoStack>
+                  {SSO_PROVIDERS.map(p => {
+                    const Mark = p.mark;
+                    return (
+                      <SsoButton
+                        key={p.id}
+                        variant="secondary"
+                        size="lg"
+                        type="button"
+                        leadingArtwork={<Mark />}
+                        onClick={onNext}
+                      >
+                        {p.label}
+                      </SsoButton>
+                    );
+                  })}
+                </SsoStack>
+
+                <OrRow aria-hidden="true">
+                  <OrText>or start with email</OrText>
+                </OrRow>
+
                 <GetStartedForm
                   noValidate
                   onSubmit={(e: FormEvent) => {
@@ -551,7 +571,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
                     size="lg"
                     type="submit"
                   >
-                    Get started free
+                    Start for free
                   </GetStartedButton>
                   <Fine>
                     No credit card. Free WFM forever. Credits expire — your
@@ -564,95 +584,12 @@ function LandingStep({ onNext }: { onNext: () => void }) {
         </LeftInner>
       </LeftPanel>
 
+      {/* Hairline on the centre seam between the two halves (wide screens). */}
+      <CenterDivider aria-hidden="true" />
+
       {/* Right panel — the proof card, full-height over the right half. */}
       {headingDone && <SocialProof />}
     </LandingPanels>
-  );
-}
-
-// ── Step 2 — account (sign-in options) ───────────────────────────────────────
-
-// The account page that follows the email capture: the third-party providers
-// plus a plain email log-in, centered on the screen beneath the persistent
-// identity mark (the root wraps it in StepIn like the other centered steps).
-function AuthStep({ onNext }: { onNext: () => void }) {
-  const [email, setEmail] = useState('');
-  // Same email feedback as the landing step: an Alloy Tooltip in place of the
-  // browser's native validation bubble, surfaced by focusing the field once the
-  // error is set (Alloy's Tooltip shows on hover/focus). Empty still advances.
-  const [error, setError] = useState<{ text: string } | null>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (error) emailRef.current?.focus();
-  }, [error]);
-
-  return (
-    <>
-      <Prompt>Create your account</Prompt>
-      <PromptSub>Continue with your work account, or log in with email.</PromptSub>
-
-      <AuthBlock aria-label="Create your account">
-        <SsoStack>
-          {SSO_PROVIDERS.map(p => {
-            const Mark = p.mark;
-            return (
-              <SsoButton
-                key={p.id}
-                variant="secondary"
-                size="lg"
-                type="button"
-                leadingArtwork={<Mark />}
-                onClick={onNext}
-              >
-                {p.label}
-              </SsoButton>
-            );
-          })}
-        </SsoStack>
-
-        <OrRow aria-hidden="true">
-          <OrText>or log in with email</OrText>
-        </OrRow>
-
-        <EmailForm
-          noValidate
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            // Empty or valid → advance; anything else → flag it via the Alloy
-            // tooltip rather than the browser's native validation bubble.
-            if (email.trim() === '' || looksLikeEmail(email)) {
-              onNext();
-            } else {
-              setError({ text: "That doesn't look like an email — try you@company.com." });
-            }
-          }}
-        >
-          <EmailFieldWrap>
-            <Tooltip content={error?.text ?? ''} placement="top" disabled={!error}>
-              <GlassEmailField
-                ref={emailRef}
-                aria-label="Work email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={e => { setEmail(e.target.value); if (error) setError(null); }}
-              />
-            </Tooltip>
-          </EmailFieldWrap>
-          <SubmitButton
-            variant="primary"
-            size="md"
-            type="submit"
-            iconOnly
-            aria-label="Continue"
-          >
-            <ArrowNarrowRightIcon size={16} />
-          </SubmitButton>
-        </EmailForm>
-
-        <Fine>Creating an account means you agree to Teambridge's Terms and Privacy Policy.</Fine>
-      </AuthBlock>
-    </>
   );
 }
 
@@ -684,7 +621,7 @@ function SocialProof() {
       <Quote key={quoteIndex}>
         <QuoteText>{`“${q.quote}”`}</QuoteText>
         <QuoteBy>
-          <Avatar name={q.name} color={q.avatarColor} size="sm" />
+          <Avatar name={q.name} src={q.photo} alt={q.name} color={q.avatarColor} size="lg" />
           <QuoteMeta>
             <QuoteName>{q.name}</QuoteName>
             <QuoteRole>{`${q.role} · ${q.org}`}</QuoteRole>
@@ -783,7 +720,7 @@ function WorkplaceQuestion({ onAnswer }: { onAnswer: (a: IntroAnswers) => void }
       <AltRow>
         {/* No site → straight to the workforce pick. */}
         <TextButton type="button" onClick={() => onAnswer({ noWebsite: true })}>
-          No website? Pick a workforce instead.
+          No website? Pick a workforce instead
         </TextButton>
       </AltRow>
     </>
@@ -792,75 +729,166 @@ function WorkplaceQuestion({ onAnswer }: { onAnswer: (a: IntroAnswers) => void }
 
 // ── Step 3 — loading / understand the operation ───────────────────────────────
 
-// The activation beats that fly through while Ultron turns things on (website
-// path) — plain, non-technical: what's being switched on, not how.
+// The reading beats that fly through while Ultron reads the pasted site
+// (website path) — plain, non-technical: each names what's being read and
+// organized from the site, matching the read-out filling in below the bar.
 const ACTIVATION_BEATS = [
-  'Turning on scheduling',
-  'Setting up pay',
-  'Activating compliance',
-  'Handing off the busywork',
+  'Scanning your site',
+  'Identifying your workforce',
+  'Mapping services & clients',
+  'Organizing your workspace',
 ];
 
-// Pacing for the fly-through (ms): each beat works for a moment, then the next
-// flies in; a short hold at the end before the step auto-advances.
+// How long the working segment takes to fill (ms) once its beat is triggered —
+// purely the visual grow of the current segment; the 't' key drives the pacing.
 const BEAT_MS = 820;
 
 // Step 3 routes on the path taken on step 2: a pasted website runs the activation
-// fly-through (which auto-advances to the questions); no website — or something
-// that didn't look like one — lands on a single workforce-type pick.
+// fly-through (advanced by the 't' key, which also hands off to the questions);
+// no website — or something that didn't look like one — lands on a single
+// workforce-type pick.
 function LoadingStep({
   website,
   failedWebsite,
   onDone,
+  onProcessingChange,
 }: {
   website?: string;
   failedWebsite?: string;
   onDone: (a: IntroAnswers) => void;
+  /** Passed through to the site read so the parent's identity mark tracks it. */
+  onProcessingChange?: (processing: boolean) => void;
 }) {
-  if (website) return <SiteParse website={website} onDone={onDone} />;
+  if (website) return <SiteParse website={website} onDone={onDone} onProcessingChange={onProcessingChange} />;
   return <WorkforcePick failedWebsite={failedWebsite} onDone={onDone} />;
 }
 
-// Website path — a self-running fly-through: Ultron turns things on one beat at a
-// time, then hands off to the questions on its own. There's no button; the
-// animation IS the step.
-function SiteParse({ website, onDone }: { website: string; onDone: (a: IntroAnswers) => void }) {
-  const reduced = usePrefersReducedMotion();
-  const { name } = companyFromUrl(website);
+type SummaryKey = keyof Pick<
+  WorkforceSample,
+  'worker_types' | 'talent_categories' | 'client_types' | 'service_models' | 'tech_footprint' | 'access_model' | 'compliance'
+>;
+type NoteColor = 'blue' | 'purple' | 'azure' | 'green' | 'matcha' | 'yellow';
+
+// The read-out categories — six cards laid out below the activation bar in a
+// balanced 3×2 grid. Each pulls one or more dimensions off the matched sample
+// dataset (the tech + access dimensions are merged into one "Platform & access"
+// card so the grid divides evenly) and writes the values as a read-out paragraph.
+const SUMMARY_GROUPS: {
+  keys: SummaryKey[];
+  title: string;
+  icon: ComponentType<{ size?: number }>;
+  color: NoteColor;
+}[] = [
+  { keys: ['worker_types'], title: 'Worker types', icon: ClockIcon, color: 'blue' },
+  { keys: ['talent_categories'], title: 'Talent categories', icon: Users03Icon, color: 'purple' },
+  { keys: ['client_types'], title: 'Client types', icon: Building02Icon, color: 'azure' },
+  { keys: ['service_models'], title: 'Service models', icon: ReceiptCheckIcon, color: 'green' },
+  { keys: ['tech_footprint', 'access_model'], title: 'Platform & access', icon: Grid01Icon, color: 'matcha' },
+  { keys: ['compliance'], title: 'Compliance', icon: CheckVerified01Icon, color: 'yellow' },
+];
+
+// Per-category accent used for the paragraph separators, mirroring the hues the
+// tag chips used before, so each card keeps its colour identity.
+const NOTE_ACCENT: Record<NoteColor, string> = {
+  blue: 'var(--color-blue-content-primary)',
+  purple: 'var(--color-purple-content-primary)',
+  azure: 'var(--color-azure-content-primary)',
+  green: 'var(--color-green-content-primary)',
+  matcha: 'var(--color-matcha-content-primary)',
+  yellow: 'var(--color-yellow-content-primary)',
+};
+
+// Gather a group's values across its one-or-more dimensions.
+function groupItems(learned: WorkforceSample, keys: SummaryKey[]): string[] {
+  return keys.flatMap(k => learned[k]);
+}
+
+// Website path — a manually-driven activation: Ultron turns things on one beat at
+// a time (advanced by the 't' key), and the read-out of what it pulled off the
+// pasted site fills in BELOW the bar while it runs. Once every beat has settled
+// the read is complete: the header reframes as the summary and a primary CTA
+// appears to carry the flow on. The 't' key still advances the bar, and (once
+// complete) continues too — but the button is now the on-screen affordance.
+function SiteParse({
+  website,
+  onDone,
+  onProcessingChange,
+}: {
+  website: string;
+  onDone: (a: IntroAnswers) => void;
+  /** Reports the working window up to the parent, so the shared identity mark
+   *  runs its `lines` form while the read runs and settles back to the circle
+   *  the moment it completes. */
+  onProcessingChange?: (processing: boolean) => void;
+}) {
+  const { name, host } = companyFromUrl(website);
   const total = ACTIVATION_BEATS.length;
 
   // `active` = the 1-based beat currently working (everything before it is on).
-  // `allDone` flips once the last beat settles; then the step auto-advances.
+  // `allDone` flips once the last beat settles — the point the read is complete.
   const [active, setActive] = useState(1);
   const [allDone, setAllDone] = useState(false);
 
+  // The read's working window: from mount until the last beat settles. The mark
+  // morphing back to its circle at `allDone` is part of the completion moment.
   useEffect(() => {
-    if (allDone) {
-      // Hold the settled bar just long enough for the finish to register, then
-      // hand off — the flow's own exit fade carries the step out gracefully.
-      const t = window.setTimeout(() => onDone({}), reduced ? 400 : 1600);
-      return () => window.clearTimeout(t);
-    }
-    const t = window.setTimeout(
-      () => (active >= total ? setAllDone(true) : setActive(a => a + 1)),
-      reduced ? 140 : BEAT_MS,
-    );
-    return () => window.clearTimeout(t);
-  }, [active, allDone, reduced]); // eslint-disable-line react-hooks/exhaustive-deps
+    onProcessingChange?.(!allDone);
+  }, [allDone, onProcessingChange]);
+  useEffect(() => () => onProcessingChange?.(false), [onProcessingChange]);
 
-  const beatLabel = allDone ? 'All set.' : ACTIVATION_BEATS[active - 1];
+  // What Ultron "read" off the pasted domain — matched to a workforce archetype
+  // once, held stable across re-renders, with a tally of signals across it.
+  const learned = useMemo(() => matchWorkforceSample(website), [website]);
+  const signalCount = useMemo(
+    () => SUMMARY_GROUPS.reduce((n, g) => n + groupItems(learned, g.keys).length, 0),
+    [learned],
+  );
+
+  // The 't' key advances one beat per press; the press after the last beat marks
+  // the run complete; once complete it hands off (the primary CTA does the same).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 't') return;
+      e.preventDefault();
+      if (allDone) onDone({});
+      else if (active >= total) setAllDone(true);
+      // Clamped in the updater: rapid presses inside one render batch all see
+      // the same stale `active`, so without the clamp they could overshoot the
+      // beat list.
+      else setActive(a => Math.min(a + 1, total));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [active, allDone, total, onDone]);
+
+  const beatLabel = ACTIVATION_BEATS[active - 1];
 
   return (
-    <StepIn>
-      <Prompt>{`Turning on ${name}`}</Prompt>
-      <PromptSub>Hang tight — I'm getting your workspace ready.</PromptSub>
+    <StepIn $wide>
+      <Prompt>{allDone ? "Here's what I read off your site" : `Turning on ${name}`}</Prompt>
+      <PromptSub>
+        {allDone
+          ? `Looks like ${learned.company.market_position.toLowerCase()} — I've organized it into your workspace. Glance it over, correct anything later.`
+          : "Hang tight — I'm reading your site and getting your workspace ready."}
+      </PromptSub>
 
-      {/* The activation run, one segment per beat: done segments hold full,
-          the working segment fills continuously across its beat, upcoming ones
-          wait empty. The current beat's label shimmers under the bar beside a
-          step counter; on completion the fills settle with one soft pulse
-          before the step fades out. */}
+      {/* One merged status cluster: the source line and the segmented activation
+          bar read as a single unit. While the bar runs the source line carries
+          the current beat ("Turning on scheduling…"), shimmering; on completion
+          it settles to the signal tally. Nothing renders below the bar. */}
       <ProgressWrap role="status" aria-live="polite">
+        <SummaryEyebrow $running={!allDone}>
+          <Link01Icon size={14} />
+          {host}
+          <SummaryEyebrowDot aria-hidden="true">·</SummaryEyebrowDot>
+          {allDone ? (
+            <SummaryEyebrowRead>
+              <CheckCircleIcon size={13} /> read {signalCount} signals
+            </SummaryEyebrowRead>
+          ) : (
+            <SummaryEyebrowReading key={beatLabel}>{`${beatLabel}…`}</SummaryEyebrowReading>
+          )}
+        </SummaryEyebrow>
         <SegmentRow
           role="progressbar"
           aria-valuemin={0}
@@ -878,15 +906,144 @@ function SiteParse({ website, onDone }: { website: string; onDone: (a: IntroAnsw
             );
           })}
         </SegmentRow>
-        <ProgressMeta>
-          <ProgressLabel key={beatLabel} $working={!allDone}>
-            {allDone && <CheckCircleIcon size={14} />}
-            {beatLabel}
-          </ProgressLabel>
-          <ProgressCount>{`${allDone ? total : active} of ${total}`}</ProgressCount>
-        </ProgressMeta>
       </ProgressWrap>
+
+      <LearnedCards learned={learned} loading={!allDone} />
+
+      {/* Read complete → the primary way on ('t' still continues for keyboard),
+          with a quiet restart underneath for replaying the read. */}
+      {allDone && (
+        <>
+          <ActionRow>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => onDone({})}
+              trailingArtwork={<ArrowNarrowRightIcon size={18} />}
+            >
+              Looks good, continue
+            </Button>
+          </ActionRow>
+          <SkipRow>
+            <TextButton
+              type="button"
+              onClick={() => {
+                setActive(1);
+                setAllDone(false);
+              }}
+            >
+              Start over
+            </TextButton>
+          </SkipRow>
+        </>
+      )}
     </StepIn>
+  );
+}
+
+// Roughly how many text lines a category's paragraph wraps to, so its loading
+// placeholder occupies about the same height (≈34 chars/line at the card width).
+function noteLineCount(items: string[]): number {
+  const chars = items.join(' · ').length;
+  return Math.min(6, Math.max(2, Math.round(chars / 34)));
+}
+
+// The read-out itself — a lead card carrying the classification + company facts,
+// then a balanced 3×2 grid of category cards. Each card writes its values as a
+// read-out paragraph (middot-separated, accent-coloured), not tag chips. All from
+// the matched sample dataset (workforceSamples.ts) — nothing is really crawled.
+// Rendered below the activation bar (see SiteParse), so it's visible while the bar
+// runs; until the read completes (`loading`) it shows shimmering line placeholders
+// shaped like the eventual paragraphs, then swaps them for the real text in place.
+function LearnedCards({ learned, loading }: { learned: WorkforceSample; loading?: boolean }) {
+  const { company } = learned;
+  return (
+    <>
+      {/* Lead card — the classification + the facts read from the site. */}
+      <SummaryLead key={loading ? 'lead-loading' : 'lead-ready'}>
+        <SummaryLeadTop>
+          <SummaryLeadMark aria-hidden="true">
+            {loading ? <Skeleton $w="20px" $h="20px" $round /> : <Building05Icon size={20} />}
+          </SummaryLeadMark>
+          <SummaryLeadText>
+            {loading ? (
+              <>
+                <Skeleton $w="240px" $h="1em" />
+                <Skeleton $w="160px" $h="0.85em" />
+              </>
+            ) : (
+              <>
+                <SummaryLeadKind>{learned.workforce_type}</SummaryLeadKind>
+                <SummaryLeadName>{company.name}</SummaryLeadName>
+              </>
+            )}
+          </SummaryLeadText>
+        </SummaryLeadTop>
+        <SummaryFacts>
+          {loading ? (
+            <>
+              <Skeleton $w="110px" $h="0.9em" />
+              <Skeleton $w="150px" $h="0.9em" />
+              <Skeleton $w="170px" $h="0.9em" />
+            </>
+          ) : (
+            <>
+              <SummaryFact>
+                <ClockIcon size={14} />
+                <SummaryFactVal>Founded {company.founded}</SummaryFactVal>
+              </SummaryFact>
+              {company.parent && (
+                <SummaryFact>
+                  <Building02Icon size={14} />
+                  <SummaryFactVal>Part of {company.parent}</SummaryFactVal>
+                </SummaryFact>
+              )}
+              <SummaryFact>
+                <Globe01Icon size={14} />
+                <SummaryFactVal>{company.footprint}</SummaryFactVal>
+              </SummaryFact>
+            </>
+          )}
+        </SummaryFacts>
+      </SummaryLead>
+
+      {/* Category grid — six cards, each a read-out paragraph of its values. */}
+      <SummaryGrid>
+        {SUMMARY_GROUPS.map((group, gi) => {
+          const items = groupItems(learned, group.keys);
+          return (
+            <SummaryCard key={`${group.title}-${loading ? 'loading' : 'ready'}`} style={{ ['--card-i' as string]: gi }}>
+              <SummaryCardHead>
+                {loading ? (
+                  <Skeleton $w="96px" $h="0.75em" />
+                ) : (
+                  <>
+                    <SummaryCardTitle>{group.title}</SummaryCardTitle>
+                    <SummaryCardCount>{items.length}</SummaryCardCount>
+                  </>
+                )}
+              </SummaryCardHead>
+              {loading ? (
+                <SkeletonLines>
+                  {Array.from({ length: noteLineCount(items) }).map((_, i, arr) => (
+                    <Skeleton key={i} $h="0.85em" $w={i === arr.length - 1 ? '55%' : '100%'} />
+                  ))}
+                </SkeletonLines>
+              ) : (
+                <SummaryNote style={{ ['--note-accent' as string]: NOTE_ACCENT[group.color] }}>
+                  {items.map((item, i) => (
+                    <Fragment key={item}>
+                      {i > 0 && <NoteSep aria-hidden="true"> · </NoteSep>}
+                      {item}
+                    </Fragment>
+                  ))}
+                </SummaryNote>
+              )}
+            </SummaryCard>
+          );
+        })}
+      </SummaryGrid>
+    </>
   );
 }
 
@@ -921,7 +1078,7 @@ function WorkforcePick({
   return (
     <StepIn>
       {failedWebsite && <MissNote>No problem — let's set it up together.</MissNote>}
-      <Prompt>What kind of workforce are you running?</Prompt>
+      <Prompt>What workforce do you need help with?</Prompt>
       <PromptSub>Say it in your own words — or grab one of these.</PromptSub>
 
       <PillRow>
@@ -1020,642 +1177,6 @@ function WorkforceQuestionsStep({ onComplete }: { onComplete: (a: IntroAnswers) 
           );
         })}
       </OptionColumn>
-    </StepIn>
-  );
-}
-
-// ── Step 5 — roster intake ────────────────────────────────────────────────────
-// Unlike the schedule uploader, the roster step performs a believable *import*:
-// the file (or a pasted table / photo of a printed roster) lands, Ultron
-// acknowledges it instantly, then narrates what it found — people, recognised
-// columns, the ones it kept anyway — and quarantines the few messy rows into a
-// review list without ever blocking the import. Testers without a roster (or who
-// want a fuller week to explore) can generate sample teammates instead. None of
-// it parses a real file — the counts are the product spec's, scripted — but the
-// sequence is what makes "nothing's lost" land as an outcome, not a claim.
-
-// The scripted import result. These are the spec's numbers verbatim; the demo
-// never reads the file, so the story is the same believable one every time.
-const ROSTER_TOTAL = 84;
-const ROSTER_CLEAN = 81;
-
-// The three rows the import held back for review — each a real-world mess an ops
-// admin recognises. They're kept, not dropped: the import lands the other 81 and
-// leaves these flagged, so the user is never blocked waiting on a cleanup.
-const QUARANTINE_ROWS: { where: string; reason: string }[] = [
-  { where: 'Row 34 · "J. & M. Alvarez"', reason: 'Two people in one row — we split them out for you to confirm.' },
-  { where: 'Row 51 · Dana Whitfield', reason: 'Home location was blank — pick a site when you get a sec.' },
-  { where: 'Row 72 · start date "13/40/24"', reason: "That date didn't read — everything else came in fine." },
-];
-
-// How many sample teammates each path generates. The self-serve path (no roster
-// handy) fills out a fuller operation; the augment offer rounds out a thin one.
-const SAMPLE_COUNT = 48;
-const AUGMENT_COUNT = 40;
-
-// Below this many imported people, a real week is too thin to run — only then do
-// we offer to round it out with sample teammates. A healthy roster never sees it.
-const AUGMENT_THRESHOLD = 12;
-
-// The roster step's internal sequence:
-//   intake   — the drop zone + paste/photo affordances, or "add sample teammates"
-//   reading  — instant acknowledgement the moment a file lands, before results
-//   mapped   — the import result: mapping voiceover, confidence, review list
-//   sampling — generating sample teammates (self-serve or augment)
-//   sampled  — the generated roster preview, clearly marked, removable
-type RosterPhase = 'intake' | 'reading' | 'mapped' | 'sampling' | 'sampled';
-
-function RosterStep({
-  answers,
-  onDone,
-  onProcessingChange,
-}: {
-  answers: IntroAnswers;
-  onDone: (file: { name: string } | null) => void;
-  /** Reports when the step is reading a file / generating in, so the parent's
-   *  identity mark can shift into its `lines` processing form meanwhile. */
-  onProcessingChange?: (processing: boolean) => void;
-}) {
-  const reduced = usePrefersReducedMotion();
-  const [phase, setPhase] = useState<RosterPhase>('intake');
-  const [file, setFile] = useState<{ name: string; type?: string } | null>(null);
-  // Sample teammates, generated once per run and held stable across re-renders.
-  const [samples, setSamples] = useState<SampleWorker[]>([]);
-  // Set when the sample roster augments a real upload (vs. standing in for one),
-  // so the sampled screen can say "alongside your 84" rather than start fresh.
-  const [augmented, setAugmented] = useState(false);
-  // The quarantined rows collapse by default — the count + alert toggle carries
-  // the signal, and the detail expands only when the admin wants to look.
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const busy = useRef(false);
-
-  // The signal we derive sample workers from: what they typed for their
-  // workforce, falling back to the company name parsed from their website.
-  const sampleSignal =
-    answers.workforceType?.trim() ||
-    (answers.companyWebsite ? companyFromUrl(answers.companyWebsite).name : '') ||
-    '';
-
-  // Report the working phases (reading a file, generating a crew) up to the
-  // parent so the identity mark runs its `lines` form until the result shows.
-  useEffect(() => {
-    onProcessingChange?.(phase === 'reading' || phase === 'sampling');
-  }, [phase, onProcessingChange]);
-  useEffect(() => () => onProcessingChange?.(false), [onProcessingChange]);
-
-  // A file (or pasted table / photo) landed → acknowledge instantly, then run the
-  // read. The acknowledgement shows first so there's no beat where the tester
-  // wonders whether it worked.
-  const receiveFile = useCallback(
-    (f: { name: string; type?: string }) => {
-      if (busy.current) return;
-      busy.current = true;
-      setFile(f);
-      setPhase('reading');
-      window.setTimeout(() => {
-        setPhase('mapped');
-        busy.current = false; // the mapped screen has its own explicit CTAs
-      }, reduced ? 300 : 1300);
-    },
-    [reduced],
-  );
-
-  // Paste-from-clipboard — real ops behaviour is copying a block of cells out of
-  // a spreadsheet. A pasted file wins; otherwise any non-trivial pasted text is
-  // treated as a roster table. Only listens while we're still at intake.
-  useEffect(() => {
-    if (phase !== 'intake') return;
-    const onPaste = (e: ClipboardEvent) => {
-      const dropped = e.clipboardData?.files?.[0];
-      if (dropped) {
-        e.preventDefault();
-        receiveFile({ name: dropped.name, type: dropped.type });
-        return;
-      }
-      const text = e.clipboardData?.getData('text') ?? '';
-      if (text.trim().length > 12) {
-        e.preventDefault();
-        receiveFile({ name: 'Pasted roster', type: 'text/plain' });
-      }
-    };
-    window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
-  }, [phase, receiveFile]);
-
-  // Generate sample teammates — either standing in for a roster (self-serve) or
-  // rounding out one that just came in (augment).
-  const runSample = (count: number, asAugment: boolean) => {
-    if (busy.current) return;
-    busy.current = true;
-    setAugmented(asAugment);
-    setPhase('sampling');
-    setSamples(generateSampleTeammates(sampleSignal, count));
-    window.setTimeout(() => {
-      setPhase('sampled');
-      busy.current = false;
-    }, reduced ? 300 : 1200);
-  };
-
-  // ── intake ────────────────────────────────────────────────────────────────
-  if (phase === 'intake') {
-    return (
-      <StepIn>
-        <Prompt>Upload your roster</Prompt>
-        <PromptSub>Drop in your team roster and I'll bring your people in for you.</PromptSub>
-
-        <UploadWrap>
-          <FileUploader
-            variant="area"
-            // Photos of a printed roster are fair game, so images join the
-            // spreadsheet / document types the picker accepts.
-            accept=".csv,.xlsx,.xls,.pdf,image/*"
-            state="empty"
-            title="Choose your roster or drag & drop it here."
-            description="Spreadsheet, PDF, or a photo of a printed one."
-            onFileSelect={f => receiveFile({ name: f.name, type: f.type })}
-          />
-        </UploadWrap>
-
-        <IntakeActions>
-          <SampleOffer type="button" onClick={() => runSample(SAMPLE_COUNT, false)}>
-            No roster handy? Start with sample teammates
-          </SampleOffer>
-          <TextButton type="button" onClick={() => onDone(null)}>
-            Skip for now
-          </TextButton>
-        </IntakeActions>
-      </StepIn>
-    );
-  }
-
-  // ── reading — instant acknowledgement ───────────────────────────────────────
-  if (phase === 'reading') {
-    return (
-      <StepIn>
-        <Prompt>Got the file</Prompt>
-        <PromptSub>Reading {file?.name ?? 'your roster'} — one sec.</PromptSub>
-        <ReadingRow role="status" aria-live="polite">
-          <Spinner aria-hidden="true" />
-          <ProgressLabel $working>Bringing your people in</ProgressLabel>
-        </ReadingRow>
-      </StepIn>
-    );
-  }
-
-  // ── mapped — the import result ──────────────────────────────────────────────
-  if (phase === 'mapped') {
-    // A preview of the people who imported clean — the real Meridian roster faces
-    // (the aggregate count stays the demo's narrative total). DEMO ONLY.
-    const importedPreview = MERIDIAN_ROSTER.slice(0, 6);
-    const importedMore = ROSTER_CLEAN - importedPreview.length;
-    return (
-      <StepIn>
-        <Prompt>Here's what came in</Prompt>
-        {/* The mapping moment, voiced as handling — the recognised columns, and
-            the ones we didn't recognise but kept anyway. "Nothing's lost" is the
-            composability proof, stated as an outcome. */}
-        <PromptSub>
-          Got it — {ROSTER_TOTAL} people, licenses, home locations. 3 columns we didn't
-          recognize; we kept them so nothing's lost.
-        </PromptSub>
-
-        <ResultCard $padTop>
-          <CleanStat>
-            <CleanNumber>
-              {ROSTER_CLEAN} <CleanOf>/{ROSTER_TOTAL}</CleanOf>
-            </CleanNumber>
-            <CleanLabel>
-              <CheckCircleIcon size={16} /> imported clean
-            </CleanLabel>
-          </CleanStat>
-
-          {/* The people who imported clean — same row style as the sample crew,
-              minus the "Sample" tag (these are the admin's real teammates). */}
-          <SampleList aria-label="Imported teammates">
-            {importedPreview.map((w, i) => (
-              <SampleRowEl key={w.name} $i={i}>
-                <SampleAvatar aria-hidden="true">{initials(w.name)}</SampleAvatar>
-                <SampleWho>
-                  <SampleName>{w.name}</SampleName>
-                  <SampleMeta>{w.role} · {w.location} · {w.tenure}</SampleMeta>
-                </SampleWho>
-                {w.credentialStatus === 'expiring' ? (
-                  <Tag size="sm" variant="subtle" color="yellow" dot>
-                    {w.credential} · {w.expiresInDays}d
-                  </Tag>
-                ) : (
-                  <Tag size="sm" variant="subtle" color="green">{w.credential}</Tag>
-                )}
-              </SampleRowEl>
-            ))}
-            <SampleMore>+ {importedMore} more imported clean</SampleMore>
-          </SampleList>
-
-          {/* The messy rows quarantine at the bottom of the card — flagged for
-              review, never blocking the import. Collapsed by default: the count +
-              a trailing alert toggle carry the signal; detail expands on click. */}
-          <ReviewList>
-            <ReviewToggle
-              type="button"
-              aria-expanded={reviewOpen}
-              aria-controls="roster-review-rows"
-              onClick={() => setReviewOpen(o => !o)}
-            >
-              <ReviewHead>{QUARANTINE_ROWS.length} rows kept for review</ReviewHead>
-              <ReviewTrail>
-                <ReviewAlert aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewAlert>
-                <ReviewChevron $open={reviewOpen} aria-hidden="true">
-                  <ChevronDownIcon size={16} />
-                </ReviewChevron>
-              </ReviewTrail>
-            </ReviewToggle>
-            {reviewOpen && (
-              <ReviewRows id="roster-review-rows" aria-label="Rows held for review">
-                {QUARANTINE_ROWS.map(row => (
-                  <ReviewRow key={row.where}>
-                    <ReviewRowIcon aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewRowIcon>
-                    <ReviewText>
-                      <ReviewWhere>{row.where}</ReviewWhere>
-                      <ReviewReason>{row.reason}</ReviewReason>
-                    </ReviewText>
-                  </ReviewRow>
-                ))}
-              </ReviewRows>
-            )}
-          </ReviewList>
-        </ResultCard>
-
-        <ActionRow>
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={() => onDone({ name: file?.name ?? 'your roster' })}
-            trailingArtwork={<ArrowNarrowRightIcon size={18} />}
-          >
-            Bring in {ROSTER_CLEAN} people
-          </Button>
-        </ActionRow>
-
-        {/* Augment offer — only for thin rosters (under a dozen people), where a
-            real week won't have enough to run. A healthy import doesn't need it,
-            so it stays hidden. Rounds out the week with clearly-marked samples. */}
-        {ROSTER_CLEAN < AUGMENT_THRESHOLD && (
-          <SampleOffer type="button" onClick={() => runSample(AUGMENT_COUNT, true)}>
-            <PlusCircleIcon size={16} />
-            Add {AUGMENT_COUNT} sample teammates to see a full week run
-          </SampleOffer>
-        )}
-      </StepIn>
-    );
-  }
-
-  // ── sampling — generating ────────────────────────────────────────────────────
-  if (phase === 'sampling') {
-    return (
-      <StepIn>
-        <Prompt>Building a sample crew</Prompt>
-        <PromptSub>Spinning up teammates that look like your operation.</PromptSub>
-        <ReadingRow role="status" aria-live="polite">
-          <Spinner aria-hidden="true" />
-          <ProgressLabel $working>Generating sample teammates</ProgressLabel>
-        </ReadingRow>
-      </StepIn>
-    );
-  }
-
-  // ── sampled — the generated roster preview ──────────────────────────────────
-  // The visible faces are the real Meridian roster; the count stays the generated
-  // narrative total (a full week's worth), so "+N more" reads as a full crew.
-  const preview = MERIDIAN_ROSTER.slice(0, 6);
-  const sampleLabel = `${samples.length} sample teammates`;
-  return (
-    <StepIn>
-      <Prompt>{augmented ? 'Rounded out your week' : 'Your sample crew is ready'}</Prompt>
-      <PromptSub>
-        {augmented
-          ? `Added ${samples.length} sample teammates alongside your ${ROSTER_CLEAN} — clearly marked, one tap to remove.`
-          : `${samples.length} teammates, ready to run a full week — clearly marked, one tap to remove.`}
-      </PromptSub>
-
-      <ResultCard>
-        <SampleList aria-label="Sample teammates">
-          {preview.map((w, i) => (
-            <SampleRowEl key={w.name} $i={i}>
-              <SampleAvatar aria-hidden="true">{initials(w.name)}</SampleAvatar>
-              <SampleWho>
-                <SampleName>{w.name}</SampleName>
-                <SampleMeta>{w.role} · {w.location} · {w.tenure}</SampleMeta>
-              </SampleWho>
-              {w.credentialStatus === 'expiring' ? (
-                <Tag size="sm" variant="subtle" color="yellow" dot>
-                  {w.credential} · {w.expiresInDays}d
-                </Tag>
-              ) : (
-                <Tag size="sm" variant="subtle" color="green">{w.credential}</Tag>
-              )}
-              <Tag size="sm" variant="outline" color="purple">Sample</Tag>
-            </SampleRowEl>
-          ))}
-          <SampleMore>+ {samples.length - preview.length} more · every one tagged “Sample”</SampleMore>
-        </SampleList>
-      </ResultCard>
-
-      <ActionRow>
-        <Button
-          variant="primary"
-          size="lg"
-          onClick={() => onDone({ name: sampleLabel })}
-          trailingArtwork={<ArrowNarrowRightIcon size={18} />}
-        >
-          Bring them in
-        </Button>
-      </ActionRow>
-      {!augmented && (
-        <SkipRow>
-          <TextButton type="button" onClick={() => onDone(null)}>
-            Skip for now
-          </TextButton>
-        </SkipRow>
-      )}
-    </StepIn>
-  );
-}
-
-// Two-letter initials for the sample avatar tiles.
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase();
-}
-
-// ── Step 6 — schedule intake ──────────────────────────────────────────────────
-// Two ways in, one destination. Upload a real schedule (any format) and it gets
-// the roster step's mapping treatment — read, voiced, nothing lost. Or answer one
-// structured question — "what's the shape of your week?" — with vertical-aware
-// pattern chips, and we build a realistic week instead. Either way the tester
-// lands on the same thing: a week seeded with the problems Ultron is about to
-// handle (one callout, one credential expiring inside two weeks, two missing
-// punches), so the very next screen has real work waiting. All scripted — nothing
-// parses a real file — but it's the setup that makes the app's first act land.
-
-// The scripted shape of a built week — plausible for any shift operation.
-const WEEK_DAYS = 7;
-const WEEK_SHIFTS = 24;
-
-// The schedule step's sequence mirrors the roster step:
-//   intake   — the drop zone, plus the "shape of your week" question + chips
-//   reading  — instant acknowledgement while a real upload is mapped
-//   building — generating a week from the described shape
-//   built    — the week preview: what came in, and the problems waiting in it
-type SchedulePhase = 'intake' | 'reading' | 'building' | 'built';
-
-function ScheduleStep({
-  answers,
-  onDone,
-  onProcessingChange,
-}: {
-  answers: IntroAnswers;
-  onDone: (file: { name: string } | null) => void;
-  /** Reports when the step is reading a file / building in, so the parent's
-   *  identity mark can shift into its `lines` processing form meanwhile. */
-  onProcessingChange?: (processing: boolean) => void;
-}) {
-  const reduced = usePrefersReducedMotion();
-  const [phase, setPhase] = useState<SchedulePhase>('intake');
-  const [file, setFile] = useState<{ name: string } | null>(null);
-  // The described shape (chip or typed), when the build path is taken.
-  const [shape, setShape] = useState<string>('');
-  const [draft, setDraft] = useState('');
-  // The planted problems, generated once and held stable across re-renders.
-  const [problems, setProblems] = useState<WeekProblem[]>([]);
-  // The week of shifts shown in the calendar view.
-  const [week, setWeek] = useState<WeekDay[]>([]);
-  // The "waiting in your week" card collapses by default — the count carries it.
-  const [waitingOpen, setWaitingOpen] = useState(false);
-  const busy = useRef(false);
-
-  const signal =
-    answers.workforceType?.trim() ||
-    (answers.companyWebsite ? companyFromUrl(answers.companyWebsite).name : '') ||
-    '';
-  const shapes = scheduleShapesFor(signal);
-
-  // Report the working phases (reading a file, building the week) up to the
-  // parent so the identity mark runs its `lines` form until the result shows.
-  useEffect(() => {
-    onProcessingChange?.(phase === 'reading' || phase === 'building');
-  }, [phase, onProcessingChange]);
-  useEffect(() => () => onProcessingChange?.(false), [onProcessingChange]);
-
-  // A real schedule landed → acknowledge, map it, then land on the built week.
-  const receiveFile = useCallback(
-    (f: { name: string }) => {
-      if (busy.current) return;
-      busy.current = true;
-      setFile(f);
-      setProblems(planWeekProblems(signal));
-      setWeek(generateWeekShifts(signal));
-      setPhase('reading');
-      window.setTimeout(() => {
-        setPhase('built');
-        busy.current = false;
-      }, reduced ? 300 : 1300);
-    },
-    [reduced, signal],
-  );
-
-  // A described shape (chip tap or typed answer) → build a week around it.
-  const buildFromShape = (value: string) => {
-    const v = value.trim();
-    if (!v || busy.current) return;
-    busy.current = true;
-    setShape(v);
-    setProblems(planWeekProblems(signal));
-    setWeek(generateWeekShifts(signal));
-    setPhase('building');
-    window.setTimeout(() => {
-      setPhase('built');
-      busy.current = false;
-    }, reduced ? 300 : 1200);
-  };
-
-  // Paste-a-schedule, same as the roster step — a block of cells or a file.
-  useEffect(() => {
-    if (phase !== 'intake') return;
-    const onPaste = (e: ClipboardEvent) => {
-      const dropped = e.clipboardData?.files?.[0];
-      if (dropped) {
-        e.preventDefault();
-        receiveFile({ name: dropped.name });
-        return;
-      }
-      const text = e.clipboardData?.getData('text') ?? '';
-      if (text.trim().length > 12) {
-        e.preventDefault();
-        receiveFile({ name: 'Pasted schedule' });
-      }
-    };
-    window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
-  }, [phase, receiveFile]);
-
-  // ── intake ──────────────────────────────────────────────────────────────────
-  if (phase === 'intake') {
-    return (
-      <StepIn>
-        <Prompt>Upload your schedule</Prompt>
-        <PromptSub>Drop in your current schedule — any format — and I'll turn it into shifts.</PromptSub>
-
-        <UploadWrap>
-          <FileUploader
-            variant="area"
-            accept=".csv,.xlsx,.xls,.pdf,image/*"
-            state="empty"
-            title="Choose your schedule or drag & drop it here."
-            description="Spreadsheet, PDF, or a photo of a printed one."
-            onFileSelect={f => receiveFile({ name: f.name })}
-          />
-        </UploadWrap>
-
-        {/* The described path — one structured question, not a form. Tap a chip
-            or type the shape, and we build a realistic week around it. */}
-        <ShapeSection>
-          <ShapeAsk>Or tell me the shape of your week and I'll build one:</ShapeAsk>
-          <ShapeChipRow>
-            {shapes.map(s => (
-              <ShapeChip key={s} type="button" onClick={() => buildFromShape(s)}>
-                {s}
-              </ShapeChip>
-            ))}
-          </ShapeChipRow>
-          <ShapeForm
-            onSubmit={(e: FormEvent) => { e.preventDefault(); buildFromShape(draft); }}
-          >
-            <ShapeField
-              value={draft}
-              placeholder="e.g. 12-hour shifts, around the clock"
-              aria-label="Describe the shape of your week"
-              onChange={e => setDraft(e.target.value)}
-            />
-            <BuildButton variant="secondary" size="md" type="submit" disabled={!draft.trim()}>
-              Build week
-            </BuildButton>
-          </ShapeForm>
-        </ShapeSection>
-
-        <SkipRow>
-          <TextButton type="button" onClick={() => onDone(null)}>
-            Skip for now
-          </TextButton>
-        </SkipRow>
-      </StepIn>
-    );
-  }
-
-  // ── reading / building ───────────────────────────────────────────────────────
-  if (phase === 'reading' || phase === 'building') {
-    const isUpload = phase === 'reading';
-    return (
-      <StepIn>
-        <Prompt>{isUpload ? 'Got the file' : 'Building your week'}</Prompt>
-        <PromptSub>
-          {isUpload
-            ? `Reading ${file?.name ?? 'your schedule'} — turning it into shifts.`
-            : `Laying out a realistic week — ${shape.toLowerCase()}.`}
-        </PromptSub>
-        <ReadingRow role="status" aria-live="polite">
-          <Spinner aria-hidden="true" />
-          <ProgressLabel $working>{isUpload ? 'Turning it into shifts' : 'Building the week'}</ProgressLabel>
-        </ReadingRow>
-      </StepIn>
-    );
-  }
-
-  // ── built — the week (calendar) + the problems waiting in it ─────────────────
-  const built = Boolean(file);
-  return (
-    // Wider step so the seven-day calendar has room to lay out its columns.
-    <StepIn $wide>
-      <Prompt>Your week is ready</Prompt>
-      {/* Upload path gets the roster step's mapping voice; the described path
-          says what it built. Both land on the same week + the same problems. */}
-      <PromptSub>
-        {built
-          ? `Read ${file?.name} — turned it into next week's shifts. A few columns I didn't recognize, kept so nothing's lost.`
-          : `Built a realistic week — ${shape.toLowerCase()}. Here's what it looks like.`}
-      </PromptSub>
-
-      {/* The planted problems lead — their own card, collapsed by default; the
-          count + alert toggle carry the signal, the detail expands on tap. Sits
-          above the calendar so the work Ultron's about to take on comes first. */}
-      <WaitingCard>
-        <ReviewToggle
-          type="button"
-          aria-expanded={waitingOpen}
-          aria-controls="schedule-waiting-rows"
-          onClick={() => setWaitingOpen(o => !o)}
-        >
-          <ReviewHead>{problems.length} things waiting in your week</ReviewHead>
-          <ReviewTrail>
-            <ReviewAlert aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewAlert>
-            <ReviewChevron $open={waitingOpen} aria-hidden="true">
-              <ChevronDownIcon size={16} />
-            </ReviewChevron>
-          </ReviewTrail>
-        </ReviewToggle>
-        {waitingOpen && (
-          <ProblemList id="schedule-waiting-rows" aria-label="Waiting in your week">
-            {problems.map((p, i) => (
-              <ProblemRow key={`${p.worker}-${i}`}>
-                <ProblemIcon $kind={p.kind} aria-hidden="true">
-                  {p.kind === 'missing' ? <ClockIcon size={15} /> : <AlertTriangleIcon size={15} />}
-                </ProblemIcon>
-                <ProblemText>
-                  <ProblemWho>{p.worker} · {p.role}</ProblemWho>
-                  <ProblemDetail>{p.detail}</ProblemDetail>
-                </ProblemText>
-              </ProblemRow>
-            ))}
-          </ProblemList>
-        )}
-      </WaitingCard>
-
-      {/* The week itself — a calendar of shifts across the seven days. */}
-      <CalendarCard>
-        <WeekStat>
-          <WeekStatItem><WeekStatNum>{WEEK_DAYS}</WeekStatNum> days</WeekStatItem>
-          <WeekStatDot aria-hidden="true">·</WeekStatDot>
-          <WeekStatItem><WeekStatNum>{WEEK_SHIFTS}</WeekStatNum> shifts</WeekStatItem>
-          <WeekStatDot aria-hidden="true">·</WeekStatDot>
-          <WeekStatItem><WeekStatNum>{problems.length}</WeekStatNum> to handle</WeekStatItem>
-        </WeekStat>
-        <CalScroll>
-          <CalGrid role="table" aria-label="Next week's shifts">
-            {week.map(day => (
-              <CalDay key={day.label} role="column">
-                <CalDayHead>{day.label}</CalDayHead>
-                {day.shifts.map((s, i) => (
-                  <ShiftChip key={`${day.label}-${i}`} $flag={s.flag}>
-                    <ShiftTime>{s.time}</ShiftTime>
-                    <ShiftWho>{s.who}</ShiftWho>
-                  </ShiftChip>
-                ))}
-              </CalDay>
-            ))}
-          </CalGrid>
-        </CalScroll>
-      </CalendarCard>
-
-      <ActionRow>
-        <Button
-          variant="primary"
-          size="lg"
-          onClick={() => onDone({ name: file?.name ?? `${shape} week` })}
-        >
-          Take me in
-        </Button>
-      </ActionRow>
     </StepIn>
   );
 }
@@ -1919,6 +1440,29 @@ const LandingPanels = styled.div`
   width: 100%;
 `;
 
+/* Hairline between the two halves — pinned on the centre line the fixed panels
+   meet at, fading out toward both ends so it sits softly on the ambient
+   backdrop. Wide screens only; the narrow stacked layout has no split to mark. */
+const CenterDivider = styled.div`
+  display: none;
+
+  @media (min-width: 801px) {
+    display: block;
+    position: fixed;
+    top: var(--space-12);
+    bottom: var(--space-12);
+    left: 50vw;
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      var(--color-border-opaque) 18%,
+      var(--color-border-opaque) 82%,
+      transparent 100%
+    );
+  }
+`;
+
 /* Left panel — mirrors ProofPanel's box: full height over the left half on wide
    screens, margins aligned with the Teambridge logo (space-5 top / left /
    bottom). Content is centered horizontally and vertically. Drops back into the
@@ -2045,28 +1589,6 @@ const GetStartedButton = styled(Button)`
   }
 `;
 
-/* The account step's sign-in block — the landing's sign-up column, re-centered
-   under the step prompt with a little air above it. */
-const AuthBlock = styled(SignUp)`
-  margin-top: var(--space-2);
-`;
-
-const EmailForm = styled.form`
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-`;
-
-const EmailFieldWrap = styled.div`
-  flex: 1;
-  min-width: 0;
-  /* Flex so the Alloy Tooltip's inline-flex wrapper stretches to fill, keeping
-     the email field full-width beside the submit button. */
-  display: flex;
-  & > * { flex: 1; min-width: 0; }
-`;
-
 /* Liquid-glass email field — the glass tint sits on the Alloy field's shell
    (the element that owns the border and radius) and the inner input goes
    transparent so it reads as one frosted control. Styling the root instead
@@ -2078,17 +1600,6 @@ const GlassEmailField = styled(EmailField)`
   }
   && input {
     background: transparent;
-  }
-`;
-
-/* Square, icon-only submit — pinned to the 40px (space-10) email-field height so
-   the field + button read as one paired control. `&&` beats Button's own
-   iconOnly size rule (36px at md). */
-const SubmitButton = styled(Button)`
-  && {
-    flex-shrink: 0;
-    width: var(--space-10);
-    height: var(--space-10);
   }
 `;
 
@@ -2113,16 +1624,9 @@ const ProofPanel = styled.div`
   justify-content: center;
   align-items: center;
 
-  /* Frosted-glass wrapper: a translucent tint of the surface (theme-aware via
-     color-mix on the semantic token) plus a backdrop blur, so the ambient
-     particles show through softly. */
+  /* No surface — the proof content sits directly on the ambient particle
+     backdrop; only the padding holds its measure. */
   padding: var(--space-10);
-  background: color-mix(in srgb, var(--color-bg-primary) 72%, transparent);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--color-border-transparent);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-below-md);
   animation: ${subFadeIn} var(--duration-slow) var(--ease-out) both;
 
   /* Wide: full-height panel filling the right half. Logo-aligned outer margin
@@ -2159,12 +1663,17 @@ const ProofPanel = styled.div`
 const ProofInner = styled.div`
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-8);
   width: 100%;
+  /* Match the left column's content measure (LeftInner) so the two halves read
+     as the same-width column, just mirrored across the centre line. */
+  max-width: 400px;
 
+  /* Wide: cluster the three blocks together and center them vertically in the
+     panel, rather than spreading them to the top/middle/bottom edges. */
   @media (min-width: 801px) {
     flex: 1;
-    justify-content: space-between;
+    justify-content: center;
   }
 `;
 
@@ -2229,14 +1738,12 @@ const StatCaption = styled.span`
   color: var(--color-content-secondary);
 `;
 
-/* Customer wordmarks — muted text stand-ins for logos (no real trademarks), set
-   apart as a quiet footer under the quote by a single hairline. */
+/* Customer wordmarks — a quiet footer beneath the quote. */
 const LogoFooter = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border-opaque);
 `;
 
 const ProofLabel = styled.span`
@@ -2331,10 +1838,16 @@ const quotePop = keyframes`
 `;
 
 const Quote = styled.figure`
+  ${liquidGlass}
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   margin: 0;
+  /* Card treatment — a subtle glass surface with a 20px inset (var(--space-5)),
+     borderless (the fill alone carries the card). */
+  padding: var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
   /* Room for the tallest card (four relaxed text-md lines plus the byline) —
      raw px deliberately, so rotating cards of different lengths never reflow
      the spread panel around them. */
@@ -2355,9 +1868,27 @@ const QuoteText = styled.blockquote`
 `;
 
 const QuoteBy = styled.figcaption`
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  padding-top: var(--space-3);
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--color-border-opaque) 18%,
+      var(--color-border-opaque) 82%,
+      transparent
+    );
+  }
 `;
 
 const QuoteMeta = styled.span`
@@ -2567,10 +2098,21 @@ const shimmer = keyframes`
   to   { background-position: -200% 0; }
 `;
 
-/* The working segment's fill draws across its beat, left to right. */
-const segGrow = keyframes`
-  from { width: 0; }
-  to   { width: 100%; }
+/* Skeleton sweep — one soft highlight passing per cycle, seamless (the position
+   shifts by exactly one background tile, so the loop never blinks). */
+const skeletonSweep = keyframes`
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
+`;
+
+/* The working segment's fill draws in left→right, holds full for a beat, then
+   redraws — looping for as long as the segment is working, so the bar reads as
+   actively drawing rather than sitting complete. The draw takes ~the first
+   two-thirds of the cycle (≈BEAT_MS); the tail is the hold. */
+const segDrawLoop = keyframes`
+  0%   { transform: scaleX(0); }
+  68%  { transform: scaleX(1); }
+  100% { transform: scaleX(1); }
 `;
 
 /* Completion settle — every fill breathes once as the run lands. */
@@ -2580,11 +2122,6 @@ const segSettle = keyframes`
   100% { opacity: 1; }
 `;
 
-/* Each new beat label rises in under the bar. */
-const labelIn = keyframes`
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
 
 const ProgressWrap = styled.div`
   display: flex;
@@ -2632,71 +2169,259 @@ const SegmentFill = styled.div<{ $working?: boolean }>`
   background: var(--color-content-primary);
 
   ${p => p.$working && css`
-    animation: ${segGrow} ${BEAT_MS}ms ${SMOOTH_EASE} both;
+    /* The working fill draws in from the LEFT edge (scaleX, origin left) on a
+       loop — draw, hold, redraw — so the bar stays visibly in motion while it
+       waits for the next beat, reading as ongoing work rather than a stall. */
+    transform-origin: left center;
+    animation: ${segDrawLoop} ${BEAT_MS + 380}ms ${SMOOTH_EASE} infinite;
   `}
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
+    background: var(--color-content-primary);
   }
 `;
 
-/* Label + step counter, sharing the bar's width. */
-const ProgressMeta = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  width: 100%;
-`;
 
-const ProgressCount = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-`;
+/* ── Processed site read-out (SiteParse / LearnedCards) ───────────────────────
+   The read-out of what Ultron pulled off the pasted domain, laid out below the
+   activation bar: a source eyebrow, a lead classification card, and a responsive
+   grid of category cards. */
 
-const ProgressLabel = styled.span<{ $working?: boolean }>`
+/* Source line above the read-out — the domain + a "reading…" / signal tally. */
+const SummaryEyebrow = styled.div<{ $running?: boolean }>`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-content-secondary);
-  animation: ${labelIn} var(--duration-base) ${SMOOTH_EASE} both;
+  /* While the read is still running the line reads lighter (tertiary); once it
+     completes it firms up to secondary alongside the "read N signals" tally. */
+  color: ${p => (p.$running ? 'var(--color-content-tertiary)' : 'var(--color-content-secondary)')};
 
-  /* The settled state's check reads as the finish line. */
-  svg {
-    flex-shrink: 0;
-    color: var(--color-success-content);
-  }
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
+`;
 
-  ${p => p.$working && css`
-    /* Working shimmer — a light band sweeping through the muted label. Both
-       gradient stops are semantic tokens, so light and dark themes track. */
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--color-content-tertiary) 0%,
-      var(--color-content-primary) 50%,
-      var(--color-content-tertiary) 100%
-    );
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    animation: ${labelIn} var(--duration-base) ${SMOOTH_EASE} both,
-      ${shimmer} 1.6s linear infinite;
-  `}
+const SummaryEyebrowDot = styled.span`
+  color: var(--color-content-tertiary);
+`;
+
+const SummaryEyebrowRead = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-success-content);
+
+  svg { color: var(--color-success-content); }
+`;
+
+/* Pre-completion state — the current beat, shimmering while the bar runs. Kept
+   light: a disabled-tone base with only a secondary-tone band sweeping through. */
+const SummaryEyebrowReading = styled.span`
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--color-content-disabled) 0%,
+    var(--color-content-secondary) 50%,
+    var(--color-content-disabled) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: ${shimmer} 1.6s linear infinite;
 
   @media (prefers-reduced-motion: reduce) {
+    color: var(--color-content-tertiary);
+    background: none;
     animation: none;
-    ${p => p.$working && css`
-      color: var(--color-content-secondary);
-      background: none;
-    `}
   }
+`;
+
+/* Loading placeholder — a shimmering block sized to the content it stands in for,
+   so the read-out swaps skeletons for real text with minimal shift. */
+const Skeleton = styled.span<{ $w?: string; $h?: string; $round?: boolean }>`
+  display: inline-block;
+  flex-shrink: 0;
+  width: ${p => p.$w ?? '100%'};
+  height: ${p => p.$h ?? '0.9em'};
+  border-radius: ${p => (p.$round ? 'var(--radius-full)' : 'var(--radius-sm)')};
+  /* Wide, soft highlight so the sweep reads as a smooth sheen rather than a
+     hard band; paired with skeletonSweep it moves at a constant speed and loops
+     seamlessly (no blink). */
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 0%,
+    var(--color-bg-tertiary) 30%,
+    var(--color-border-opaque) 50%,
+    var(--color-bg-tertiary) 70%,
+    var(--color-bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: ${skeletonSweep} 1.6s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    background: var(--color-bg-tertiary);
+    animation: none;
+  }
+`;
+
+/* Stacked line placeholders standing in for a category's read-out paragraph. */
+const SkeletonLines = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+`;
+
+/* Lead card — the classification + the facts read from the site. */
+const SummaryLead = styled.div`
+  /* Same glass surface as the category cards below, so the whole read-out sits
+     at one opacity. */
+  ${liquidGlass}
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  width: 100%;
+  max-width: 900px;
+  margin-top: var(--space-3);
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+const SummaryLeadTop = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+`;
+
+const SummaryLeadMark = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-10);
+  height: var(--space-10);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-content-primary);
+`;
+
+const SummaryLeadText = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+`;
+
+const SummaryLeadKind = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+`;
+
+const SummaryLeadName = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-tertiary);
+`;
+
+/* Facts row — founded / parent / footprint, read from the site. */
+const SummaryFacts = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-opaque);
+`;
+
+const SummaryFact = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-secondary);
+
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
+`;
+
+const SummaryFactVal = styled.span`
+  color: var(--color-content-primary);
+`;
+
+/* Category grid — auto-fills columns; each card holds a titled chip cluster. */
+const SummaryGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 900px;
+  /* Pulls back against the StepIn flex gap so the lead→grid spacing lands on
+     exactly the grid's own card gap (space-3) — one even rhythm down the set. */
+  margin-top: calc(var(--space-3) - var(--space-4));
+  text-align: left;
+`;
+
+/* Each card pops in on a per-card delay so the grid cascades in one after
+   another, top to bottom. Offset by one so the lead card (delay 0) leads, then
+   the grid follows in index order. Re-runs on the loading→content swap because
+   the cards are remounted (keyed on loading) at that point. */
+const SummaryCard = styled.div`
+  ${liquidGlass}
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+  animation-delay: calc((var(--card-i, 0) + 1) * 70ms);
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+const SummaryCardHead = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+`;
+
+const SummaryCardTitle = styled.span`
+  flex: 1;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-content-tertiary);
+`;
+
+const SummaryCardCount = styled.span`
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-content-tertiary);
+  font-variant-numeric: tabular-nums;
+`;
+
+/* The read-out paragraph — the category's values as flowing text rather than
+   chips, the middot separators tinted with the category accent (--note-accent). */
+const SummaryNote = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-content-secondary);
+`;
+
+const NoteSep = styled.span`
+  color: var(--note-accent, var(--color-content-tertiary));
+  font-weight: var(--font-weight-bold);
 `;
 
 /* No-website path note (shown only when a pasted entry didn't look like a site). */
@@ -2709,73 +2434,6 @@ const MissNote = styled.p`
   max-width: 480px;
 `;
 
-/* ── Steps 5 & 6 — uploads ───────────────────────────────────────────────────
-   Frames the Alloy FileUploader drop zone to the centered column width. */
-/* The drop area wears the shared liquid-glass surface (tint + blur + edge
-   highlight) in place of Alloy's opaque fill. `border-style: dashed` is
-   restated after the glass mixin (which sets a solid border) so the area keeps
-   reading as a drop zone. Scoped to :not([data-drag-over]) so Alloy's
-   drag-over feedback (secondary fill + focus border) still wins mid-drag. */
-const UploadWrap = styled.div`
-  width: 100%;
-  max-width: 520px;
-  margin-top: var(--space-2);
-  text-align: left;
-
-  & [class*='area']:not([data-drag-over]) {
-    ${liquidGlass}
-    border-style: dashed;
-  }
-`;
-
-/* ── Step 5 — roster intake ──────────────────────────────────────────────────
-   The intake affordances, the read spinner, and the import-result / sample
-   cards. All tokenised; the result card wears the shared liquid-glass surface. */
-
-/* Centered action column for the intake step (sample offer over the skip out). */
-const IntakeActions = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-`;
-
-/* The "add sample teammates" affordance — a glass pill, used both as the
-   no-roster entry and as the post-import augment offer. */
-const SampleOffer = styled.button`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  ${liquidGlass}
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-content-secondary);
-  transition: color var(--duration-fast) var(--ease-default),
-    transform var(--duration-fast) var(--ease-default);
-
-  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
-
-  &:hover {
-    color: var(--color-content-primary);
-    transform: translateY(-1px);
-  }
-  &:hover svg { color: var(--color-content-primary); }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 2px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: color var(--duration-fast) var(--ease-default);
-    &:hover { transform: none; }
-  }
-`;
 
 /* Primary CTA row + quiet skip row for the result screens. */
 const ActionRow = styled.div`
@@ -2784,574 +2442,6 @@ const ActionRow = styled.div`
 
 const SkipRow = styled.div`
   margin-top: var(--space-3);
-`;
-
-/* Read / generate spinner — a spinning ring beside the working label. */
-const spin = keyframes`
-  to { transform: rotate(360deg); }
-`;
-
-const ReadingRow = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-5);
-`;
-
-const Spinner = styled.span`
-  width: var(--space-4);
-  height: var(--space-4);
-  border-radius: var(--radius-full);
-  border: 2px solid var(--color-border-opaque);
-  border-top-color: var(--color-content-primary);
-  animation: ${spin} 720ms linear infinite;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation-duration: 1600ms;
-  }
-`;
-
-/* The import-result / sample surface — the shared liquid-glass card. */
-const ResultCard = styled.div<{ $padTop?: boolean }>`
-  ${liquidGlassRaised}
-  border-radius: var(--radius-lg);
-  padding: var(--space-1) var(--space-5) var(--space-4);
-  width: 100%;
-  max-width: 480px;
-  margin-top: var(--space-4);
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-
-  /* The import result leads with the big "81 of 84" stat, which wants room to
-     breathe above it; the sample preview leads with a list and keeps the tighter
-     top edge. */
-  ${p => p.$padTop && css`padding-top: var(--space-5);`}
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-/* Confidence summary — "81 of 84 imported clean". */
-const CleanStat = styled.div`
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-`;
-
-const CleanNumber = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-3xl);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-tight);
-  color: var(--color-content-primary);
-  font-variant-numeric: tabular-nums;
-`;
-
-const CleanOf = styled.span`
-  font-size: var(--text-lg);
-  font-weight: var(--font-weight-regular);
-  color: var(--color-content-tertiary);
-`;
-
-const CleanLabel = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-success-content);
-
-  svg { flex-shrink: 0; }
-`;
-
-/* Quarantined rows — flagged for review, never blocking the import. Collapsed
-   by default behind a toggle whose trailing side carries the alert + chevron. */
-const ReviewList = styled.div`
-  display: flex;
-  flex-direction: column;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border-opaque);
-`;
-
-/* The header row is the toggle: label on the lead, alert + chevron trailing. */
-const ReviewToggle = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  width: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 2px;
-  }
-`;
-
-const ReviewHead = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
-`;
-
-/* Trailing cluster — the warning marker beside a chevron that rotates on open. */
-const ReviewTrail = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-`;
-
-const ReviewAlert = styled.span`
-  display: inline-flex;
-  color: var(--color-warning-content);
-`;
-
-const ReviewChevron = styled.span<{ $open?: boolean }>`
-  display: inline-flex;
-  color: var(--color-content-tertiary);
-  transition: transform var(--duration-base) ${SMOOTH_EASE};
-  transform: rotate(${p => (p.$open ? '180deg' : '0deg')});
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-  }
-`;
-
-/* The expanded detail — the rows themselves, revealed under the toggle. Styled to
-   match the sample-teammate list items: leading tile + text, hairline separators. */
-const ReviewRows = styled.div`
-  display: flex;
-  flex-direction: column;
-  padding-top: var(--space-2);
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-const ReviewRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
-
-  & + & {
-    border-top: 1px solid var(--color-border-opaque);
-  }
-`;
-
-/* Leading tile — the sample list's avatar slot, here carrying the warning glyph. */
-const ReviewRowIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--space-8);
-  height: var(--space-8);
-  border-radius: var(--radius-full);
-  background: var(--color-warning-bg);
-  color: var(--color-warning-content);
-`;
-
-const ReviewText = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-`;
-
-const ReviewWhere = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-content-secondary);
-`;
-
-const ReviewReason = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  line-height: var(--line-height-relaxed);
-  color: var(--color-content-primary);
-`;
-
-/* Generated sample teammates — the preview list. */
-const SampleList = styled.div`
-  display: flex;
-  flex-direction: column;
-`;
-
-/* Each teammate fades + pops in on a per-row delay, so the crew cascades in
-   top to bottom once the card lands. `$i` is the row's position; `both` holds
-   the hidden start state through the delay so nothing flashes early. */
-const SampleRowEl = styled.div<{ $i?: number }>`
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-  animation-delay: calc(120ms + ${p => p.$i ?? 0} * 80ms);
-
-  & + & {
-    border-top: 1px solid var(--color-border-opaque);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-const SampleAvatar = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--space-8);
-  height: var(--space-8);
-  border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-content-secondary);
-`;
-
-const SampleWho = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-  margin-right: auto;
-`;
-
-const SampleName = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-content-primary);
-`;
-
-const SampleMeta = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const SampleMore = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border-opaque);
-  /* Lands just after the last teammate row (6 rows · 80ms + the 120ms base). */
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-  animation-delay: 600ms;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-/* ── Step 6 — schedule intake ─────────────────────────────────────────────────
-   The "shape of your week" question + chips, and the built-week preview with its
-   planted problems. Reuses the roster step's ResultCard / list rhythm. */
-
-/* The described-path block — one structured question, sitting under the drop zone. */
-const ShapeSection = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  max-width: 520px;
-  margin-top: var(--space-5);
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--color-border-opaque);
-`;
-
-const ShapeAsk = styled.p`
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  color: var(--color-content-secondary);
-  text-align: center;
-`;
-
-const ShapeChipRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-`;
-
-/* A one-tap week shape — glass pill, same family as the workforce suggestion chips. */
-const ShapeChip = styled.button`
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  ${liquidGlass}
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  color: var(--color-content-secondary);
-  transition: color var(--duration-fast) var(--ease-default),
-    transform var(--duration-fast) var(--ease-default);
-
-  &:hover {
-    color: var(--color-content-primary);
-    transform: translateY(-1px);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 2px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    &:hover { transform: none; }
-  }
-`;
-
-const ShapeForm = styled.form`
-  display: flex;
-  gap: var(--space-2);
-  width: 100%;
-`;
-
-const ShapeField = styled.input`
-  flex: 1;
-  min-width: 0;
-  ${liquidGlass}
-  border-radius: var(--radius-md);
-  padding: 0 var(--space-3);
-  height: var(--space-10);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  color: var(--color-content-primary);
-
-  &::placeholder { color: var(--color-content-tertiary); }
-  &:focus-visible {
-    outline: none;
-    border-color: var(--color-border-focus);
-    box-shadow: 0 0 0 2px var(--color-border-focus);
-  }
-`;
-
-/* The build action, held to the field's height so the row lines up cleanly. */
-const BuildButton = styled(Button)`
-  && {
-    flex-shrink: 0;
-    height: var(--space-10);
-  }
-`;
-
-/* Built-week summary line — days · shifts · things to handle. */
-const WeekStat = styled.div`
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  color: var(--color-content-secondary);
-`;
-
-const WeekStatItem = styled.span`
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-1);
-`;
-
-const WeekStatNum = styled.span`
-  font-size: var(--text-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-content-primary);
-  font-variant-numeric: tabular-nums;
-`;
-
-const WeekStatDot = styled.span`
-  color: var(--color-content-tertiary);
-`;
-
-/* The planted problems — styled like the roster review/sample list items. */
-const ProblemList = styled.div`
-  display: flex;
-  flex-direction: column;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border-opaque);
-`;
-
-const ProblemRow = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
-
-  & + & {
-    border-top: 1px solid var(--color-border-opaque);
-  }
-`;
-
-/* Leading tile — colour tracks the kind of problem (callout / expiry / punch). */
-const ProblemIcon = styled.span<{ $kind: WeekProblem['kind'] }>`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--space-8);
-  height: var(--space-8);
-  border-radius: var(--radius-full);
-
-  ${p => p.$kind === 'callout' && css`
-    background: var(--color-error-bg);
-    color: var(--color-error-content);
-  `}
-  ${p => p.$kind === 'expiring' && css`
-    background: var(--color-warning-bg);
-    color: var(--color-warning-content);
-  `}
-  ${p => p.$kind === 'missing' && css`
-    background: var(--color-info-bg);
-    color: var(--color-info-content);
-  `}
-`;
-
-const ProblemText = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-`;
-
-const ProblemWho = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-content-primary);
-`;
-
-const ProblemDetail = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-`;
-
-/* The built week's calendar — a wide card holding the seven-day shift grid. */
-const CalendarCard = styled.div`
-  ${liquidGlassRaised}
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  width: 100%;
-  max-width: 920px;
-  margin-top: var(--space-4);
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-/* Lets the grid scroll sideways when the viewport is too narrow for 7 columns. */
-const CalScroll = styled.div`
-  overflow-x: auto;
-  margin: 0 calc(-1 * var(--space-1));
-  padding: 0 var(--space-1) var(--space-1);
-`;
-
-const CalGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(7, minmax(112px, 1fr));
-  gap: var(--space-2);
-`;
-
-const CalDay = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-`;
-
-const CalDayHead = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-border-opaque);
-`;
-
-/* A single shift block. 'open' reads as a gap needing a fill; 'watch' carries a
-   quiet flag (a punch problem) — both echo the "waiting" card. */
-const ShiftChip = styled.div<{ $flag?: 'open' | 'watch' }>`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-transparent);
-
-  ${p => p.$flag === 'open' && css`
-    background: var(--color-error-bg);
-    border: 1px dashed var(--color-error-content);
-  `}
-  ${p => p.$flag === 'watch' && css`
-    background: var(--color-warning-bg);
-    border-color: var(--color-warning-content);
-  `}
-`;
-
-const ShiftTime = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-content-secondary);
-  font-variant-numeric: tabular-nums;
-`;
-
-const ShiftWho = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-content-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-/* The waiting-problems card — its own surface, sibling to the calendar. */
-const WaitingCard = styled.div`
-  ${liquidGlassRaised}
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  width: 100%;
-  max-width: 920px;
-  margin-top: var(--space-4);
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
 `;
 
 /* ── Step 4 — workforce questions ────────────────────────────────────────────

@@ -3,9 +3,9 @@
    app as the entry layer for a customer admin setting up a Teambridge account.
 
    The flow runs entirely inside IntroFlow (sign-up → workplace → understand →
-   workforce questions → roster upload → schedule upload). When the last step
-   completes, `onComplete` fires and the caller drops the admin into the live
-   Ultron app via `onEnterApp`.
+   workforce questions). When the last step completes, `onComplete` fires and
+   the caller drops the admin into the live Ultron app via `onEnterApp` — the
+   app's welcome chat then collects the roster + schedule in conversation.
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { IntroFlow } from './IntroFlow';
