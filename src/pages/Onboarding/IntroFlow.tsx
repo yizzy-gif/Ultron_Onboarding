@@ -30,18 +30,18 @@
    composer). They're built here from tokens + Alloy icons/controls and FLAGGED for
    promotion to Alloy (a `SelectableCard` and a `Composer`). */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
-  Avatar, Tooltip,
+  Avatar, Tooltip, Tag,
   Button, EmailField, ComposerActions, ComposerSendButton,
   ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
   Link01Icon, Building02Icon,
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
   Building05Icon,
   BankNote01Icon, ReceiptCheckIcon, CoinsStacked03Icon, ClockIcon, CurrencyDollarIcon, Pin01Icon,
-  Users03Icon, Grid01Icon, Globe01Icon, CheckVerified01Icon,
+  Globe01Icon,
 } from 'alloy-design-system';
 import { matchWorkforceSample } from './workforceSamples';
 import type { WorkforceSample } from './workforceSamples';
@@ -688,7 +688,9 @@ function WorkplaceQuestion({ onAnswer }: { onAnswer: (a: IntroAnswers) => void }
   return (
     <>
       <Prompt>Where do you work?</Prompt>
-      <QSub>Paste your company website and I'll get a head start on turning things on.</QSub>
+      <QSub>
+        Drop your URL and Ultron will set up Teambridge for your team. No blank slate, no busywork.
+      </QSub>
 
       <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>
         <FieldRow>
@@ -763,45 +765,12 @@ function LoadingStep({
   return <WorkforcePick failedWebsite={failedWebsite} onDone={onDone} />;
 }
 
-type SummaryKey = keyof Pick<
+// The dataset dimensions counted into the eyebrow's "read N signals" tally —
+// the narrative below distils them, but the tally still reflects the full read.
+const SIGNAL_KEYS: (keyof Pick<
   WorkforceSample,
   'worker_types' | 'talent_categories' | 'client_types' | 'service_models' | 'tech_footprint' | 'access_model' | 'compliance'
->;
-type NoteColor = 'blue' | 'purple' | 'azure' | 'green' | 'matcha' | 'yellow';
-
-// The read-out categories — six cards laid out below the activation bar in a
-// balanced 3×2 grid. Each pulls one or more dimensions off the matched sample
-// dataset (the tech + access dimensions are merged into one "Platform & access"
-// card so the grid divides evenly) and writes the values as a read-out paragraph.
-const SUMMARY_GROUPS: {
-  keys: SummaryKey[];
-  title: string;
-  icon: ComponentType<{ size?: number }>;
-  color: NoteColor;
-}[] = [
-  { keys: ['worker_types'], title: 'Worker types', icon: ClockIcon, color: 'blue' },
-  { keys: ['talent_categories'], title: 'Talent categories', icon: Users03Icon, color: 'purple' },
-  { keys: ['client_types'], title: 'Client types', icon: Building02Icon, color: 'azure' },
-  { keys: ['service_models'], title: 'Service models', icon: ReceiptCheckIcon, color: 'green' },
-  { keys: ['tech_footprint', 'access_model'], title: 'Platform & access', icon: Grid01Icon, color: 'matcha' },
-  { keys: ['compliance'], title: 'Compliance', icon: CheckVerified01Icon, color: 'yellow' },
-];
-
-// Per-category accent used for the paragraph separators, mirroring the hues the
-// tag chips used before, so each card keeps its colour identity.
-const NOTE_ACCENT: Record<NoteColor, string> = {
-  blue: 'var(--color-blue-content-primary)',
-  purple: 'var(--color-purple-content-primary)',
-  azure: 'var(--color-azure-content-primary)',
-  green: 'var(--color-green-content-primary)',
-  matcha: 'var(--color-matcha-content-primary)',
-  yellow: 'var(--color-yellow-content-primary)',
-};
-
-// Gather a group's values across its one-or-more dimensions.
-function groupItems(learned: WorkforceSample, keys: SummaryKey[]): string[] {
-  return keys.flatMap(k => learned[k]);
-}
+>)[] = ['worker_types', 'talent_categories', 'client_types', 'service_models', 'tech_footprint', 'access_model', 'compliance'];
 
 // Website path — a manually-driven activation: Ultron turns things on one beat at
 // a time (advanced by the 't' key), and the read-out of what it pulled off the
@@ -840,7 +809,7 @@ function SiteParse({
   // once, held stable across re-renders, with a tally of signals across it.
   const learned = useMemo(() => matchWorkforceSample(website), [website]);
   const signalCount = useMemo(
-    () => SUMMARY_GROUPS.reduce((n, g) => n + groupItems(learned, g.keys).length, 0),
+    () => SIGNAL_KEYS.reduce((n, k) => n + learned[k].length, 0),
     [learned],
   );
 
@@ -865,10 +834,12 @@ function SiteParse({
 
   return (
     <StepIn $wide>
-      <Prompt>{allDone ? "Here's what I read off your site" : `Turning on ${name}`}</Prompt>
+      <Prompt>
+        {allDone ? 'Nearly there!' : `Turning on ${name}`}
+      </Prompt>
       <PromptSub>
         {allDone
-          ? `Looks like ${learned.company.market_position.toLowerCase()} — I've organized it into your workspace. Glance it over, correct anything later.`
+          ? 'Your free account is taking shape.'
           : "Hang tight — I'm reading your site and getting your workspace ready."}
       </PromptSub>
 
@@ -908,7 +879,7 @@ function SiteParse({
         </SegmentRow>
       </ProgressWrap>
 
-      <LearnedCards learned={learned} loading={!allDone} />
+      <LearnedReadout learned={learned} loading={!allDone} />
 
       {/* Read complete → the primary way on ('t' still continues for keyboard),
           with a quiet restart underneath for replaying the read. */}
@@ -941,31 +912,25 @@ function SiteParse({
   );
 }
 
-// Roughly how many text lines a category's paragraph wraps to, so its loading
-// placeholder occupies about the same height (≈34 chars/line at the card width).
-function noteLineCount(items: string[]): number {
-  const chars = items.join(' · ').length;
-  return Math.min(6, Math.max(2, Math.round(chars / 34)));
-}
-
 // The read-out itself — a lead card carrying the classification + company facts,
-// then a balanced 3×2 grid of category cards. Each card writes its values as a
-// read-out paragraph (middot-separated, accent-coloured), not tag chips. All from
-// the matched sample dataset (workforceSamples.ts) — nothing is really crawled.
-// Rendered below the activation bar (see SiteParse), so it's visible while the bar
-// runs; until the read completes (`loading`) it shows shimmering line placeholders
-// shaped like the eventual paragraphs, then swaps them for the real text in place.
-function LearnedCards({ learned, loading }: { learned: WorkforceSample; loading?: boolean }) {
+// then one card per narrative group: a bolded label ("Your business / …"), three
+// sentences at most ending with what Ultron DID about it, and the signal chips
+// behind the prose. A centered sign-off closes the read. All from the matched
+// sample dataset (workforceSamples.ts) — nothing is really crawled. Rendered
+// below the activation bar (see SiteParse), so it's visible while the bar runs;
+// until the read completes (`loading`) it shows shimmering placeholders shaped
+// like the eventual cards, then swaps in the real content.
+function LearnedReadout({ learned, loading }: { learned: WorkforceSample; loading?: boolean }) {
   const { company } = learned;
   return (
-    <>
+    <ReadoutWrap key={loading ? 'readout-loading' : 'readout-ready'}>
       {/* Lead card — the classification + the facts read from the site. */}
-      <SummaryLead key={loading ? 'lead-loading' : 'lead-ready'}>
-        <SummaryLeadTop>
-          <SummaryLeadMark aria-hidden="true">
+      <LeadCard>
+        <LeadTop>
+          <LeadMark aria-hidden="true">
             {loading ? <Skeleton $w="20px" $h="20px" $round /> : <Building05Icon size={20} />}
-          </SummaryLeadMark>
-          <SummaryLeadText>
+          </LeadMark>
+          <LeadText>
             {loading ? (
               <>
                 <Skeleton $w="240px" $h="1em" />
@@ -973,13 +938,13 @@ function LearnedCards({ learned, loading }: { learned: WorkforceSample; loading?
               </>
             ) : (
               <>
-                <SummaryLeadKind>{learned.workforce_type}</SummaryLeadKind>
-                <SummaryLeadName>{company.name}</SummaryLeadName>
+                <LeadKind>{learned.workforce_type}</LeadKind>
+                <LeadName>{company.name}</LeadName>
               </>
             )}
-          </SummaryLeadText>
-        </SummaryLeadTop>
-        <SummaryFacts>
+          </LeadText>
+        </LeadTop>
+        <LeadFacts>
           {loading ? (
             <>
               <Skeleton $w="110px" $h="0.9em" />
@@ -988,62 +953,60 @@ function LearnedCards({ learned, loading }: { learned: WorkforceSample; loading?
             </>
           ) : (
             <>
-              <SummaryFact>
+              <LeadFact>
                 <ClockIcon size={14} />
-                <SummaryFactVal>Founded {company.founded}</SummaryFactVal>
-              </SummaryFact>
+                <LeadFactVal>Founded {company.founded}</LeadFactVal>
+              </LeadFact>
               {company.parent && (
-                <SummaryFact>
+                <LeadFact>
                   <Building02Icon size={14} />
-                  <SummaryFactVal>Part of {company.parent}</SummaryFactVal>
-                </SummaryFact>
+                  <LeadFactVal>Part of {company.parent}</LeadFactVal>
+                </LeadFact>
               )}
-              <SummaryFact>
+              <LeadFact>
                 <Globe01Icon size={14} />
-                <SummaryFactVal>{company.footprint}</SummaryFactVal>
-              </SummaryFact>
+                <LeadFactVal>{company.footprint}</LeadFactVal>
+              </LeadFact>
             </>
           )}
-        </SummaryFacts>
-      </SummaryLead>
+        </LeadFacts>
+      </LeadCard>
 
-      {/* Category grid — six cards, each a read-out paragraph of its values. */}
-      <SummaryGrid>
-        {SUMMARY_GROUPS.map((group, gi) => {
-          const items = groupItems(learned, group.keys);
-          return (
-            <SummaryCard key={`${group.title}-${loading ? 'loading' : 'ready'}`} style={{ ['--card-i' as string]: gi }}>
-              <SummaryCardHead>
-                {loading ? (
-                  <Skeleton $w="96px" $h="0.75em" />
-                ) : (
-                  <>
-                    <SummaryCardTitle>{group.title}</SummaryCardTitle>
-                    <SummaryCardCount>{items.length}</SummaryCardCount>
-                  </>
-                )}
-              </SummaryCardHead>
-              {loading ? (
-                <SkeletonLines>
-                  {Array.from({ length: noteLineCount(items) }).map((_, i, arr) => (
-                    <Skeleton key={i} $h="0.85em" $w={i === arr.length - 1 ? '55%' : '100%'} />
-                  ))}
-                </SkeletonLines>
-              ) : (
-                <SummaryNote style={{ ['--note-accent' as string]: NOTE_ACCENT[group.color] }}>
-                  {items.map((item, i) => (
-                    <Fragment key={item}>
-                      {i > 0 && <NoteSep aria-hidden="true"> · </NoteSep>}
-                      {item}
-                    </Fragment>
-                  ))}
-                </SummaryNote>
-              )}
-            </SummaryCard>
-          );
-        })}
-      </SummaryGrid>
-    </>
+      {/* One card per narrative group, cascading in after the lead. */}
+      {learned.narrative.map((group, gi) => (
+        <ReadoutCard key={group.label} style={{ ['--group-i' as string]: gi + 1 }}>
+          {loading ? (
+            <>
+              <Skeleton $w="128px" $h="0.95em" />
+              <SkeletonLines>
+                <Skeleton $h="0.85em" />
+                <Skeleton $h="0.85em" />
+                <Skeleton $h="0.85em" $w="62%" />
+              </SkeletonLines>
+              <ReadoutTags>
+                <Skeleton $w="76px" $h="20px" $round />
+                <Skeleton $w="92px" $h="20px" $round />
+                <Skeleton $w="64px" $h="20px" $round />
+              </ReadoutTags>
+            </>
+          ) : (
+            <>
+              <ReadoutLabel>{group.label}</ReadoutLabel>
+              <ReadoutBody>{group.body}</ReadoutBody>
+              <ReadoutTags>
+                {group.tags.map(tag => (
+                  <Tag key={tag} size="sm" variant="subtle" color="neutral">{tag}</Tag>
+                ))}
+              </ReadoutTags>
+            </>
+          )}
+        </ReadoutCard>
+      ))}
+
+      <ReadoutCloseRow style={{ ['--group-i' as string]: learned.narrative.length + 1 }}>
+        {loading ? <Skeleton $w="152px" $h="0.95em" /> : <ReadoutClose>Consider it handled.</ReadoutClose>}
+      </ReadoutCloseRow>
+    </ReadoutWrap>
   );
 }
 
@@ -2183,10 +2146,9 @@ const SegmentFill = styled.div<{ $working?: boolean }>`
 `;
 
 
-/* ── Processed site read-out (SiteParse / LearnedCards) ───────────────────────
-   The read-out of what Ultron pulled off the pasted domain, laid out below the
-   activation bar: a source eyebrow, a lead classification card, and a responsive
-   grid of category cards. */
+/* ── Processed site read-out (SiteParse / LearnedReadout) ─────────────────────
+   What Ultron pulled off the pasted domain, written as a short narrative below
+   the activation bar: a source eyebrow, three bolded groups, and the sign-off. */
 
 /* Source line above the read-out — the domain + a "reading…" / signal tally. */
 const SummaryEyebrow = styled.div<{ $running?: boolean }>`
@@ -2273,33 +2235,46 @@ const SkeletonLines = styled.div`
   width: 100%;
 `;
 
-/* Lead card — the classification + the facts read from the site. */
-const SummaryLead = styled.div`
-  /* Same glass surface as the category cards below, so the whole read-out sits
-     at one opacity. */
-  ${liquidGlass}
-  border: none;
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
+/* The narrative column — stacked cards, kept to a readable measure. */
+const ReadoutWrap = styled.div`
   width: 100%;
-  max-width: 900px;
-  margin-top: var(--space-3);
-  text-align: left;
+  max-width: 680px;
+  margin-top: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
+  text-align: left;
+`;
+
+/* Shared pop — each card lands on a per-index delay so the read-out cascades
+   top to bottom. Re-runs on the loading→content swap because the wrap is
+   remounted (keyed on loading) at that point. */
+const readoutPop = css`
   animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+  animation-delay: calc(var(--group-i, 0) * 90ms);
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-const SummaryLeadTop = styled.div`
+/* Lead card — the classification + the facts read from the site. */
+const LeadCard = styled.div`
+  ${liquidGlass}
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  ${readoutPop}
+`;
+
+const LeadTop = styled.div`
   display: flex;
   align-items: center;
   gap: var(--space-3);
 `;
 
-const SummaryLeadMark = styled.span`
+const LeadMark = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2311,28 +2286,28 @@ const SummaryLeadMark = styled.span`
   color: var(--color-content-primary);
 `;
 
-const SummaryLeadText = styled.div`
+const LeadText = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
 `;
 
-const SummaryLeadKind = styled.span`
+const LeadKind = styled.span`
   font-family: var(--font-sans);
   font-size: var(--text-md);
   font-weight: var(--font-weight-semibold);
   color: var(--color-content-primary);
 `;
 
-const SummaryLeadName = styled.span`
+const LeadName = styled.span`
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--color-content-tertiary);
 `;
 
 /* Facts row — founded / parent / footprint, read from the site. */
-const SummaryFacts = styled.div`
+const LeadFacts = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-5);
@@ -2340,7 +2315,7 @@ const SummaryFacts = styled.div`
   border-top: 1px solid var(--color-border-opaque);
 `;
 
-const SummaryFact = styled.span`
+const LeadFact = styled.span`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -2351,67 +2326,31 @@ const SummaryFact = styled.span`
   svg { flex-shrink: 0; color: var(--color-content-tertiary); }
 `;
 
-const SummaryFactVal = styled.span`
+const LeadFactVal = styled.span`
   color: var(--color-content-primary);
 `;
 
-/* Category grid — auto-fills columns; each card holds a titled chip cluster. */
-const SummaryGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--space-3);
-  width: 100%;
-  max-width: 900px;
-  /* Pulls back against the StepIn flex gap so the lead→grid spacing lands on
-     exactly the grid's own card gap (space-3) — one even rhythm down the set. */
-  margin-top: calc(var(--space-3) - var(--space-4));
-  text-align: left;
-`;
-
-/* Each card pops in on a per-card delay so the grid cascades in one after
-   another, top to bottom. Offset by one so the lead card (delay 0) leads, then
-   the grid follows in index order. Re-runs on the loading→content swap because
-   the cards are remounted (keyed on loading) at that point. */
-const SummaryCard = styled.div`
+/* One narrative group per card: label, prose, then the signal chips. */
+const ReadoutCard = styled.div`
   ${liquidGlass}
   border: none;
   border-radius: var(--radius-lg);
-  padding: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
-  animation-delay: calc((var(--card-i, 0) + 1) * 70ms);
-
-  @media (prefers-reduced-motion: reduce) { animation: none; }
-`;
-
-const SummaryCardHead = styled.div`
-  display: flex;
-  align-items: center;
   gap: var(--space-2);
+  ${readoutPop}
 `;
 
-const SummaryCardTitle = styled.span`
-  flex: 1;
+/* The group's bolded label ("Your business") — scannable without reading. */
+const ReadoutLabel = styled.span`
   font-family: var(--font-sans);
-  font-size: var(--text-xs);
+  font-size: var(--text-md);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
+  color: var(--color-content-primary);
 `;
 
-const SummaryCardCount = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-  font-variant-numeric: tabular-nums;
-`;
-
-/* The read-out paragraph — the category's values as flowing text rather than
-   chips, the middot separators tinted with the category accent (--note-accent). */
-const SummaryNote = styled.p`
+const ReadoutBody = styled.p`
   margin: 0;
   font-family: var(--font-sans);
   font-size: var(--text-sm);
@@ -2419,9 +2358,30 @@ const SummaryNote = styled.p`
   color: var(--color-content-secondary);
 `;
 
-const NoteSep = styled.span`
-  color: var(--note-accent, var(--color-content-tertiary));
-  font-weight: var(--font-weight-bold);
+/* The signals behind a group's prose, as a quiet chip row under the paragraph. */
+const ReadoutTags = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+`;
+
+/* The sign-off sits outside the cards, centered under the stack. */
+const ReadoutCloseRow = styled.div`
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-2);
+  ${readoutPop}
+`;
+
+/* The sign-off — label weight, so it closes the read as firmly as it opened. */
+const ReadoutClose = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+  text-align: center;
 `;
 
 /* No-website path note (shown only when a pasted entry didn't look like a site). */

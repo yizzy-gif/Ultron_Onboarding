@@ -16,7 +16,6 @@ import type { ComponentType, FormEvent } from 'react';
 import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
 import {
   Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, Dialog, XCloseIcon,
-  Building02Icon, Building05Icon, BankNote01Icon, ReceiptCheckIcon,
   Users03Icon, ClockIcon, File04Icon, CheckVerified01Icon, Tag,
   AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader,
 } from 'alloy-design-system';
@@ -65,9 +64,9 @@ interface IntakeUpload {
 }
 
 /** One beat of Ultron's opening turn, delivered on landing one at a time. A
- *  'text' beat types itself in like a chat message; the 'summary' beat is the
- *  recap card, which fades in as its own beat. */
-type OpeningBeat = { kind: 'text'; text: string } | { kind: 'summary' } | { kind: 'rosterCta' };
+ *  'text' beat types itself in like a chat message; the 'rosterCta' beat is the
+ *  roster drop zone, which fades in as its own beat. */
+type OpeningBeat = { kind: 'text'; text: string } | { kind: 'rosterCta' };
 
 /** Landing choreography: the opening turn starts immediately and types itself
  *  in beat by beat, then the composer + suggestions arrive. */
@@ -84,7 +83,7 @@ const REPLY_DELAY_MS = 1100;
 /** Typing-dots beat shown before each inbound message lands. */
 const THINK_MS = 440;
 /** Per-character cadence of the typewriter pass on a text beat. */
-const TYPE_CHAR_MS = 26;
+const TYPE_CHAR_MS = 10;
 /** Breath between one delivered beat and the next. */
 const BEAT_GAP_MS = 320;
 /** How long the recap card takes to land before the turn continues. */
@@ -155,12 +154,6 @@ const CLOSING_ASK =
   'on your plate.';
 
 /** One line of the setup recap — something Ultron actually turned on. */
-interface SummaryItem {
-  icon: ComponentType<{ size?: number }>;
-  label: string;
-  detail: string;
-}
-
 /** Title-cased company name derived from the pasted website (mirrors the
  *  onboarding helper), or null when no site was given. */
 function companyName(website?: string): string | null {
@@ -176,25 +169,6 @@ function companyName(website?: string): string | null {
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
   return name || host;
-}
-
-/** Build the recap rows from what onboarding gathered. Only what was actually
- *  turned on gets a row. The roster and schedule aren't recapped here — Ultron
- *  collects those next, in this very conversation. */
-function buildSummary(a: WelcomeAnswers): SummaryItem[] {
-  const items: SummaryItem[] = [];
-
-  const company = companyName(a.companyWebsite);
-  if (company) {
-    items.push({ icon: Building02Icon, label: 'Workspace', detail: `${company} is set up and ready` });
-  } else if (a.workforceType) {
-    items.push({ icon: Building02Icon, label: 'Workspace', detail: `Set up for ${a.workforceType.toLowerCase()}` });
-  }
-  if (a.pay) items.push({ icon: BankNote01Icon, label: 'Pay', detail: `Turned on for ${a.pay} workers` });
-  if (a.billing) items.push({ icon: ReceiptCheckIcon, label: 'Billing', detail: `Set to bill ${a.billing.toLowerCase()}` });
-  if (a.worksite) items.push({ icon: Building05Icon, label: 'Sites', detail: a.worksite });
-
-  return items;
 }
 
 /** Multi-line / tabular text pasted into the composer reads as a copied block
@@ -275,8 +249,6 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   const grantTimer = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const summary = useMemo(() => buildSummary(answers), [answers]);
-
   // The signal the sample data derives from — what they typed for their
   // workforce, falling back to the company name from their website — so a
   // home-care operator gets caregivers and 12-hour rotations, not generic fill.
@@ -287,8 +259,8 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   const shapeChips = useMemo(() => scheduleShapesFor(signal), [signal]);
 
   // Ultron's opening turn, split into the beats it delivers on landing: the
-  // greeting, the recap card, then the roster ask — the first document the
-  // in-chat setup collects.
+  // greeting, then the roster ask — the first document the in-chat setup
+  // collects.
   const openingBeats = useMemo<OpeningBeat[]>(() => {
     // First-run greeting — warm and guided: name the workspace, say who Ultron
     // is, and preview the walk-through before asking for anything.
@@ -297,16 +269,14 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
       `Welcome to your ${co ? `${co} ` : ''}workspace — I'm Ultron, and I'll be ` +
       "doing the heavy lifting around here. Together we'll bring in your team, " +
       'shape your schedule, and line up the day-to-day work I can take off your ' +
-      'plate.' +
-      (summary.length > 0 ? " Here's what I already turned on from what you shared:" : '');
+      'plate.';
     const beats: OpeningBeat[] = [{ kind: 'text', text: greeting }];
-    if (summary.length > 0) beats.push({ kind: 'summary' });
     beats.push({ kind: 'text', text: ROSTER_ASK });
-    // The roster ask lands with its own upload card — a direct CTA in the same
-    // surface as the recap cards above, so the first action is one tap away.
+    // The roster ask lands with its own upload card — a direct CTA so the
+    // first action is one tap away.
     beats.push({ kind: 'rosterCta' });
     return beats;
-  }, [summary, answers]);
+  }, [answers]);
 
   const after = (ms: number, fn: () => void) => {
     timers.current.push(window.setTimeout(fn, ms));
@@ -508,19 +478,6 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     );
   };
 
-  const skipRoster = () => {
-    deliverTurn(
-      [
-        {
-          role: 'ultron',
-          text: `No problem — we can bring your people in later. ${SCHEDULE_ASK}`,
-        },
-        { role: 'ultron', text: '', card: 'scheduleCta' },
-      ],
-      { then: () => setStage('schedule') },
-    );
-  };
-
   // The schedule landed (a file / pasted table) or was described (a shape) →
   // build the week, show it, then close the setup with the "what next" ask.
   const runWeekBuild = (source: { fileName?: string; file?: IntakeFile; shape?: string }) => {
@@ -541,19 +498,6 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
         workingMs: WORKING_MS,
         then: () => setStage('done'),
       },
-    );
-  };
-
-  const skipSchedule = () => {
-    deliverTurn(
-      [
-        {
-          role: 'ultron',
-          text: "No problem — drop a schedule in anytime and I'll turn it into shifts.",
-        },
-        { role: 'ultron', text: CLOSING_ASK },
-      ],
-      { then: () => setStage('done') },
     );
   };
 
@@ -626,25 +570,21 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   };
 
   // ── One-tap pills, by stage ────────────────────────────────────────────────
-  // Roster: the sample-crew stand-in + skip. Schedule: the vertical-appropriate
-  // week shapes + skip. Done: the next-step offers (until one is used).
+  // Roster: the sample-crew stand-in. Schedule: the vertical-appropriate week
+  // shapes. Done: the next-step offers (until one is used).
   const pills: { icon?: ComponentType<{ size?: number }>; label: string; onTap: () => void }[] =
     replying !== null
       ? []
       : stage === 'roster'
       ? [
           { icon: Users03Icon, label: 'No roster handy? Use sample teammates', onTap: () => { postOperator('Use sample teammates'); runRosterSample(); } },
-          { label: 'Skip for now', onTap: () => { postOperator('Skip for now'); skipRoster(); } },
         ]
       : stage === 'schedule'
-      ? [
-          ...shapeChips.map(s => ({
-            icon: ClockIcon,
-            label: s,
-            onTap: () => { postOperator(s); runWeekBuild({ shape: s }); },
-          })),
-          { label: 'Skip for now', onTap: () => { postOperator('Skip for now'); skipSchedule(); } },
-        ]
+      ? shapeChips.map(s => ({
+          icon: ClockIcon,
+          label: s,
+          onTap: () => { postOperator(s); runWeekBuild({ shape: s }); },
+        }))
       : nextStepUsed
       ? []
       : NEXT_STEP_SUGGESTIONS.map(({ icon, label }) => ({ icon, label, onTap: () => post(label) }));
@@ -702,42 +642,14 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
       </PageHeader>
       <Scroll>
         <Thread>
-            {/* Opening turn — Ultron greets, lays out the recap card, then asks
-                for the roster. Delivered one beat at a time: text beats type
-                in, the recap card fades in as its own beat. */}
+            {/* Opening turn — Ultron greets, then asks for the roster.
+                Delivered one beat at a time: text beats type in, the roster
+                drop zone fades in as its own beat. */}
             <Row data-from="ultron">
               <Stack>
                 {openingBeats
                   .slice(0, activeIdx >= 0 ? activeIdx + 1 : revealed)
                   .map((beat, i) => {
-                    if (beat.kind === 'summary') {
-                      return (
-                        <BeatReveal key={`beat-${i}`}>
-                          <SummaryBlock aria-label="What Ultron set up">
-                            <SummaryHead>
-                              <SummaryHeadText>Here’s what I set up</SummaryHeadText>
-                            </SummaryHead>
-                            <SummaryList>
-                              {summary.map(item => {
-                                const Icon = item.icon;
-                                return (
-                                  <SummaryItemCard key={item.label}>
-                                    <RowIcon aria-hidden="true"><Icon size={16} /></RowIcon>
-                                    <RowText>
-                                      <RowLabel>{item.label}</RowLabel>
-                                      <RowDetail>{item.detail}</RowDetail>
-                                    </RowText>
-                                    <RowStatus aria-hidden="true">
-                                      <CheckCircleIcon size={18} />
-                                    </RowStatus>
-                                  </SummaryItemCard>
-                                );
-                              })}
-                            </SummaryList>
-                          </SummaryBlock>
-                        </BeatReveal>
-                      );
-                    }
                     if (beat.kind === 'rosterCta') {
                       // The roster intake — a full Alloy drop zone (drag & drop
                       // or browse) while the roster is still wanted, settling to
@@ -1224,15 +1136,19 @@ const PageHeader = styled.header`
   z-index: 2;
   background: transparent;
 
-  /* One continuous white surface under the header, alpha-masked at its lower
+  /* One continuous page surface under the header, alpha-masked at its lower
      edge. Unlike a gradient strip, this reveals the ambient glow progressively
-     and cannot leave a hard seam where the fade meets the header. */
+     and cannot leave a hard seam where the fade meets the header. At 60%
+     opacity with a backdrop blur, thread content frosts through as it scrolls
+     underneath (the mask fades the blur out with the surface). */
   &::before {
     content: '';
     position: absolute;
     inset: 0 0 calc(-1 * var(--space-10));
     z-index: 0;
-    background: var(--color-bg-always-light);
+    background: color-mix(in srgb, var(--color-bg-primary) 60%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
     -webkit-mask-image: linear-gradient(
       to bottom,
       black 0,
@@ -1284,7 +1200,7 @@ const PageHeaderIcon = styled.span`
     border-radius: 50%;
     background: radial-gradient(
       circle,
-      var(--Alloy-slate-50) 0%,
+      var(--color-bg-secondary) 0%,
       transparent 72%
     );
     pointer-events: none;
@@ -1310,7 +1226,7 @@ const PageHeaderTitle = styled.span`
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-wide);
-  color: var(--Alloy-slate-950);
+  color: var(--color-content-primary);
 `;
 
 /* One-line muted subtitle — the event header's CardSubtitle, with the muted
@@ -1322,7 +1238,7 @@ const PageHeaderSubtitle = styled.span`
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-normal);
-  color: var(--Alloy-slate-500);
+  color: var(--color-content-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1492,37 +1408,6 @@ const Bubble = styled.div`
   &[data-from='ultron'] {
     max-width: 100%;
   }
-`;
-
-/* The recap — a header lockup over a stack of item cards listing what
-   onboarding turned on. Spans the full turn width, so the cards run edge to
-   edge with the prose above and below. */
-const SummaryBlock = styled.div`
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-`;
-
-/* Unframed header line — the title sits directly on the page above the card
-   stack. */
-const SummaryHead = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-`;
-
-const SummaryHeadText = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-content-primary);
-`;
-
-const SummaryList = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 `;
 
 /* One set-up item as its own card — mirrors the Ultron thread's workflow
@@ -2527,13 +2412,17 @@ const ComposerWrap = styled.div`
   /* A single footer surface sits behind both pills and composer, then fades
      upward through an alpha mask. Because the surface continues beneath the
      controls there is no join line, and the glow remains visible through the
-     transparent portion instead of being blurred or clipped. */
+     transparent portion instead of being blurred or clipped. At 60% opacity
+     with a backdrop blur, thread content frosts through as it scrolls under
+     (the mask fades the blur out with the surface). */
   &::before {
     content: '';
     position: absolute;
     inset: calc(-1 * var(--space-10)) 0 0;
     z-index: 0;
-    background: var(--color-bg-primary);
+    background: color-mix(in srgb, var(--color-bg-primary) 60%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
     -webkit-mask-image: linear-gradient(
       to bottom,
       transparent 0,
