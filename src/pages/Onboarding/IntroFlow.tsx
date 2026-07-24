@@ -813,27 +813,35 @@ function SiteParse({
     [learned],
   );
 
-  // The 't' key advances one beat per press; the press after the last beat marks
-  // the run complete; once complete it hands off (the primary CTA does the same).
+  // One beat per press/tap; the press after the last beat marks the run
+  // complete; once complete 't' hands off (the primary CTA does the same).
+  const advance = useCallback(() => {
+    if (allDone) onDone({});
+    else if (active >= total) setAllDone(true);
+    // Clamped in the updater: rapid presses inside one render batch all see
+    // the same stale `active`, so without the clamp they could overshoot the
+    // beat list.
+    else setActive(a => Math.min(a + 1, total));
+  }, [active, allDone, total, onDone]);
+
+  // The 't' key drives the beats from a keyboard…
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== 't') return;
       e.preventDefault();
-      if (allDone) onDone({});
-      else if (active >= total) setAllDone(true);
-      // Clamped in the updater: rapid presses inside one render batch all see
-      // the same stale `active`, so without the clamp they could overshoot the
-      // beat list.
-      else setActive(a => Math.min(a + 1, total));
+      advance();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active, allDone, total, onDone]);
+  }, [advance]);
 
   const beatLabel = ACTIVATION_BEATS[active - 1];
 
   return (
-    <StepIn $wide>
+    /* …and while the read runs, tapping anywhere on the step advances too (the
+       touch counterpart of 't'). Once complete, taps stop advancing so a stray
+       one can't blow past the summary — the CTA carries the flow on. */
+    <StepIn $wide onClick={() => { if (!allDone) advance(); }}>
       <Prompt>
         {allDone ? 'Nearly there!' : `Turning on ${name}`}
       </Prompt>
