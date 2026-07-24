@@ -118,6 +118,15 @@ const ROSTER_TOTAL = 84;
 const ROSTER_CLEAN = 81;
 /** How many sample teammates the no-roster path generates. */
 const SAMPLE_COUNT = 48;
+
+/** The roster uploader's people-first empty-state visual. The sequence repeats
+ *  once so the horizontal loop can wrap without a visible jump. */
+const ROSTER_FLOW_PEOPLE = [
+  { name: 'Dana Okafor', photo: 'https://i.pravatar.cc/96?u=dana.okafor' },
+  { name: 'Marcus Webb', photo: 'https://i.pravatar.cc/96?u=marcus.webb' },
+  { name: 'Priya Raman', photo: 'https://i.pravatar.cc/96?u=priya.raman' },
+  { name: 'Sofia Delgado', photo: 'https://i.pravatar.cc/96?u=sofia.delgado' },
+] as const;
 /** The scripted shape of a built week — plausible for any shift operation. */
 const WEEK_DAYS = 7;
 const WEEK_SHIFTS = 24;
@@ -660,18 +669,33 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                         <Fragment key={`beat-${i}`}>
                           <BeatReveal>
                             {waiting || rosterUpload ? (
-                              <IntakeUploader
-                                variant="area"
-                                accept=".csv,.xlsx,.xls,.pdf,image/*"
-                                title="Drop your roster here, or browse your files"
-                                description="Spreadsheet, PDF, or a photo of a printed one"
-                                state={rosterUpload?.state ?? 'empty'}
-                                progress={rosterUpload?.progress ?? 0}
-                                file={rosterUpload?.file ?? null}
-                                disabled={replying !== null && !rosterUpload}
-                                onFileSelect={file => pickRosterFiles([file])}
-                                onClear={() => {}}
-                              />
+                              <RosterUploaderStage>
+                                {waiting && !rosterUpload && (
+                                  <RosterAvatarViewport aria-hidden="true">
+                                    <RosterAvatarTrack>
+                                      {[...ROSTER_FLOW_PEOPLE, ...ROSTER_FLOW_PEOPLE].map((person, index) => (
+                                        <RosterFlowAvatar key={`${person.name}-${index}`}>
+                                          <img src={person.photo} alt="" />
+                                        </RosterFlowAvatar>
+                                      ))}
+                                    </RosterAvatarTrack>
+                                  </RosterAvatarViewport>
+                                )}
+                                <IntakeUploader
+                                  data-roster-flow={waiting && !rosterUpload ? '' : undefined}
+                                  variant="area"
+                                  browseButtonVariant="primary"
+                                  accept=".csv,.xlsx,.xls,.pdf,image/*"
+                                  title="Drop your roster here, or browse your files"
+                                  description="Spreadsheet, PDF, or a photo of a printed one"
+                                  state={rosterUpload?.state ?? 'empty'}
+                                  progress={rosterUpload?.progress ?? 0}
+                                  file={rosterUpload?.file ?? null}
+                                  disabled={replying !== null && !rosterUpload}
+                                  onFileSelect={file => pickRosterFiles([file])}
+                                  onClear={() => {}}
+                                />
+                              </RosterUploaderStage>
                             ) : (
                               <SummaryItemCard>
                                 <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
@@ -723,6 +747,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                           stage === 'schedule' || scheduleUpload ? (
                             <IntakeUploader
                               variant="area"
+                              browseButtonVariant="primary"
                               accept=".csv,.xlsx,.xls,.pdf,image/*"
                               title="Drop your schedule here, or browse your files"
                               description="Spreadsheet, PDF, or a photo — any format works"
@@ -1128,6 +1153,40 @@ const Root = styled.div`
    label/md title over a muted one-line subtitle, avatar-led), with the case
    avatar swapped for the page's document icon on a recessed square and the
    trailing open-record link dropped. Aligned to the thread column. */
+/* ── Shared glass-bar surface ────────────────────────────────────────────────
+   The frosted surface behind a pinned bar, in two layers. Chromium does not
+   apply mask-image to backdrop-filter, so blurring an alpha-masked overhang
+   leaves a hard line where the blur rect ends (the tint fades, the blur
+   doesn't). Instead: the blur + tint cover exactly the bar (::before), and the
+   thread-facing overhang is a pure gradient tint (::after) that fades out over
+   the scrolling content with no blur edge. The header's settings are the
+   source of truth; the footer mirrors them ('down' fades past the bottom
+   edge, 'up' past the top). */
+const GLASS_BAR_TINT = 'color-mix(in srgb, var(--color-bg-primary) 60%, transparent)';
+
+const glassBarFrost = css`
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: ${GLASS_BAR_TINT};
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  pointer-events: none;
+`;
+
+const glassBarFade = (fade: 'down' | 'up') => css`
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  ${fade === 'down' ? 'top: 100%;' : 'bottom: 100%;'}
+  height: var(--space-10);
+  z-index: 0;
+  background: linear-gradient(${fade === 'down' ? 'to bottom' : 'to top'}, ${GLASS_BAR_TINT}, transparent);
+  pointer-events: none;
+`;
+
 const PageHeader = styled.header`
   flex-shrink: 0;
   position: relative;
@@ -1136,32 +1195,11 @@ const PageHeader = styled.header`
   z-index: 2;
   background: transparent;
 
-  /* One continuous page surface under the header, alpha-masked at its lower
-     edge. Unlike a gradient strip, this reveals the ambient glow progressively
-     and cannot leave a hard seam where the fade meets the header. At 60%
-     opacity with a backdrop blur, thread content frosts through as it scrolls
-     underneath (the mask fades the blur out with the surface). */
   &::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 calc(-1 * var(--space-10));
-    z-index: 0;
-    background: color-mix(in srgb, var(--color-bg-primary) 60%, transparent);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    backdrop-filter: blur(18px) saturate(180%);
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      black 0,
-      black calc(100% - var(--space-10)),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      black 0,
-      black calc(100% - var(--space-10)),
-      transparent 100%
-    );
-    pointer-events: none;
+    ${glassBarFrost}
+  }
+  &::after {
+    ${glassBarFade('down')}
   }
 `;
 
@@ -1274,6 +1312,88 @@ const uploadContentIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
+const rosterPeopleFlow = keyframes`
+  from { transform: translateX(0); }
+  to   { transform: translateX(-192px); }
+`;
+
+const RosterUploaderStage = styled.div`
+  position: relative;
+  width: 100%;
+`;
+
+/* Four teammates stay in frame while the repeated track advances one profile
+   at a time. The mask makes each face gently arrive from the left and dissolve
+   at the right instead of clipping against the viewport. */
+const RosterAvatarViewport = styled.div`
+  position: absolute;
+  z-index: 2;
+  top: var(--space-6);
+  left: 50%;
+  width: 184px;
+  height: 44px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    rgb(0 0 0 / 10%) 8%,
+    rgb(0 0 0 / 35%) 16%,
+    rgb(0 0 0 / 70%) 24%,
+    black 34%,
+    black 66%,
+    rgb(0 0 0 / 70%) 76%,
+    rgb(0 0 0 / 35%) 84%,
+    rgb(0 0 0 / 10%) 92%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    rgb(0 0 0 / 10%) 8%,
+    rgb(0 0 0 / 35%) 16%,
+    rgb(0 0 0 / 70%) 24%,
+    black 34%,
+    black 66%,
+    rgb(0 0 0 / 70%) 76%,
+    rgb(0 0 0 / 35%) 84%,
+    rgb(0 0 0 / 10%) 92%,
+    transparent 100%
+  );
+`;
+
+const RosterAvatarTrack = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  animation: ${rosterPeopleFlow} 18s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+const RosterFlowAvatar = styled.span`
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  overflow: hidden;
+  border: 2px solid var(--color-bg-primary);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-secondary);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 14%);
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+`;
+
 /* One persistent intake surface across empty → uploading → complete. Alloy's
    FileUploader supplies the states; these overrides make its height, padding,
    border, and newly mounted state content glide together instead of snapping
@@ -1289,6 +1409,19 @@ const IntakeUploader = styled(FileUploader)`
       border-color var(--duration-base) var(--ease-out),
       border-style var(--duration-base) var(--ease-out),
       background var(--duration-base) var(--ease-out);
+  }
+
+  &&[data-roster-flow][data-state='empty'] {
+    min-height: 208px;
+    /* Clears the absolutely-positioned people flow above the text block, plus
+       a fuller breath beneath it (avatars occupy ~24-68px of the surface). */
+    padding-top: 104px;
+    gap: var(--space-4);
+  }
+
+  /* The roster-specific people flow replaces Alloy's upload-cloud glyph. */
+  &&[data-roster-flow][data-state='empty'] > span.alloy-icon-slot {
+    display: none;
   }
 
   &&[data-state='uploading'] {
@@ -2409,33 +2542,13 @@ const ComposerWrap = styled.div`
   align-items: center;
   gap: var(--space-3);
 
-  /* A single footer surface sits behind both pills and composer, then fades
-     upward through an alpha mask. Because the surface continues beneath the
-     controls there is no join line, and the glow remains visible through the
-     transparent portion instead of being blurred or clipped. At 60% opacity
-     with a backdrop blur, thread content frosts through as it scrolls under
-     (the mask fades the blur out with the surface). */
+  /* The same glass surface as the page header, mirrored — the frost sits
+     behind both pills and composer, and the tint fades upward over the thread. */
   &::before {
-    content: '';
-    position: absolute;
-    inset: calc(-1 * var(--space-10)) 0 0;
-    z-index: 0;
-    background: color-mix(in srgb, var(--color-bg-primary) 60%, transparent);
-    -webkit-backdrop-filter: blur(18px) saturate(180%);
-    backdrop-filter: blur(18px) saturate(180%);
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0,
-      black var(--space-10),
-      black 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0,
-      black var(--space-10),
-      black 100%
-    );
-    pointer-events: none;
+    ${glassBarFrost}
+  }
+  &::after {
+    ${glassBarFade('up')}
   }
 
   & > * {
