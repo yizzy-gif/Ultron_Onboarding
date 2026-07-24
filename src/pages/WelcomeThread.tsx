@@ -252,9 +252,15 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     () => typeof window !== 'undefined'
       && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
   );
+  const [mobileManualAdvance, setMobileManualAdvance] = useState(
+    () => typeof window !== 'undefined'
+      && !!window.matchMedia?.('(max-width: 600px)').matches,
+  );
 
   // Every conversation timer (working holds, turn gaps) — cleared on unmount.
   const timers = useRef<number[]>([]);
+  const turnTimer = useRef<number | null>(null);
+  const turnAdvance = useRef<(() => void) | null>(null);
   const grantTimer = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -290,7 +296,18 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   const after = (ms: number, fn: () => void) => {
     timers.current.push(window.setTimeout(fn, ms));
   };
-  useEffect(() => () => { timers.current.forEach(id => window.clearTimeout(id)); }, []);
+  useEffect(() => () => {
+    timers.current.forEach(id => window.clearTimeout(id));
+    if (turnTimer.current) window.clearTimeout(turnTimer.current);
+  }, []);
+  useEffect(() => {
+    const query = window.matchMedia?.('(max-width: 600px)');
+    if (!query) return;
+    const sync = () => setMobileManualAdvance(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
 
   const animateRosterUpload = (file: IntakeFile) => {
     setRosterUpload({ file, state: 'uploading', progress: 8 });
@@ -423,16 +440,41 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     const workingMs = prefersReduced ? 300 : opts.workingMs ?? REPLY_DELAY_MS;
     const gap = prefersReduced ? 200 : TURN_GAP_MS;
     setReplying(opts.workingLabel ?? '');
-    let t = workingMs;
-    parts.forEach((p, i) => {
-      const last = i === parts.length - 1;
-      after(t, () => {
-        setMessages(m => [...m, p]);
-        setReplying(last ? null : '');
-        if (last) opts.then?.();
-      });
-      t += gap;
-    });
+    let nextPart = 0;
+
+    const revealNext = () => {
+      if (turnTimer.current) {
+        window.clearTimeout(turnTimer.current);
+        turnTimer.current = null;
+      }
+
+      const part = parts[nextPart];
+      if (!part) return;
+
+      const last = nextPart === parts.length - 1;
+      nextPart += 1;
+      setMessages(m => [...m, part]);
+
+      if (last) {
+        setReplying(null);
+        turnAdvance.current = null;
+        opts.then?.();
+        return;
+      }
+
+      setReplying('');
+      turnTimer.current = window.setTimeout(revealNext, gap);
+    };
+
+    turnAdvance.current = revealNext;
+    turnTimer.current = window.setTimeout(revealNext, workingMs);
+  };
+
+  /** Mobile users can tap the active reading card to reveal the next part of
+   *  the turn immediately. Desktop keeps the existing automatic pacing. */
+  const advanceMobileTurn = () => {
+    if (!mobileManualAdvance) return;
+    turnAdvance.current?.();
   };
 
   /** Post one operator message into the thread (first one flips the nav entry). */
@@ -801,14 +843,22 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
             })}
             {replying !== null && (
               <Row data-from="ultron">
-                <TypingCluster>
-                  <Typing aria-label="Ultron is replying">
-                    <Dot /><Dot /><Dot />
-                  </Typing>
-                  {replying && (
-                    <WorkingLabel role="status" aria-live="polite">{replying}</WorkingLabel>
-                  )}
-                </TypingCluster>
+                <LoadingAdvanceButton
+                  type="button"
+                  onClick={advanceMobileTurn}
+                  disabled={!mobileManualAdvance}
+                  aria-label={replying ? `${replying} Tap to continue.` : 'Ultron is replying. Tap to continue.'}
+                >
+                  <TypingCluster>
+                    <Typing aria-hidden="true">
+                      <Dot /><Dot /><Dot />
+                    </Typing>
+                    {replying && (
+                      <WorkingLabel role="status" aria-live="polite">{replying}</WorkingLabel>
+                    )}
+                    <MobileTapHint aria-hidden="true">Tap to continue</MobileTapHint>
+                  </TypingCluster>
+                </LoadingAdvanceButton>
               </Row>
             )}
             <div ref={endRef} />
@@ -1216,6 +1266,11 @@ const PageHeaderInner = styled.div`
   margin: 0 auto;
   /* Same rhythm as the event card header — air above, tight to the body. */
   padding: var(--space-4) var(--space-6) var(--space-2);
+
+  @media (max-width: 600px) {
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4) var(--space-1);
+  }
 `;
 
 /* The leading artwork — Ultron's magnetic globe in the event header. A compact
@@ -1247,6 +1302,11 @@ const PageHeaderIcon = styled.span`
   & > canvas {
     position: relative;
     z-index: 1;
+  }
+
+  @media (max-width: 600px) {
+    width: 32px;
+    height: 32px;
   }
 `;
 
@@ -1280,6 +1340,15 @@ const PageHeaderSubtitle = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  @media (max-width: 600px) {
+    font-size: var(--text-xs);
+    line-height: var(--line-height-snug);
+  }
+
+  @media (max-width: 600px) and (max-height: 700px) {
+    display: none;
+  }
 `;
 
 const Scroll = styled.div`
@@ -1328,7 +1397,7 @@ const RosterUploaderStage = styled.div`
 const RosterAvatarViewport = styled.div`
   position: absolute;
   z-index: 2;
-  top: var(--space-6);
+  top: var(--space-10);
   left: 50%;
   width: 184px;
   height: 44px;
@@ -1361,6 +1430,10 @@ const RosterAvatarViewport = styled.div`
     rgb(0 0 0 / 10%) 92%,
     transparent 100%
   );
+
+  @media (max-width: 600px) {
+    top: var(--space-6);
+  }
 `;
 
 const RosterAvatarTrack = styled.div`
@@ -1449,6 +1522,31 @@ const IntakeUploader = styled(FileUploader)`
     display: none;
   }
 
+  @media (max-width: 600px) {
+    && {
+      min-height: 144px;
+      padding: var(--space-5) var(--space-4);
+      gap: var(--space-3);
+    }
+
+    &&[data-roster-flow][data-state='empty'] {
+      min-height: 166px;
+      padding: 76px var(--space-4) var(--space-4);
+      gap: var(--space-2);
+    }
+
+    &&[data-state='uploading'] {
+      min-height: 88px;
+      padding: var(--space-4);
+      gap: var(--space-2);
+    }
+
+    &&[data-state='complete'] {
+      min-height: 56px;
+      padding: var(--space-3);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     && {
       transition: none;
@@ -1499,6 +1597,11 @@ const Thread = styled.div`
   max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
   padding: var(--space-8) var(--space-6);
+
+  @media (max-width: 600px) {
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4) var(--space-4);
+  }
 `;
 
 const Row = styled.div`
@@ -1519,6 +1622,10 @@ const Stack = styled.div`
   flex-direction: column;
   gap: var(--space-3);
   width: 100%;
+
+  @media (max-width: 600px) {
+    gap: var(--space-2);
+  }
 `;
 
 const Bubble = styled.div`
@@ -1540,6 +1647,15 @@ const Bubble = styled.div`
   /* Inbound (Ultron) — no bubble wrap, just prose (matches the event page). */
   &[data-from='ultron'] {
     max-width: 100%;
+  }
+
+  @media (max-width: 600px) {
+    font-size: var(--text-xs);
+    line-height: 1.45;
+
+    &[data-from='operator'] {
+      padding: var(--space-2) var(--space-3);
+    }
   }
 `;
 
@@ -2162,6 +2278,26 @@ const GrantOverlayBlur = createGlobalStyle`
     }
   }
 
+  @media (max-width: 620px) {
+    [role='dialog'][aria-label='Unlock your grant'][data-state] {
+      padding:
+        max(var(--space-4), env(safe-area-inset-top))
+        max(var(--space-4), env(safe-area-inset-right))
+        max(var(--space-4), env(safe-area-inset-bottom))
+        max(var(--space-4), env(safe-area-inset-left));
+
+      & > div {
+        width: 100%;
+        max-height: calc(
+          100dvh
+          - max(var(--space-4), env(safe-area-inset-top))
+          - max(var(--space-4), env(safe-area-inset-bottom))
+        );
+        border-radius: var(--radius-xl);
+      }
+    }
+  }
+
   [role='dialog'][aria-label='Unlock your grant'][data-state='closed'] {
     animation: ${grantScrimOut} 170ms var(--ease-default, ease) forwards;
 
@@ -2181,8 +2317,10 @@ const GrantOverlayBlur = createGlobalStyle`
 const GrantCard = styled.section`
   position: relative;
   width: 100%;
+  min-height: 0;
   padding: var(--space-10);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background:
     radial-gradient(75% 90% at 100% 0%, color-mix(in srgb, var(--Alloy-blue-500) 38%, transparent), transparent 68%),
     radial-gradient(70% 80% at 0% 100%, color-mix(in srgb, var(--Alloy-purple-500) 30%, transparent), transparent 72%),
@@ -2199,7 +2337,10 @@ const GrantCard = styled.section`
   }
 
   @media (max-width: 620px) {
-    padding: var(--space-7) var(--space-6);
+    padding:
+      var(--space-8)
+      var(--space-6)
+      max(var(--space-6), env(safe-area-inset-bottom));
     gap: var(--space-4);
   }
 `;
@@ -2286,6 +2427,10 @@ const GrantOffer = styled.div`
   align-items: flex-end;
   gap: var(--space-4);
   margin: var(--space-1) 0;
+
+  @media (max-width: 620px) {
+    gap: var(--space-2);
+  }
 `;
 
 const GrantAmount = styled.div`
@@ -2297,6 +2442,10 @@ const GrantAmount = styled.div`
   color: var(--color-bg-always-light);
   text-shadow: 0 0 44px color-mix(in srgb, var(--Alloy-blue-300) 36%, transparent);
   font-variant-numeric: tabular-nums;
+
+  @media (max-width: 620px) {
+    font-size: clamp(48px, 17vw, 64px);
+  }
 `;
 
 const GrantCurrency = styled.span`
@@ -2320,6 +2469,10 @@ const GrantOfferLabel = styled.span`
   strong {
     color: var(--Alloy-matcha-400);
     font-weight: var(--font-weight-bold);
+  }
+
+  @media (max-width: 620px) {
+    font-size: var(--text-xs);
   }
 `;
 
@@ -2413,6 +2566,11 @@ const GrantField = styled.input`
     border-color: var(--Alloy-blue-300);
     background: rgba(255, 255, 255, 0.11);
   }
+
+  @media (max-width: 520px) {
+    width: 100%;
+    min-width: 0;
+  }
 `;
 
 const GrantButton = styled(Button)`
@@ -2434,6 +2592,12 @@ const GrantButton = styled(Button)`
     color: var(--Alloy-slate-600);
     background: var(--Alloy-slate-300);
     box-shadow: none;
+  }
+
+  @media (max-width: 520px) {
+    && {
+      width: 100%;
+    }
   }
 `;
 
@@ -2475,6 +2639,11 @@ const Typing = styled.div`
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
   background: var(--color-bg-secondary);
+
+  @media (max-width: 600px) {
+    padding: 0;
+    background: transparent;
+  }
 `;
 
 const Dot = styled.span`
@@ -2496,6 +2665,60 @@ const TypingCluster = styled.div`
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
+
+  @media (max-width: 600px) {
+    width: 100%;
+    gap: var(--space-2);
+  }
+`;
+
+/* The automatic reading beat becomes an optional manual stepper on mobile.
+   Keeping it a native button gives touch users a generous target and preserves
+   focus/activation semantics for assistive technology. */
+const LoadingAdvanceButton = styled.button`
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  pointer-events: none;
+
+  @media (max-width: 600px) {
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-opaque);
+    background: var(--color-bg-secondary);
+    cursor: pointer;
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+
+    &:active {
+      background: var(--color-bg-tertiary);
+      transform: scale(0.995);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-border-focus);
+      outline-offset: 2px;
+    }
+  }
+`;
+
+const MobileTapHint = styled.span`
+  display: none;
+
+  @media (max-width: 600px) {
+    display: inline;
+    margin-left: auto;
+    flex-shrink: 0;
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: var(--font-weight-medium);
+    color: var(--color-content-tertiary);
+  }
 `;
 
 /* Light sweep travelling across the working label. */
@@ -2560,6 +2783,14 @@ const ComposerWrap = styled.div`
      than pops. */
   animation: ${turnIn} var(--duration-slow, 420ms) var(--ease-out) both;
 
+  @media (max-width: 600px) {
+    gap: var(--space-2);
+    padding:
+      var(--space-2)
+      var(--space-4)
+      max(var(--space-3), env(safe-area-inset-bottom));
+  }
+
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
@@ -2570,6 +2801,18 @@ const SuggestionRow = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+
+  @media (max-width: 600px) {
+    flex-wrap: nowrap;
+    gap: var(--space-1);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
 `;
 
 /* A quiet chip on the page surface (the app context calls for the standard
@@ -2613,6 +2856,15 @@ const SuggestionPill = styled.button`
     outline: 2px solid var(--color-border-focus);
     outline-offset: 2px;
   }
+
+  @media (max-width: 600px) {
+    min-height: 28px;
+    padding: 0 var(--space-2);
+    gap: var(--space-1);
+    flex: 0 0 auto;
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
 `;
 
 /* Stacks an optional pending-files row over the input row. The composer-button
@@ -2635,6 +2887,12 @@ const Composer = styled.form`
   --composer-btn-size: var(--space-8);
   --composer-btn-icon-attach: var(--space-4);
   --composer-btn-icon-send: var(--space-4);
+
+  @media (max-width: 600px) {
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border-radius: var(--radius-lg);
+  }
 `;
 
 const InputRow = styled.div`
@@ -2718,6 +2976,11 @@ const Field = styled.textarea`
   color: var(--color-content-primary);
 
   &::placeholder { color: var(--color-content-disabled); }
+
+  @media (max-width: 600px) {
+    font-size: var(--text-sm);
+    line-height: var(--line-height-snug);
+  }
 `;
 
 const ActionSlot = styled.div`

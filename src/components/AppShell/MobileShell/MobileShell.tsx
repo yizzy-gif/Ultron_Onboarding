@@ -10,7 +10,6 @@ import styled from 'styled-components';
 import { useScrollDirection } from '../../../hooks/useScrollDirection';
 import { MobileHeader } from './MobileHeader';
 import { OverlayScrim } from './OverlayScrim';
-import { PrimarySheet } from './PrimarySheet';
 import { SecondarySheet } from './SecondarySheet';
 import { PersonaSheet } from './PersonaSheet';
 import { ModuleDrawer } from './ModuleDrawer';
@@ -63,6 +62,18 @@ const Shell = styled.div`
 const Content = styled.main`
   flex: 1 1 auto;
   min-width: 0;
+  /* Stretch the page to the shell's remaining height. Pages size themselves
+     with percentage heights (e.g. the welcome thread's Root), which don't
+     resolve against a flex item without a definite height — so pass the height
+     down through flex instead. Short pages fill the viewport (no white gap
+     under their backdrop); tall ones still grow and scroll. */
+  display: flex;
+  flex-direction: column;
+
+  & > * {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
 `;
 
 export function MobileShell(props: MobileShellProps) {
@@ -80,7 +91,7 @@ export function MobileShell(props: MobileShellProps) {
     children,
   } = props;
 
-  const [overlay, setOverlay] = useState<'drawer' | 'primary' | 'secondary' | 'persona' | null>(null);
+  const [overlay, setOverlay] = useState<'drawer' | 'secondary' | 'persona' | null>(null);
 
   const scrollDir = useScrollDirection({ deadZonePx: 8, topThresholdPx: 20 });
   const headerHidden = overlay === null && scrollDir === 'down';
@@ -104,34 +115,19 @@ export function MobileShell(props: MobileShellProps) {
         secondaryLabel={secondaryLabel}
         tertiaryLabel={personaLabel}
         openOverlay={overlay}
-        user={user}
         hidden={headerHidden}
         onHamburgerClick={() => open('drawer')}
-        onPrimaryClick={() => open('primary')}
-        onSecondaryClick={() => open('secondary')}
-        onTertiaryClick={personaLabel ? () => open('persona') : undefined}
-        onSearchClick={() => {
-          // No dedicated search panel yet — focus wins via hamburger list,
-          // so open the drawer as a reasonable fallback until a panel lands.
-          open('drawer');
+        onSecondaryClick={() => {
+          // The crumb opens the current module's sections; a module without
+          // any falls back to the drawer so the tap always lands somewhere.
+          open(menuEntries.length > 0 ? 'secondary' : 'drawer');
         }}
-        onUserClick={() => onUserClick?.()}
+        onTertiaryClick={personaLabel ? () => open('persona') : undefined}
       />
 
       <Content>{children}</Content>
 
       {scrimActive && <OverlayScrim onDismiss={close} />}
-
-      {overlay === 'primary' && (
-        <PrimarySheet
-          activeId={activeId}
-          groups={moduleGroups}
-          onSelect={moduleId => {
-            onMobileNavigate(moduleId);
-            close();
-          }}
-        />
-      )}
 
       {overlay === 'secondary' && (
         <SecondarySheet
@@ -157,6 +153,8 @@ export function MobileShell(props: MobileShellProps) {
           activeId={activeId}
           groups={moduleGroups}
           currentMenuEntries={menuEntries}
+          user={user}
+          onUserClick={onUserClick}
           onSelectModule={moduleId => onMobileNavigate(moduleId)}
           onDismiss={close}
         />

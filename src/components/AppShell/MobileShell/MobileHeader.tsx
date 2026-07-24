@@ -1,13 +1,14 @@
 // 48px top header used on viewports below the mobile breakpoint.
-// Layout (left to right): hamburger, breadcrumb dropdowns, search
-// icon, avatar. Supports scroll-away: when the parent passes
-// `hidden`, the header translates off-screen with a short transition.
+// Layout (left to right): hamburger, then the secondary-nav crumb — the
+// current section within the active module (falling back to the module
+// name when it has no sections) — plus an optional persona crumb.
+// Module switching, search, and the profile all live in the hamburger
+// drawer. Supports scroll-away: when the parent passes `hidden`, the
+// header translates off-screen with a short transition.
 
 import { forwardRef, type MouseEventHandler } from 'react';
 import styled from 'styled-components';
-import { SearchSmIcon } from 'alloy-design-system';
 import { BreadcrumbButton } from './BreadcrumbButton';
-import type { UserProfile } from '../../../types/nav';
 
 const HeaderRoot = styled.header<{ $hidden: boolean }>`
   position: sticky;
@@ -62,27 +63,6 @@ const Separator = styled.span`
   user-select: none;
 `;
 
-const AvatarBtn = styled.button<{ $color?: string }>`
-  all: unset;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: ${p => p.$color ?? 'var(--color-bg-tertiary, #eceef1)'};
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-sans, Geist, sans-serif);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  flex: 0 0 auto;
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus, #446cff);
-    outline-offset: 2px;
-  }
-`;
-
 /** Simple 3-line hamburger glyph — avoids pulling in another Alloy icon. */
 function HamburgerIcon({ size = 18 }: { size?: number }) {
   return (
@@ -98,18 +78,15 @@ function HamburgerIcon({ size = 18 }: { size?: number }) {
 }
 
 interface MobileHeaderProps {
+  /** Fallback crumb label for modules without a secondary section. */
   primaryLabel: string;
   secondaryLabel?: string;
   tertiaryLabel?: string | null;
-  openOverlay: 'drawer' | 'primary' | 'secondary' | 'persona' | null;
-  user: UserProfile;
+  openOverlay: 'drawer' | 'secondary' | 'persona' | null;
   hidden: boolean;
   onHamburgerClick: MouseEventHandler<HTMLButtonElement>;
-  onPrimaryClick: MouseEventHandler<HTMLButtonElement>;
   onSecondaryClick: MouseEventHandler<HTMLButtonElement>;
   onTertiaryClick?: MouseEventHandler<HTMLButtonElement>;
-  onSearchClick: MouseEventHandler<HTMLButtonElement>;
-  onUserClick?: MouseEventHandler<HTMLButtonElement>;
 }
 
 export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function MobileHeader(
@@ -118,14 +95,10 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
     secondaryLabel,
     tertiaryLabel,
     openOverlay,
-    user,
     hidden,
     onHamburgerClick,
-    onPrimaryClick,
     onSecondaryClick,
     onTertiaryClick,
-    onSearchClick,
-    onUserClick,
   },
   ref,
 ) {
@@ -138,22 +111,11 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
 
         <Crumbs>
           <BreadcrumbButton
-            label={primaryLabel}
-            isOpen={openOverlay === 'primary'}
-            onClick={onPrimaryClick}
-            ariaLabel="Choose a module"
+            label={secondaryLabel ?? primaryLabel}
+            isOpen={openOverlay === 'secondary'}
+            onClick={onSecondaryClick}
+            ariaLabel="Choose a section"
           />
-          {secondaryLabel && (
-            <>
-              <Separator aria-hidden="true">›</Separator>
-              <BreadcrumbButton
-                label={secondaryLabel}
-                isOpen={openOverlay === 'secondary'}
-                onClick={onSecondaryClick}
-                ariaLabel="Choose a section"
-              />
-            </>
-          )}
           {tertiaryLabel && (
             <>
               <Separator aria-hidden="true">›</Separator>
@@ -166,14 +128,6 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
             </>
           )}
         </Crumbs>
-
-        <IconButton onClick={onSearchClick} aria-label="Search">
-          <SearchSmIcon size={18} />
-        </IconButton>
-
-        <AvatarBtn onClick={onUserClick} $color={user.avatarColor} aria-label={`User: ${user.name}`}>
-          {user.initials}
-        </AvatarBtn>
       </Row>
     </HeaderRoot>
   );
