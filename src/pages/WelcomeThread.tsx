@@ -17,7 +17,7 @@ import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
 import {
   Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, Dialog, XCloseIcon,
   Users03Icon, ClockIcon, File04Icon, CheckVerified01Icon, Tag,
-  AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader, Microphone02Icon,
+  AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader,
 } from 'alloy-design-system';
 import { mockUltronReply } from './Ultron/fixtures';
 import { AgentMark } from './Ultron/AgentMark';
@@ -48,10 +48,7 @@ interface Msg {
   attachments?: string[];
   /** A rich block delivered as its own Ultron message — the roster import
    *  result, or the built week. Rendered full-width in the thread. */
-  card?: 'roster' | 'week' | 'scheduleCta' | 'inboundCall';
-  /** The number captured when a simulated call card is created. Keeping it on
-   *  the message prevents a later modal edit from changing thread history. */
-  phone?: string;
+  card?: 'roster' | 'week' | 'scheduleCta';
 }
 
 interface IntakeFile {
@@ -183,19 +180,6 @@ export function companyName(website?: string): string | null {
     .map(w => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
   return name || host;
-}
-
-/** Make a US-length demo number easy to scan while leaving international or
- *  partial input untouched. */
-function displayPhone(value: string): string {
-  const digits = value.replace(/\D/g, '');
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
-  if (digits.length === 11 && digits.startsWith('1')) {
-    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
-  }
-  return value;
 }
 
 /** Multi-line / tabular text pasted into the composer reads as a copied block
@@ -468,20 +452,10 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   }, []);
 
   const unlock = () => {
-    const submittedPhone = phone.trim();
     setUnlocked(true);
-    // Let the confirmation land, hand the screen back to the thread, then
-    // surface the simulated inbound reach-out as a new conversation event.
+    // Let the confirmation land, then hand the screen back to the thread.
     if (grantTimer.current) window.clearTimeout(grantTimer.current);
-    grantTimer.current = window.setTimeout(() => {
-      setGrantOpen(false);
-      after(460, () => {
-        setMessages(current => [
-          ...current,
-          { role: 'ultron', text: '', card: 'inboundCall', phone: submittedPhone },
-        ]);
-      });
-    }, GRANT_CONFIRM_HOLD_MS);
+    grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
   };
 
   const joinWaitlist = () => {
@@ -911,8 +885,6 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                       <BeatReveal>
                         {m.card === 'roster' ? (
                           <RosterResultCard sample={rosterSample} />
-                        ) : m.card === 'inboundCall' ? (
-                          <InboundCallCard phone={m.phone ?? phone} />
                         ) : m.card === 'scheduleCta' ? (
                           /* The schedule intake — the roster drop zone's twin,
                              delivered with the schedule ask (its one-tap week
@@ -1396,46 +1368,6 @@ function WeekResultCard({ problems, week }: { problems: WeekProblem[]; week: Wee
         </CalGrid>
       </CalScroll>
     </ResultCard>
-  );
-}
-
-/** A demo inbound call event delivered into the thread after the welcome grant
- *  is unlocked. The call is already connected so its live transcript can make
- *  the human follow-up concrete without introducing another interaction step. */
-function InboundCallCard({ phone }: { phone: string }) {
-  return (
-    <CallCard role="article" aria-label={`Inbound call to ${displayPhone(phone)}`}>
-      <CallHeader>
-        <CallIdentity>
-          <CallIcon aria-hidden="true">
-            <CallPulse />
-            <Microphone02Icon size={18} />
-          </CallIcon>
-          <CallWho>
-            <CallEyebrow>Inbound call</CallEyebrow>
-            <CallTitle>Teambridge onboarding</CallTitle>
-            <CallNumber>{displayPhone(phone)}</CallNumber>
-          </CallWho>
-        </CallIdentity>
-        <CallStatus>
-          <CallStatusDot aria-hidden="true" />
-          Connected
-        </CallStatus>
-      </CallHeader>
-
-      <CallTranscript>
-        <TranscriptLabel>Live transcript</TranscriptLabel>
-        <TranscriptSpeaker>
-          <AgentMark size={22} />
-          <span>Maya · Teambridge</span>
-        </TranscriptSpeaker>
-        <TranscriptCopy>
-          Hi — I saw you just unlocked your Ultron grant. I’m reaching out to help
-          get your first workflow live and make sure your $1,000 credit is applied.
-          Is now a good time?
-        </TranscriptCopy>
-      </CallTranscript>
-    </CallCard>
   );
 }
 
@@ -2073,175 +2005,6 @@ const ResultCard = styled.div`
   flex-direction: column;
   gap: var(--space-4);
   text-align: left;
-`;
-
-const callRing = keyframes`
-  0% { transform: scale(0.82); opacity: 0.48; }
-  70%, 100% { transform: scale(1.45); opacity: 0; }
-`;
-
-const callLevel = keyframes`
-  0%, 100% { opacity: 0.68; }
-  50% { opacity: 1; }
-`;
-
-const CallCard = styled(ResultCard)`
-  gap: var(--space-3);
-  overflow: hidden;
-  border-color: color-mix(in srgb, var(--color-success-content) 24%, var(--color-border-opaque));
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--color-success-content) 5%, var(--color-bg-primary)),
-      var(--color-bg-primary) 52%
-    );
-
-  @media (max-width: 600px) {
-    padding: var(--space-4);
-  }
-`;
-
-const CallHeader = styled.div`
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-`;
-
-const CallIdentity = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-`;
-
-const CallIcon = styled.span`
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--space-10);
-  height: var(--space-10);
-  border-radius: var(--radius-full);
-  background: var(--color-success-content);
-  color: var(--color-bg-primary);
-`;
-
-const CallPulse = styled.span`
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--color-success-content);
-  border-radius: inherit;
-  animation: ${callRing} 2200ms var(--ease-out) infinite;
-  pointer-events: none;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-const CallWho = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-`;
-
-const CallEyebrow = styled.span`
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  line-height: 1.3;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-success-content);
-`;
-
-const CallTitle = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-snug, 1.35);
-  color: var(--color-content-primary);
-`;
-
-const CallNumber = styled.span`
-  overflow: hidden;
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  line-height: var(--line-height-snug, 1.35);
-  color: var(--color-content-tertiary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-`;
-
-const CallStatus = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-shrink: 0;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--color-success-content) 10%, transparent);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  color: var(--color-success-content);
-`;
-
-const CallStatusDot = styled.span`
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: currentColor;
-  animation: ${callLevel} 1500ms ease-in-out infinite;
-
-  @media (prefers-reduced-motion: reduce) {
-    animation: none;
-  }
-`;
-
-const CallTranscript = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-opaque);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-bg-secondary) 72%, transparent);
-`;
-
-const TranscriptLabel = styled.span`
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  line-height: 1.3;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
-`;
-
-const TranscriptSpeaker = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-content-primary);
-`;
-
-const TranscriptCopy = styled.p`
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  line-height: var(--line-height-relaxed, 1.55);
-  color: var(--color-content-secondary);
-
-  @media (max-width: 600px) {
-    font-size: var(--text-xs);
-  }
 `;
 
 /* Header line for the sample-crew variant (no confidence stat to lead with). */
