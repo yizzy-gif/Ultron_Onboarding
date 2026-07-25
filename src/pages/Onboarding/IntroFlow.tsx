@@ -887,7 +887,7 @@ function SiteParse({
         </SegmentRow>
       </ProgressWrap>
 
-      <LearnedReadout learned={learned} loading={!allDone} />
+      <LearnedReadout learned={learned} completed={allDone ? total : active - 1} done={allDone} />
 
       {/* Read complete → the primary way on ('t' still continues for keyboard),
           with a quiet restart underneath for replaying the read. */}
@@ -925,21 +925,32 @@ function SiteParse({
 // sentences at most ending with what Ultron DID about it, and the signal chips
 // behind the prose. A centered sign-off closes the read. All from the matched
 // sample dataset (workforceSamples.ts) — nothing is really crawled. Rendered
-// below the activation bar (see SiteParse), so it's visible while the bar runs;
-// until the read completes (`loading`) it shows shimmering placeholders shaped
-// like the eventual cards, then swaps in the real content.
-function LearnedReadout({ learned, loading }: { learned: WorkforceSample; loading?: boolean }) {
+// below the activation bar (see SiteParse), so it's visible while the bar runs —
+// and it reveals WITH the bar: every beat the bar completes swaps one more card
+// from its shimmering placeholder to the real content (beat 1 → the lead card,
+// then one narrative card per beat), with the sign-off landing at completion.
+function LearnedReadout({ learned, completed, done }: {
+  learned: WorkforceSample;
+  /** How many activation beats have completed — one card reveals per beat. */
+  completed: number;
+  /** The whole read has settled — reveals the sign-off. */
+  done?: boolean;
+}) {
   const { company } = learned;
+  const leadLoading = completed < 1;
   return (
-    <ReadoutWrap key={loading ? 'readout-loading' : 'readout-ready'}>
-      {/* Lead card — the classification + the facts read from the site. */}
-      <LeadCard>
+    <ReadoutWrap>
+      {/* Lead card — the classification + the facts read from the site. Each
+          card is keyed on its own loading flip so the pop-in replays as its
+          content lands; a freshly revealed card pops immediately (delay 0),
+          while the initial skeleton set keeps its top-to-bottom cascade. */}
+      <LeadCard key={leadLoading ? 'lead-loading' : 'lead-ready'}>
         <LeadTop>
           <LeadMark aria-hidden="true">
-            {loading ? <Skeleton $w="20px" $h="20px" $round /> : <Building05Icon size={20} />}
+            {leadLoading ? <Skeleton $w="20px" $h="20px" $round /> : <Building05Icon size={20} />}
           </LeadMark>
           <LeadText>
-            {loading ? (
+            {leadLoading ? (
               <>
                 <Skeleton $w="240px" $h="1em" />
                 <Skeleton $w="160px" $h="0.85em" />
@@ -953,7 +964,7 @@ function LearnedReadout({ learned, loading }: { learned: WorkforceSample; loadin
           </LeadText>
         </LeadTop>
         <LeadFacts>
-          {loading ? (
+          {leadLoading ? (
             <>
               <Skeleton $w="110px" $h="0.9em" />
               <Skeleton $w="150px" $h="0.9em" />
@@ -980,39 +991,49 @@ function LearnedReadout({ learned, loading }: { learned: WorkforceSample; loadin
         </LeadFacts>
       </LeadCard>
 
-      {/* One card per narrative group, cascading in after the lead. */}
-      {learned.narrative.map((group, gi) => (
-        <ReadoutCard key={group.label} style={{ ['--group-i' as string]: gi + 1 }}>
-          {loading ? (
-            <>
-              <Skeleton $w="128px" $h="0.95em" />
-              <SkeletonLines>
-                <Skeleton $h="0.85em" />
-                <Skeleton $h="0.85em" />
-                <Skeleton $h="0.85em" $w="62%" />
-              </SkeletonLines>
-              <ReadoutTags>
-                <Skeleton $w="76px" $h="20px" $round />
-                <Skeleton $w="92px" $h="20px" $round />
-                <Skeleton $w="64px" $h="20px" $round />
-              </ReadoutTags>
-            </>
-          ) : (
-            <>
-              <ReadoutLabel>{group.label}</ReadoutLabel>
-              <ReadoutBody>{group.body}</ReadoutBody>
-              <ReadoutTags>
-                {group.tags.map(tag => (
-                  <Tag key={tag} size="sm" variant="subtle" color="neutral">{tag}</Tag>
-                ))}
-              </ReadoutTags>
-            </>
-          )}
-        </ReadoutCard>
-      ))}
+      {/* One card per narrative group — each reveals on its own beat, after
+          the lead (beat gi + 2). */}
+      {learned.narrative.map((group, gi) => {
+        const cardLoading = completed < gi + 2;
+        return (
+          <ReadoutCard
+            key={`${group.label}-${cardLoading ? 'loading' : 'ready'}`}
+            style={{ ['--group-i' as string]: cardLoading ? gi + 1 : 0 }}
+          >
+            {cardLoading ? (
+              <>
+                <Skeleton $w="128px" $h="0.95em" />
+                <SkeletonLines>
+                  <Skeleton $h="0.85em" />
+                  <Skeleton $h="0.85em" />
+                  <Skeleton $h="0.85em" $w="62%" />
+                </SkeletonLines>
+                <ReadoutTags>
+                  <Skeleton $w="76px" $h="20px" $round />
+                  <Skeleton $w="92px" $h="20px" $round />
+                  <Skeleton $w="64px" $h="20px" $round />
+                </ReadoutTags>
+              </>
+            ) : (
+              <>
+                <ReadoutLabel>{group.label}</ReadoutLabel>
+                <ReadoutBody>{group.body}</ReadoutBody>
+                <ReadoutTags>
+                  {group.tags.map(tag => (
+                    <Tag key={tag} size="sm" variant="subtle" color="neutral">{tag}</Tag>
+                  ))}
+                </ReadoutTags>
+              </>
+            )}
+          </ReadoutCard>
+        );
+      })}
 
-      <ReadoutCloseRow style={{ ['--group-i' as string]: learned.narrative.length + 1 }}>
-        {loading ? <Skeleton $w="152px" $h="0.95em" /> : <ReadoutClose>Consider it handled.</ReadoutClose>}
+      <ReadoutCloseRow
+        key={done ? 'close-ready' : 'close-loading'}
+        style={{ ['--group-i' as string]: done ? 0 : learned.narrative.length + 1 }}
+      >
+        {done ? <ReadoutClose>Consider it handled.</ReadoutClose> : <Skeleton $w="152px" $h="0.95em" />}
       </ReadoutCloseRow>
     </ReadoutWrap>
   );
