@@ -50,6 +50,11 @@ interface AgentMarkProps {
    *  arc between cells) to draw. Omit for the default (5 hero / 4 nav). `0`
    *  leaves just the core, cell sphere, and flowing particle swarm — no lines. */
   streamCount?: number;
+  /** `magnetic` mark only — progressive build: how many of the globe's cells are
+   *  revealed. `0` leaves just the breathing core; raising the number appends
+   *  cells one after another, each emerging from the core and settling onto the
+   *  sphere surface. Omit for the classic full globe (all cells, no build). */
+  cellCount?: number;
   'aria-label'?: string;
   className?: string;
 }
@@ -123,7 +128,18 @@ function pal(tone: AgentMarkTone, accent: string): Pal {
   return { dot: '228,238,252', core: '248,251,255', accent, glow: true };
 }
 
-interface Ctx { ctx: CanvasRenderingContext2D; w: number; h: number; dpr: number; size: number; state: AgentMarkState; coreHalo: boolean; alert?: number; streamCount?: number; }
+interface Ctx {
+  ctx: CanvasRenderingContext2D; w: number; h: number; dpr: number; size: number; state: AgentMarkState; coreHalo: boolean; alert?: number; streamCount?: number;
+  /** `magnetic` progressive build — how many cells are revealed (undefined = all). */
+  cellCount?: number;
+  /** Per-cell birth stamps (wall-clock seconds), owned by the component and
+   *  mutated by drawMagnetic as new cells are revealed. Undefined = no
+   *  emergence animation (revealed cells paint settled — reduced motion). */
+  cellBirths?: Map<number, number>;
+  /** Wall-clock seconds for the current frame, driving the emergence easing on
+   *  its own clock so `motionSpeed` / the synthetic first frame can't warp it. */
+  emergeNow?: number;
+}
 
 // The alert palette. The core runs orange-red at the middle out to yellow at the
 // edge (a hot sun). The cells/lines run the SAME red-orange → yellow sweep,
@@ -532,32 +548,219 @@ function drawMagnetic(e: Ctx, T: number, P: Pal) {
   const mk = (th: number, ph: number) => [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
   const A = [mk(1.4 + 0.5 * Math.sin(T * 0.5 * sp), T * 0.6 * sp), mk(1.9 + 0.4 * Math.cos(T * 0.4 * sp), -T * 0.5 * sp + 2.0)];
   const sig = 0.36;
+
+  // ── Progressive build (cellCount) ─────────────────────────────────────────
+  // How many of the N cells are on the globe. Undefined keeps the classic full
+  // sphere. Cells reveal in a deterministic hash-shuffled order so the surface
+  // fills evenly (not pole-down), stable across frames and remounts.
+  const want = e.cellCount == null ? N : clamp(Math.round(e.cellCount), 0, N);
+  let rank: number[] | null = null;
+  let ord: number[] | null = null;
+  if (want < N || e.cellBirths) {
+    ord = Array.from({ length: N }, (_, i) => i).sort((a, b) => hash(a) - hash(b));
+    rank = new Array<number>(N);
+    ord.forEach((k, i) => { rank![k] = i; });
+  }
+  // Newly revealed cells get staggered birth stamps (wall-clock seconds), so a
+  // step's batch appends one after another rather than blooming all at once.
+  const EMERGE_S = 0.7, STAGGER_S = 0.16;
+  if (ord && e.cellBirths && e.emergeNow != null) {
+    let queue = 0;
+    for (let i = 0; i < want; i++) {
+      const k = ord[i];
+      if (!e.cellBirths.has(k)) e.cellBirths.set(k, e.emergeNow + queue++ * STAGGER_S);
+    }
+  }
+
   ctx.save();
   ctx.globalCompositeOperation = P.glow ? 'lighter' : 'source-over';
-  const dots: { x: number; y: number; d: number; inf: number }[] = [];
+  const dots: { x: number; y: number; d: number; inf: number; g: number }[] = [];
   for (let k = 0; k < N; k++) {
+    // Emergence 0→1: unborn cells skip; mid-flight cells ride out of the core.
+    let g = 1;
+    if (rank) {
+      if (rank[k] >= want) continue;                       // not yet revealed
+      if (e.cellBirths) {
+        const b = e.cellBirths.get(k);
+        if (b == null) continue;
+        g = smooth01(((e.emergeNow ?? b + EMERGE_S) - b) / EMERGE_S);
+        if (g <= 0.001) continue;                          // waiting its turn
+      }
+    }
     const yy = 1 - (k + 0.5) / N * 2, ringr = Math.sqrt(Math.max(0, 1 - yy * yy)), phi = k * 2.39996;
-    const px = Math.cos(phi) * ringr, py = yy, pz = Math.sin(phi) * ringr;
+    // Scale the sphere point by g so each new cell travels core → surface.
+    const px = Math.cos(phi) * ringr * g, py = yy * g, pz = Math.sin(phi) * ringr * g;
     let inf = 0;
     for (const at of A) { const dx = px - at[0], dy = py - at[1], dz = pz - at[2]; inf += Math.exp(-(dx * dx + dy * dy + dz * dz) / (2 * sig * sig)); }
     inf = clamp(inf, 0, 1);
     const X = px * cyaw + pz * syaw, Zr = -px * syaw + pz * cyaw;
     const Y2 = py * ct - Zr * stt, Z2 = py * stt + Zr * ct;
     const d = (Z2 + 1) / 2, persp = 0.82 + 0.18 * d;
-    dots.push({ x: cx + X * rr * persp, y: cy + Y2 * rr * persp, d, inf });
+    dots.push({ x: cx + X * rr * persp, y: cy + Y2 * rr * persp, d, inf, g });
   }
   dots.sort((p, q) => p.d - q.d);
   for (const dt of dots) {
     const ex = smooth01(dt.inf);
-    const r = Math.max(0.6, R * (0.05 + 0.06 * ex) * cellK(e.size) * (0.55 + 0.5 * dt.d));
-    const al = (0.16 + 0.84 * dt.d) * (0.45 + 0.55 * ex);
-    const f = Math.abs(2 * dt.d - 1);
+    const r = Math.max(0.6, R * (0.05 + 0.06 * ex) * cellK(e.size) * (0.55 + 0.5 * dt.d)) * (0.35 + 0.65 * dt.g);
+    const al = (0.16 + 0.84 * dt.d) * (0.45 + 0.55 * ex) * dt.g;
+    // Sticker squash blends in with g: a round dot in flight, flattened onto the
+    // sphere (full circle facing the viewer, a sliver at the limb) once settled.
+    const f = 1 - (1 - Math.abs(2 * dt.d - 1)) * dt.g;
     const ang = Math.atan2(dt.y - cy, dt.x - cx);
     ctx.fillStyle = 'rgba(' + P.dot + ',' + al + ')';
     ctx.beginPath();
     ctx.ellipse(dt.x, dt.y, Math.max(0.35, r * f), r, ang, 0, 6.2832);
     ctx.fill();
   }
+  drawCore(e, T, P);
+  ctx.restore();
+}
+
+// Magnetic ⇄ Lines morph — one continuous shape transition instead of a hard
+// swap, driven by m in (0,1): 0 = pure magnetic, 1 = pure lines. Three
+// overlapping beats, each easing on its own window of m:
+//   gather (0→0.55)  — the globe's spots swirl inward onto the spoke-tip
+//                       positions (both marks share the same Fibonacci-sphere
+//                       layout, so every spot has a natural nearest spoke);
+//   dotIn  (0.3→0.7) — the Lines tip dots crystallize where the spots land,
+//                       as the travelling spots hand off and fade;
+//   lineIn (0.5→1)   — the spokes draw from the core outward to connect the
+//                       dots, and the hero swarm drifts in.
+// Played in reverse (m 1→0) the lines retract into the core, the dots dissolve
+// back into spots, and the spots scatter home onto the sphere. At m=0 the frame
+// is pixel-equivalent to drawMagnetic (settled), at m=1 to drawLines, so the
+// component can hand back to the plain draws with no visible seam.
+function drawMagneticLinesMorph(e: Ctx, T: number, P: Pal, m: number) {
+  const { ctx, w, h, dpr } = e, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.39;
+  const active = e.state !== 'idle';
+  const gather = smooth01(clamp(m / 0.55, 0, 1));
+  const dotIn = smooth01(clamp((m - 0.3) / 0.4, 0, 1));
+  const lineIn = smooth01(clamp((m - 0.5) / 0.5, 0, 1));
+
+  // ── Lines-side geometry (the gather targets) — mirrors drawLines exactly.
+  const NL = e.size >= 32 ? 11 : 7;
+  const inner = R * 0.12, gap = R * 0.12;
+  const breath = smooth01(0.5 + 0.5 * Math.sin(T * (active ? 1.0 : 0.55)));
+  const ev = active ? (0.34 + 0.66 * breath) : (0.5 + 0.12 * breath);
+  const lw = Math.max(1 * dpr, R * 0.052);
+  const yawL = -T * (active ? 0.5 : 0.16), cyl = Math.cos(yawL), syl = Math.sin(yawL);
+  const tilt = 0.42, ctl = Math.cos(tilt), stl = Math.sin(tilt);
+  const L = R * (0.52 + 0.44 * ev), Ls = Math.max(inner + lw, L - gap);
+  const spokes: { x0: number; y0: number; x1: number; y1: number; cx2: number; cy2: number; d: number; shim: number; ux: number; uy: number; uz: number }[] = [];
+  for (let k = 0; k < NL; k++) {
+    const yy = 1 - (k + 0.5) / NL * 2, rr0 = Math.sqrt(Math.max(0, 1 - yy * yy)), phi = k * 2.39996;
+    const dx = Math.cos(phi) * rr0, dy = yy, dz = Math.sin(phi) * rr0;
+    const X = dx * cyl + dz * syl, Zr = -dx * syl + dz * cyl;
+    const Y2 = dy * ctl - Zr * stl, Z2 = dy * stl + Zr * ctl;
+    const d = (Z2 + 1) / 2, persp = 0.82 + 0.18 * d;
+    const shim = 0.5 + 0.5 * Math.sin(T * 1.6 + k * 1.3);
+    spokes.push({
+      x0: cx + X * inner * persp, y0: cy + Y2 * inner * persp,
+      x1: cx + X * Ls * persp, y1: cy + Y2 * Ls * persp,
+      cx2: cx + X * L * persp, cy2: cy + Y2 * L * persp,
+      d, shim, ux: dx, uy: dy, uz: dz,
+    });
+  }
+
+  ctx.save();
+  ctx.globalCompositeOperation = P.glow ? 'lighter' : 'source-over';
+  ctx.lineCap = 'round';
+
+  // ── Spokes + tip dots (under the travelling spots). The stroke grows from
+  //    the core toward the tip by lineIn; the tip dot crystallizes by dotIn.
+  const ordered = [...spokes].sort((a, b) => a.d - b.d);
+  for (const s of ordered) {
+    const la = (active ? (0.4 + 0.45 * ev) : 0.6) * (0.4 + 0.6 * s.d) * (0.78 + 0.22 * s.shim);
+    if (lineIn > 0.001) {
+      const exx = s.x0 + (s.x1 - s.x0) * lineIn, eyy = s.y0 + (s.y1 - s.y0) * lineIn;
+      const lg = ctx.createLinearGradient(s.x0, s.y0, s.x1, s.y1);
+      lg.addColorStop(0, 'rgba(' + P.dot + ',' + la * lineIn + ')');
+      lg.addColorStop(1, 'rgba(' + P.accent + ',0)');
+      ctx.strokeStyle = lg; ctx.lineWidth = lw * (0.7 + 0.5 * s.d);
+      ctx.beginPath(); ctx.moveTo(s.x0, s.y0); ctx.lineTo(exx, eyy); ctx.stroke();
+    }
+    if (dotIn > 0.001) {
+      const tipR = Math.max(0.9, R * 0.058 * cellK(e.size) * (0.85 + 0.3 * ev) * (0.6 + 0.5 * s.d));
+      if (P.glow) {
+        const bg = ctx.createRadialGradient(s.cx2, s.cy2, 0, s.cx2, s.cy2, tipR * 5);
+        bg.addColorStop(0, 'rgba(' + P.accent + ',' + (0.26 * la * dotIn) + ')');
+        bg.addColorStop(1, 'rgba(' + P.accent + ',0)');
+        ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(s.cx2, s.cy2, tipR * 5, 0, 6.2832); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(' + P.dot + ',' + Math.min(1, la + 0.1) * dotIn + ')';
+      ctx.beginPath(); ctx.arc(s.cx2, s.cy2, tipR * (0.6 + 0.4 * dotIn), 0, 6.2832); ctx.fill();
+    }
+  }
+
+  // ── Magnetic-side spots — mirrors drawMagnetic (settled cells; the morph only
+  //    ever runs between steady states), each gliding toward its nearest spoke's
+  //    tip by gather and handing off to the crystallized dot by dotIn.
+  const NM = e.size >= 32 ? 58 : (e.size >= 20 ? 32 : 18);
+  const rr = R * 0.78;
+  const yawM = active ? T * 0.5 : T * 0.2, cym = Math.cos(yawM), sym = Math.sin(yawM);
+  const sp = active ? 1 : 0.4;
+  const mk = (th: number, ph: number) => [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+  const A = [mk(1.4 + 0.5 * Math.sin(T * 0.5 * sp), T * 0.6 * sp), mk(1.9 + 0.4 * Math.cos(T * 0.4 * sp), -T * 0.5 * sp + 2.0)];
+  const sig = 0.36;
+  const want = e.cellCount == null ? NM : clamp(Math.round(e.cellCount), 0, NM);
+  let rank: number[] | null = null;
+  if (want < NM) {
+    const ord = Array.from({ length: NM }, (_, i) => i).sort((a, b) => hash(a) - hash(b));
+    rank = new Array<number>(NM);
+    ord.forEach((k, i) => { rank![k] = i; });
+  }
+  const cellAlpha = 1 - dotIn;
+  if (cellAlpha > 0.001 || gather < 1) {
+    const dots: { x: number; y: number; d: number; inf: number; f: number }[] = [];
+    for (let k = 0; k < NM; k++) {
+      if (rank && rank[k] >= want) continue;
+      const yy = 1 - (k + 0.5) / NM * 2, ringr = Math.sqrt(Math.max(0, 1 - yy * yy)), phi = k * 2.39996;
+      const px = Math.cos(phi) * ringr, py = yy, pz = Math.sin(phi) * ringr;
+      // Nearest spoke by pre-yaw direction — both layouts live on the same unit
+      // sphere, so the dot product picks each spot's natural line to join.
+      let best = 0, bestDot = -2;
+      for (let j = 0; j < NL; j++) {
+        const dp = px * spokes[j].ux + py * spokes[j].uy + pz * spokes[j].uz;
+        if (dp > bestDot) { bestDot = dp; best = j; }
+      }
+      const tgt = spokes[best];
+      let inf = 0;
+      for (const at of A) { const dx = px - at[0], dy = py - at[1], dz = pz - at[2]; inf += Math.exp(-(dx * dx + dy * dy + dz * dz) / (2 * sig * sig)); }
+      inf = clamp(inf, 0, 1);
+      const X = px * cym + pz * sym, Zr = -px * sym + pz * cym;
+      const Y2 = py * ctl - Zr * stl, Z2 = py * stl + Zr * ctl;
+      const dm = (Z2 + 1) / 2, persp = 0.82 + 0.18 * dm;
+      const xm = cx + X * rr * persp, ym = cy + Y2 * rr * persp;
+      dots.push({
+        x: xm + (tgt.cx2 - xm) * gather,
+        y: ym + (tgt.cy2 - ym) * gather,
+        d: dm + (tgt.d - dm) * gather,
+        inf,
+        // Sticker squash relaxes to a round dot as the spot leaves the sphere.
+        f: (1 - (1 - Math.abs(2 * dm - 1))) * (1 - gather) + 1 * gather,
+      });
+    }
+    dots.sort((p, q) => p.d - q.d);
+    for (const dt of dots) {
+      const ex = smooth01(dt.inf);
+      const r = Math.max(0.6, R * (0.05 + 0.06 * ex) * cellK(e.size) * (0.55 + 0.5 * dt.d));
+      const al = (0.16 + 0.84 * dt.d) * (0.45 + 0.55 * ex) * cellAlpha;
+      if (al <= 0.003) continue;
+      const ang = Math.atan2(dt.y - cy, dt.x - cx);
+      ctx.fillStyle = 'rgba(' + P.dot + ',' + al + ')';
+      ctx.beginPath();
+      ctx.ellipse(dt.x, dt.y, Math.max(0.35, r * dt.f), r, ang, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  // Hero swarm drifts in alongside the lines (drawLines carries it at m=1).
+  if (e.size >= 120 && lineIn > 0.001) {
+    ctx.globalAlpha = lineIn;
+    drawSwarm(e, T, P, () => P.dot);
+    ctx.globalAlpha = 1;
+  }
+
   drawCore(e, T, P);
   ctx.restore();
 }
@@ -610,7 +813,7 @@ const DRAW: Record<AgentMarkKind, (e: Ctx, T: number, P: Pal) => void> = {
 
 export function AgentMark({
   mark = 'orbit', size = 16, tone = 'auto', state = 'active',
-  motionSpeed = 1, accent = '#96B9FF', color, coreHalo = true, coreGradient = false, streamCount, className, 'aria-label': ariaLabel,
+  motionSpeed = 1, accent = '#96B9FF', color, coreHalo = true, coreGradient = false, streamCount, cellCount, className, 'aria-label': ariaLabel,
 }: AgentMarkProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   // Repaint trigger when the OS theme flips (the light/dark choice itself is
@@ -621,6 +824,15 @@ export function AgentMark({
   const alertRef = useRef(0);
   const alertTargetRef = useRef(0);
   alertTargetRef.current = coreGradient ? 1 : 0;
+  // Birth stamps for the magnetic build (cell index → wall-clock seconds).
+  // Component-level so raising cellCount mid-emergence appends the new batch
+  // while cells already in flight keep gliding — no restart on prop change.
+  const birthsRef = useRef<Map<number, number>>(new Map());
+  // Magnetic ⇄ lines morph position (0 = magnetic, 1 = lines). Component-level
+  // so a mark flip mid-morph reverses from wherever the shape currently is.
+  // Null until the first effect run — the initial mount snaps, never morphs.
+  const morphRef = useRef<number | null>(null);
+  const morphClockRef = useRef(0);
 
   useEffect(() => {
     const el = ref.current;
@@ -628,10 +840,17 @@ export function AgentMark({
     const ctx = el.getContext('2d');
     if (!ctx) return;
 
+    const reduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } })();
+
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const W = Math.max(2, Math.round(size * dpr)), H = W;
     el.width = W; el.height = H;
-    const e: Ctx = { ctx, w: W, h: H, dpr, size, state, coreHalo, alert: alertRef.current, streamCount };
+    const e: Ctx = {
+      ctx, w: W, h: H, dpr, size, state, coreHalo, alert: alertRef.current, streamCount,
+      cellCount,
+      // No animation loop → skip emergence; revealed cells paint settled.
+      cellBirths: cellCount != null && !reduced && state !== 'static' ? birthsRef.current : undefined,
+    };
     // `auto` follows the page theme: sample the resolved page surface token off
     // this element (which honours both the prefers-color-scheme media query and
     // any manual .light/.dark override) and pick the matching palette — light
@@ -648,17 +867,41 @@ export function AgentMark({
     if (color) { const rgb = cssToRGB(ctx, el, color); P.dot = rgb; P.core = rgb; }
     const draw = DRAW[mark] ?? drawOrbit;
 
+    // Magnetic ⇄ lines morph target. A flip between those two marks glides the
+    // morph position instead of hard-swapping draw functions; any other mark
+    // (or the very first mount, or no-animation modes) snaps straight there.
+    const MORPH_S = 1.15;
+    const morphTarget = mark === 'lines' ? 1 : 0;
+    const morphable = mark === 'lines' || mark === 'magnetic';
+    if (morphRef.current == null || !morphable || reduced || state === 'static') {
+      morphRef.current = morphTarget;
+    }
+
     const paint = (T: number) => {
       // Glide the alert amount toward its target so the color swap eases in/out.
       alertRef.current += (alertTargetRef.current - alertRef.current) * 0.06;
       if (Math.abs(alertRef.current - alertTargetRef.current) < 0.001) alertRef.current = alertTargetRef.current;
       e.alert = alertRef.current;
+      // Emergence runs on its own wall clock — immune to motionSpeed scaling and
+      // the synthetic first frame's T, so birth stamps stay consistent.
+      e.emergeNow = performance.now() / 1000;
+      // Advance the morph toward its target on the same wall clock.
+      if (morphable && morphRef.current !== morphTarget) {
+        const nowS = e.emergeNow;
+        const dt = clamp(nowS - (morphClockRef.current || nowS), 0, 0.1);
+        morphClockRef.current = nowS;
+        const dir = morphTarget > (morphRef.current ?? 0) ? 1 : -1;
+        morphRef.current = clamp((morphRef.current ?? 0) + dir * dt / MORPH_S, 0, 1);
+      } else {
+        morphClockRef.current = e.emergeNow;
+      }
       ctx.clearRect(0, 0, W, H);
       const tt = state === 'static' ? 0.62 : T;
-      draw(e, tt, P);
+      const mv = morphRef.current ?? morphTarget;
+      if (morphable && mv > 0.001 && mv < 0.999) drawMagneticLinesMorph(e, tt, P, mv);
+      else draw(e, tt, P);
     };
 
-    const reduced = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } })();
     const sp = clamp(motionSpeed, 0.4, 3);
 
     // No animation loop → snap the alert to its target so the color still applies.
@@ -671,7 +914,7 @@ export function AgentMark({
     const loop = (now: number) => { paint((now / 1000) * sp); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo, coreGradient, streamCount, prefersDark]);
+  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo, coreGradient, streamCount, cellCount, prefersDark]);
 
   return (
     <canvas

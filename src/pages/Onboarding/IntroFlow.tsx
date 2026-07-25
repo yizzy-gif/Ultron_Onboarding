@@ -2,26 +2,27 @@
    Intro flow — the opening layer that sits ABOVE the provisioning wizard.
 
    The steps, played in sequence before the numbered wizard begins:
-     1. landing   — Ultron's identity mark + a co-pilot greeting, then a single
-                     email capture with a "Get started free" CTA.
-     2. account   — the sign-in options, centered on the screen: continue with
-                     Google / Microsoft / Apple, or log in with email. Any of
-                     them advances (the accounts are mocked — no real auth wired
-                     in a prototype).
-     3. workplace — "Where do you work?" — paste a company website, or switch to
+     1. landing   — Ultron's identity mark + a co-pilot greeting, followed by
+                     one combined sign-up block: Google / Microsoft / Apple, or
+                     email with a "Start for free" CTA. Any option advances (the
+                     accounts are mocked — no real auth wired in a prototype).
+     2. workplace — "Where do you work?" — paste a company website, or switch to
                      typing the company name. The submission decides the next path.
-     4. loading   — understand the operation. Website path: a centered parse run —
+     3. loading   — understand the operation. Website path: a centered parse run —
                      "reading the site", then the findings pop in one-by-one (no
                      chat thread). Company-name path: a single workforce-type pick
                      (the size / roles / roster intake was removed).
-     5. questions — three quick, high-level workforce questions (how workers are
+     4. questions — three quick, high-level workforce questions (how workers are
                      paid, how clients are billed, where the team works), each a
                      vertical stack of selectable cards. Only on the no-website /
                      didn't-resolve paths — a parsed website already answers this,
-                     so that path skips straight to the roster.
-     6. build …   — the account-draft / recommendation / provisioning tail (being
-                     redesigned; the flow currently hands into the existing tail so
-                     it stays runnable end-to-end).
+                     so that path completes onboarding straight from the loading
+                     step.
+
+   Onboarding ends there and hands into the live app. The roster and schedule
+   intake that used to close this flow now happens IN the app, as part of the
+   Ultron welcome chat (see pages/WelcomeThread.tsx) — Ultron asks for each
+   document in the conversation and shows what it imported in place.
 
    Local components: the selectable cards, the URL composer, and the SSO buttons
    have no Alloy primitive (checked the inventory — Radio / ToggleButton / DataCard
@@ -29,18 +30,21 @@
    composer). They're built here from tokens + Alloy icons/controls and FLAGGED for
    promotion to Alloy (a `SelectableCard` and a `Composer`). */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import styled, { css, keyframes } from 'styled-components';
 import {
-  Avatar, Tooltip,
-  Button, EmailField, FileUploader, ComposerActions, ComposerSendButton,
+  Avatar, Tooltip, Tag,
+  Button, EmailField, ComposerActions, ComposerSendButton,
   ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
   Link01Icon, Building02Icon,
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
   Building05Icon,
   BankNote01Icon, ReceiptCheckIcon, CoinsStacked03Icon, ClockIcon, CurrencyDollarIcon, Pin01Icon,
+  Globe01Icon,
 } from 'alloy-design-system';
+import { matchWorkforceSample } from './workforceSamples';
+import type { WorkforceSample } from './workforceSamples';
 import { AgentMark } from '../Ultron';
 import { IntroBackdrop } from './IntroBackdrop';
 import { MouseGlow } from '../../components/MouseGlow';
@@ -74,17 +78,14 @@ export interface IntroAnswers {
   pay?: string;      // W-2 | 1099 | Both
   billing?: string;  // Hourly | By month | By post
   worksite?: string; // One location | Multiple locations | Client sites
-  /** Roster file the admin uploaded (name only; absent when they skipped). */
-  rosterFile?: { name: string };
-  /** Schedule file the admin uploaded (name only; absent when they skipped). */
-  scheduleFile?: { name: string };
 }
 
 interface IntroFlowProps {
-  /** Fired once the admin finishes the last onboarding step (schedule upload) —
-   *  the onboarding is done and the flow drops into the live Ultron app. Carries
-   *  everything collected across the run so the app's welcome landing can recap
-   *  what was set up. */
+  /** Fired once the admin finishes the last onboarding step (the site
+   *  activation, or the workforce questions) — the onboarding is done and the
+   *  flow drops into the live Ultron app. Carries everything collected across
+   *  the run so the app's welcome chat can recap what was set up and collect
+   *  the roster + schedule in the conversation. */
   onComplete: (answers: IntroAnswers) => void;
 }
 
@@ -104,8 +105,18 @@ const SMOOTH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 // The identity is a single persistent element held at one fixed size and
 // position across every step — no pop-in, no size morph, no repositioning. Kept
 // at/above AgentMark's hero threshold (120) so it always renders the full Ultron
-// identity (dense cell sphere + flowing particle swarm), never the sparse form.
+// identity, never the sparse form.
 const MARK_SIZE = 140;
+
+// The identity is the Magnetics globe, built progressively: the landing shows
+// only the breathing core, then each step appends a batch of cells — every new
+// spot emerging from the core and settling onto the sphere surface — until the
+// globe is complete (58 cells: AgentMark's magnetic N at hero size) as the setup
+// hands into the app. Paths that skip a step (website → done) just append a
+// bigger batch; the counts only ever grow.
+const MARK_CELLS: Record<Step, number> = {
+  landing: 0, workplace: 20, loading: 40, questions: 58,
+};
 
 // ── Content ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +174,7 @@ const WORKFORCE_QUESTIONS: WorkforceQuestion[] = [
 
 // ── Root ─────────────────────────────────────────────────────────────────────
 
-type Step = 'landing' | 'auth' | 'workplace' | 'loading' | 'questions' | 'roster' | 'schedule';
+type Step = 'landing' | 'workplace' | 'loading' | 'questions';
 
 export function IntroFlow({ onComplete }: IntroFlowProps) {
   const [step, setStep] = useState<Step>('landing');
@@ -209,11 +220,8 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
       setConnected(false);
     });
 
-  // Email captured (landing) → the account page (sign-in options).
-  const finishLanding = () => transition(() => setStep('auth'));
-
-  // Account picked (any provider, or email) → the workplace question.
-  const finishAuth = () => transition(() => setStep('workplace'));
+  // Account started (any provider, or email) → the workplace question.
+  const finishLanding = () => transition(() => setStep('workplace'));
 
   // Workplace answered → the loading step (site fly-through, or workforce pick).
   // The mark forms its first connection line as the operation comes into focus.
@@ -223,46 +231,43 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
     transition(() => setStep('loading'));
   };
 
-  // Loading done (workforce type on the no-website path; the fly-through advances
-  // on its own on the website path). The website path already read the operation
-  // off the site, so it skips the three workforce questions and heads straight
-  // to the roster; the no-website / didn't-resolve paths keep them.
+  // Loading done (workforce type on the no-website path; the fly-through is
+  // advanced by the 't' key on the website path). The website path already read
+  // the operation off the site, so it skips the three workforce questions and
+  // completes onboarding right here — the roster + schedule intake continues in
+  // the app's welcome chat. The no-website / didn't-resolve paths keep the
+  // questions as their last step.
   const finishLoading = (collected: IntroAnswers) => {
-    setAnswers(a => ({ ...a, ...collected }));
-    transition(() => setStep(answers.companyWebsite ? 'roster' : 'questions'));
+    const merged = { ...answers, ...collected };
+    setAnswers(merged);
+    if (merged.companyWebsite) {
+      onComplete(merged);
+      return;
+    }
+    transition(() => setStep('questions'));
   };
 
-  // Workforce questions answered → the roster upload.
-  const finishQuestions = (collected: IntroAnswers) => {
-    setAnswers(a => ({ ...a, ...collected }));
-    transition(() => setStep('roster'));
-  };
-
-  // Roster uploaded (or skipped) → the schedule upload. A picked file is recorded
-  // so the app's welcome recap can note the roster came in.
-  const finishRoster = (file: { name: string } | null) => {
-    if (file) setAnswers(a => ({ ...a, rosterFile: file }));
-    transition(() => setStep('schedule'));
-  };
-
-  // Schedule uploaded (or skipped) → onboarding is done; drop into the app with
-  // everything collected so the welcome landing can recap the setup.
-  const finishSchedule = (file: { name: string } | null) =>
-    onComplete({ ...answers, ...(file ? { scheduleFile: file } : {}) });
+  // Workforce questions answered → onboarding is done; drop into the app with
+  // everything collected. The welcome chat recaps the setup and collects the
+  // roster + schedule in the conversation.
+  const finishQuestions = (collected: IntroAnswers) =>
+    onComplete({ ...answers, ...collected });
 
   // The ambient backdrop's network builds with progress: bare particles on the
   // landing, a first scatter of lines on the workplace step, the full web once
   // the workplace is submitted (echoing the identity forming its connection line).
   const backdropLinks = connected ? 1 : step === 'landing' ? 0 : 0.4;
 
-  // The identity's own connections deepen with the flow: a first line once the
-  // operation comes into focus, a second while it takes in the roster & schedule.
-  const identityStreams = step === 'roster' || step === 'schedule' ? 2 : connected ? 1 : 0;
+  // Set by the loading step while it reads the site in — lifted up so the
+  // shared identity mark can signal the work (the step owns that state
+  // internally, so it reports it out to here).
+  const [stepProcessing, setStepProcessing] = useState(false);
 
-  // While the website activation run is working, the identity shifts into its
-  // `lines` processing form (same size, same slot); every other step keeps the
-  // connected `circle` presence.
-  const processing = step === 'loading' && Boolean(answers.companyWebsite);
+  // While a working run is in flight — the website activation — the identity
+  // shifts into its `lines` processing form, sped up (same size, same slot);
+  // the moment the work completes it settles back into the Magnetics globe at
+  // its resting pace.
+  const processing = stepProcessing;
 
   return (
     <Frame>
@@ -284,11 +289,14 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
             <Identity>
               <MarkBloom>
                 <AgentMark
-                  mark={processing ? 'lines' : 'circle'}
+                  mark={processing ? 'lines' : 'magnetic'}
                   size={MARK_SIZE}
                   tone="auto"
                   state="active"
-                  {...(processing ? {} : { streamCount: identityStreams })}
+                  motionSpeed={processing ? 1.7 : 1}
+                  /* Kept through the lines form too (it ignores it) so the
+                     magnetic⇄lines morph gathers exactly the revealed cells. */
+                  cellCount={MARK_CELLS[step]}
                   aria-label="Ultron"
                 />
               </MarkBloom>
@@ -299,11 +307,6 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
               incoming step then plays its own entrance. */}
           <Content $exiting={exiting}>
             {step === 'landing' && <LandingStep onNext={finishLanding} />}
-            {step === 'auth' && (
-              <StepIn>
-                <AuthStep onNext={finishAuth} />
-              </StepIn>
-            )}
             {step === 'workplace' && (
               <StepIn>
                 <WorkplaceQuestion onAnswer={finishWorkplace} />
@@ -314,11 +317,10 @@ export function IntroFlow({ onComplete }: IntroFlowProps) {
                 website={answers.companyWebsite}
                 failedWebsite={answers.failedWebsite}
                 onDone={finishLoading}
+                onProcessingChange={setStepProcessing}
               />
             )}
             {step === 'questions' && <WorkforceQuestionsStep onComplete={finishQuestions} />}
-            {step === 'roster' && <UploadStep kind="roster" onDone={finishRoster} />}
-            {step === 'schedule' && <UploadStep kind="schedule" onDone={finishSchedule} />}
           </Content>
         </Stage>
       </Scroll>
@@ -359,6 +361,9 @@ const CUSTOMER_LOGOS = [
 // Operator testimonials — fictional personas for the prototype, most voiced for
 // the customers in the logo row so the panel reads as one story. The proof
 // panel loops through them, one card popping in at a time.
+// Operator photos use a deterministic stock-portrait service (stable per seed, so
+// each operator keeps the same face across rotations). The Alloy Avatar falls
+// back to the coloured initials on its own if an image can't load (offline, etc.).
 const OPERATOR_QUOTES = [
   {
     quote:
@@ -368,6 +373,7 @@ const OPERATOR_QUOTES = [
     role: 'Director of Operations',
     org: 'Meridian Care',
     avatarColor: 'purple' as const,
+    photo: 'https://i.pravatar.cc/160?u=dana.okafor',
   },
   {
     quote:
@@ -377,6 +383,7 @@ const OPERATOR_QUOTES = [
     role: 'Event Staffing Manager',
     org: "Levi's Stadium",
     avatarColor: 'blue' as const,
+    photo: 'https://i.pravatar.cc/160?u=marcus.webb',
   },
   {
     quote:
@@ -386,6 +393,7 @@ const OPERATOR_QUOTES = [
     role: 'VP of People',
     org: 'ProCare HR',
     avatarColor: 'green' as const,
+    photo: 'https://i.pravatar.cc/160?u=priya.raman',
   },
   {
     quote:
@@ -395,6 +403,7 @@ const OPERATOR_QUOTES = [
     role: 'Compliance Lead',
     org: 'Express Healthcare',
     avatarColor: 'orange' as const,
+    photo: 'https://i.pravatar.cc/160?u=sofia.delgado',
   },
   {
     quote:
@@ -404,6 +413,7 @@ const OPERATOR_QUOTES = [
     role: 'Workforce Lead',
     org: 'ModSquad',
     avatarColor: 'azure' as const,
+    photo: 'https://i.pravatar.cc/160?u=jamie.chen',
   },
 ];
 
@@ -492,12 +502,14 @@ function LandingStep({ onNext }: { onNext: () => void }) {
       <LeftPanel>
         <LeftInner>
           <MarkBloom>
+            {/* The build's starting point: the Magnetics globe with zero cells —
+                only the breathing core. Every step after this appends spots. */}
             <AgentMark
-              mark="circle"
+              mark="magnetic"
               size={MARK_SIZE}
               tone="auto"
               state="active"
-              streamCount={0}
+              cellCount={MARK_CELLS.landing}
               aria-label="Ultron"
             />
           </MarkBloom>
@@ -506,9 +518,31 @@ function LandingStep({ onNext }: { onNext: () => void }) {
             <SubGroup>
               <Sub>{GREETING_BODY}</Sub>
 
-              {/* Page one collects only the email; the sign-in options (SSO +
-                  email log-in) live on the account step that follows. */}
+              {/* One combined sign-up block: quick SSO choices, or email with
+                  the free-start CTA. */}
               <SignUp aria-label="Get started">
+                <SsoStack>
+                  {SSO_PROVIDERS.map(p => {
+                    const Mark = p.mark;
+                    return (
+                      <SsoButton
+                        key={p.id}
+                        variant="secondary"
+                        size="lg"
+                        type="button"
+                        leadingArtwork={<Mark />}
+                        onClick={onNext}
+                      >
+                        {p.label}
+                      </SsoButton>
+                    );
+                  })}
+                </SsoStack>
+
+                <OrRow aria-hidden="true">
+                  <OrText>or start with email</OrText>
+                </OrRow>
+
                 <GetStartedForm
                   noValidate
                   onSubmit={(e: FormEvent) => {
@@ -537,8 +571,12 @@ function LandingStep({ onNext }: { onNext: () => void }) {
                     size="lg"
                     type="submit"
                   >
-                    Get started free
+                    Start for free
                   </GetStartedButton>
+                  <Fine>
+                    No credit card. Free WFM forever. Credits expire — your
+                    workspace doesn't.
+                  </Fine>
                 </GetStartedForm>
               </SignUp>
             </SubGroup>
@@ -546,95 +584,12 @@ function LandingStep({ onNext }: { onNext: () => void }) {
         </LeftInner>
       </LeftPanel>
 
+      {/* Hairline on the centre seam between the two halves (wide screens). */}
+      <CenterDivider aria-hidden="true" />
+
       {/* Right panel — the proof card, full-height over the right half. */}
       {headingDone && <SocialProof />}
     </LandingPanels>
-  );
-}
-
-// ── Step 2 — account (sign-in options) ───────────────────────────────────────
-
-// The account page that follows the email capture: the third-party providers
-// plus a plain email log-in, centered on the screen beneath the persistent
-// identity mark (the root wraps it in StepIn like the other centered steps).
-function AuthStep({ onNext }: { onNext: () => void }) {
-  const [email, setEmail] = useState('');
-  // Same email feedback as the landing step: an Alloy Tooltip in place of the
-  // browser's native validation bubble, surfaced by focusing the field once the
-  // error is set (Alloy's Tooltip shows on hover/focus). Empty still advances.
-  const [error, setError] = useState<{ text: string } | null>(null);
-  const emailRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (error) emailRef.current?.focus();
-  }, [error]);
-
-  return (
-    <>
-      <Prompt>Create your account</Prompt>
-      <PromptSub>Continue with your work account, or log in with email.</PromptSub>
-
-      <AuthBlock aria-label="Create your account">
-        <SsoStack>
-          {SSO_PROVIDERS.map(p => {
-            const Mark = p.mark;
-            return (
-              <SsoButton
-                key={p.id}
-                variant="secondary"
-                size="lg"
-                type="button"
-                leadingArtwork={<Mark />}
-                onClick={onNext}
-              >
-                {p.label}
-              </SsoButton>
-            );
-          })}
-        </SsoStack>
-
-        <OrRow aria-hidden="true">
-          <OrText>or log in with email</OrText>
-        </OrRow>
-
-        <EmailForm
-          noValidate
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            // Empty or valid → advance; anything else → flag it via the Alloy
-            // tooltip rather than the browser's native validation bubble.
-            if (email.trim() === '' || looksLikeEmail(email)) {
-              onNext();
-            } else {
-              setError({ text: "That doesn't look like an email — try you@company.com." });
-            }
-          }}
-        >
-          <EmailFieldWrap>
-            <Tooltip content={error?.text ?? ''} placement="top" disabled={!error}>
-              <GlassEmailField
-                ref={emailRef}
-                aria-label="Work email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={e => { setEmail(e.target.value); if (error) setError(null); }}
-              />
-            </Tooltip>
-          </EmailFieldWrap>
-          <SubmitButton
-            variant="primary"
-            size="md"
-            type="submit"
-            iconOnly
-            aria-label="Continue"
-          >
-            <ArrowNarrowRightIcon size={16} />
-          </SubmitButton>
-        </EmailForm>
-
-        <Fine>Creating an account means you agree to Teambridge's Terms and Privacy Policy.</Fine>
-      </AuthBlock>
-    </>
   );
 }
 
@@ -666,7 +621,7 @@ function SocialProof() {
       <Quote key={quoteIndex}>
         <QuoteText>{`“${q.quote}”`}</QuoteText>
         <QuoteBy>
-          <Avatar name={q.name} color={q.avatarColor} size="sm" />
+          <Avatar name={q.name} src={q.photo} alt={q.name} color={q.avatarColor} size="lg" />
           <QuoteMeta>
             <QuoteName>{q.name}</QuoteName>
             <QuoteRole>{`${q.role} · ${q.org}`}</QuoteRole>
@@ -733,7 +688,9 @@ function WorkplaceQuestion({ onAnswer }: { onAnswer: (a: IntroAnswers) => void }
   return (
     <>
       <Prompt>Where do you work?</Prompt>
-      <QSub>Paste your company website and I'll get a head start on turning things on.</QSub>
+      <QSub>
+        Drop your URL and Ultron will set up Teambridge for your team. No blank slate, no busywork.
+      </QSub>
 
       <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); submit(); }}>
         <FieldRow>
@@ -765,7 +722,7 @@ function WorkplaceQuestion({ onAnswer }: { onAnswer: (a: IntroAnswers) => void }
       <AltRow>
         {/* No site → straight to the workforce pick. */}
         <TextButton type="button" onClick={() => onAnswer({ noWebsite: true })}>
-          No website? Pick a workforce instead.
+          No website? Pick a workforce instead
         </TextButton>
       </AltRow>
     </>
@@ -774,75 +731,143 @@ function WorkplaceQuestion({ onAnswer }: { onAnswer: (a: IntroAnswers) => void }
 
 // ── Step 3 — loading / understand the operation ───────────────────────────────
 
-// The activation beats that fly through while Ultron turns things on (website
-// path) — plain, non-technical: what's being switched on, not how.
+// The reading beats that fly through while Ultron reads the pasted site
+// (website path) — plain, non-technical: each names what's being read and
+// organized from the site, matching the read-out filling in below the bar.
 const ACTIVATION_BEATS = [
-  'Turning on scheduling',
-  'Setting up pay',
-  'Activating compliance',
-  'Handing off the busywork',
+  'Scanning your site',
+  'Identifying your workforce',
+  'Mapping services & clients',
+  'Organizing your workspace',
 ];
 
-// Pacing for the fly-through (ms): each beat works for a moment, then the next
-// flies in; a short hold at the end before the step auto-advances.
+// How long the working segment takes to fill (ms) once its beat is triggered —
+// purely the visual grow of the current segment; the 't' key drives the pacing.
 const BEAT_MS = 820;
 
 // Step 3 routes on the path taken on step 2: a pasted website runs the activation
-// fly-through (which auto-advances to the questions); no website — or something
-// that didn't look like one — lands on a single workforce-type pick.
+// fly-through (advanced by the 't' key, which also hands off to the questions);
+// no website — or something that didn't look like one — lands on a single
+// workforce-type pick.
 function LoadingStep({
   website,
   failedWebsite,
   onDone,
+  onProcessingChange,
 }: {
   website?: string;
   failedWebsite?: string;
   onDone: (a: IntroAnswers) => void;
+  /** Passed through to the site read so the parent's identity mark tracks it. */
+  onProcessingChange?: (processing: boolean) => void;
 }) {
-  if (website) return <SiteParse website={website} onDone={onDone} />;
+  if (website) return <SiteParse website={website} onDone={onDone} onProcessingChange={onProcessingChange} />;
   return <WorkforcePick failedWebsite={failedWebsite} onDone={onDone} />;
 }
 
-// Website path — a self-running fly-through: Ultron turns things on one beat at a
-// time, then hands off to the questions on its own. There's no button; the
-// animation IS the step.
-function SiteParse({ website, onDone }: { website: string; onDone: (a: IntroAnswers) => void }) {
-  const reduced = usePrefersReducedMotion();
-  const { name } = companyFromUrl(website);
+// The dataset dimensions counted into the eyebrow's "read N signals" tally —
+// the narrative below distils them, but the tally still reflects the full read.
+const SIGNAL_KEYS: (keyof Pick<
+  WorkforceSample,
+  'worker_types' | 'talent_categories' | 'client_types' | 'service_models' | 'tech_footprint' | 'access_model' | 'compliance'
+>)[] = ['worker_types', 'talent_categories', 'client_types', 'service_models', 'tech_footprint', 'access_model', 'compliance'];
+
+// Website path — a manually-driven activation: Ultron turns things on one beat at
+// a time (advanced by the 't' key), and the read-out of what it pulled off the
+// pasted site fills in BELOW the bar while it runs. Once every beat has settled
+// the read is complete: the header reframes as the summary and a primary CTA
+// appears to carry the flow on. The 't' key still advances the bar, and (once
+// complete) continues too — but the button is now the on-screen affordance.
+function SiteParse({
+  website,
+  onDone,
+  onProcessingChange,
+}: {
+  website: string;
+  onDone: (a: IntroAnswers) => void;
+  /** Reports the working window up to the parent, so the shared identity mark
+   *  runs its `lines` form while the read runs and settles back to the circle
+   *  the moment it completes. */
+  onProcessingChange?: (processing: boolean) => void;
+}) {
+  const { name, host } = companyFromUrl(website);
   const total = ACTIVATION_BEATS.length;
 
   // `active` = the 1-based beat currently working (everything before it is on).
-  // `allDone` flips once the last beat settles; then the step auto-advances.
+  // `allDone` flips once the last beat settles — the point the read is complete.
   const [active, setActive] = useState(1);
   const [allDone, setAllDone] = useState(false);
 
+  // The read's working window: from mount until the last beat settles. The mark
+  // morphing back to its circle at `allDone` is part of the completion moment.
   useEffect(() => {
-    if (allDone) {
-      // Hold the settled bar just long enough for the finish to register, then
-      // hand off — the flow's own exit fade carries the step out gracefully.
-      const t = window.setTimeout(() => onDone({}), reduced ? 400 : 1600);
-      return () => window.clearTimeout(t);
-    }
-    const t = window.setTimeout(
-      () => (active >= total ? setAllDone(true) : setActive(a => a + 1)),
-      reduced ? 140 : BEAT_MS,
-    );
-    return () => window.clearTimeout(t);
-  }, [active, allDone, reduced]); // eslint-disable-line react-hooks/exhaustive-deps
+    onProcessingChange?.(!allDone);
+  }, [allDone, onProcessingChange]);
+  useEffect(() => () => onProcessingChange?.(false), [onProcessingChange]);
 
-  const beatLabel = allDone ? 'All set.' : ACTIVATION_BEATS[active - 1];
+  // What Ultron "read" off the pasted domain — matched to a workforce archetype
+  // once, held stable across re-renders, with a tally of signals across it.
+  const learned = useMemo(() => matchWorkforceSample(website), [website]);
+  const signalCount = useMemo(
+    () => SIGNAL_KEYS.reduce((n, k) => n + learned[k].length, 0),
+    [learned],
+  );
+
+  // One beat per press/tap; the press after the last beat marks the run
+  // complete; once complete 't' hands off (the primary CTA does the same).
+  const advance = useCallback(() => {
+    if (allDone) onDone({});
+    else if (active >= total) setAllDone(true);
+    // Clamped in the updater: rapid presses inside one render batch all see
+    // the same stale `active`, so without the clamp they could overshoot the
+    // beat list.
+    else setActive(a => Math.min(a + 1, total));
+  }, [active, allDone, total, onDone]);
+
+  // The 't' key drives the beats from a keyboard…
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 't') return;
+      e.preventDefault();
+      advance();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [advance]);
+
+  const beatLabel = ACTIVATION_BEATS[active - 1];
 
   return (
-    <StepIn>
-      <Prompt>{`Turning on ${name}`}</Prompt>
-      <PromptSub>Hang tight — I'm getting your workspace ready.</PromptSub>
+    /* …and while the read runs, tapping anywhere on the step advances too (the
+       touch counterpart of 't'). Once complete, taps stop advancing so a stray
+       one can't blow past the summary — the CTA carries the flow on. */
+    <StepIn $wide onClick={() => { if (!allDone) advance(); }}>
+      <Prompt>
+        {allDone ? 'Nearly there!' : `Turning on ${name}`}
+      </Prompt>
+      <PromptSub>
+        {allDone
+          ? 'Your free account is taking shape.'
+          : "Hang tight — I'm reading your site and getting your workspace ready."}
+      </PromptSub>
 
-      {/* The activation run, one segment per beat: done segments hold full,
-          the working segment fills continuously across its beat, upcoming ones
-          wait empty. The current beat's label shimmers under the bar beside a
-          step counter; on completion the fills settle with one soft pulse
-          before the step fades out. */}
+      {/* One merged status cluster: the source line and the segmented activation
+          bar read as a single unit. While the bar runs the source line carries
+          the current beat ("Turning on scheduling…"), shimmering; on completion
+          it settles to the signal tally. Nothing renders below the bar. */}
       <ProgressWrap role="status" aria-live="polite">
+        <SummaryEyebrow $running={!allDone}>
+          <Link01Icon size={14} />
+          {host}
+          <SummaryEyebrowDot aria-hidden="true">·</SummaryEyebrowDot>
+          {allDone ? (
+            <SummaryEyebrowRead>
+              <CheckCircleIcon size={13} /> read {signalCount} signals
+            </SummaryEyebrowRead>
+          ) : (
+            <SummaryEyebrowReading key={beatLabel}>{`${beatLabel}…`}</SummaryEyebrowReading>
+          )}
+        </SummaryEyebrow>
         <SegmentRow
           role="progressbar"
           aria-valuemin={0}
@@ -860,15 +885,136 @@ function SiteParse({ website, onDone }: { website: string; onDone: (a: IntroAnsw
             );
           })}
         </SegmentRow>
-        <ProgressMeta>
-          <ProgressLabel key={beatLabel} $working={!allDone}>
-            {allDone && <CheckCircleIcon size={14} />}
-            {beatLabel}
-          </ProgressLabel>
-          <ProgressCount>{`${allDone ? total : active} of ${total}`}</ProgressCount>
-        </ProgressMeta>
       </ProgressWrap>
+
+      <LearnedReadout learned={learned} loading={!allDone} />
+
+      {/* Read complete → the primary way on ('t' still continues for keyboard),
+          with a quiet restart underneath for replaying the read. */}
+      {allDone && (
+        <>
+          <ActionRow>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => onDone({})}
+              trailingArtwork={<ArrowNarrowRightIcon size={18} />}
+            >
+              Looks good, continue
+            </Button>
+          </ActionRow>
+          <SkipRow>
+            <TextButton
+              type="button"
+              onClick={() => {
+                setActive(1);
+                setAllDone(false);
+              }}
+            >
+              Start over
+            </TextButton>
+          </SkipRow>
+        </>
+      )}
     </StepIn>
+  );
+}
+
+// The read-out itself — a lead card carrying the classification + company facts,
+// then one card per narrative group: a bolded label ("Your business / …"), three
+// sentences at most ending with what Ultron DID about it, and the signal chips
+// behind the prose. A centered sign-off closes the read. All from the matched
+// sample dataset (workforceSamples.ts) — nothing is really crawled. Rendered
+// below the activation bar (see SiteParse), so it's visible while the bar runs;
+// until the read completes (`loading`) it shows shimmering placeholders shaped
+// like the eventual cards, then swaps in the real content.
+function LearnedReadout({ learned, loading }: { learned: WorkforceSample; loading?: boolean }) {
+  const { company } = learned;
+  return (
+    <ReadoutWrap key={loading ? 'readout-loading' : 'readout-ready'}>
+      {/* Lead card — the classification + the facts read from the site. */}
+      <LeadCard>
+        <LeadTop>
+          <LeadMark aria-hidden="true">
+            {loading ? <Skeleton $w="20px" $h="20px" $round /> : <Building05Icon size={20} />}
+          </LeadMark>
+          <LeadText>
+            {loading ? (
+              <>
+                <Skeleton $w="240px" $h="1em" />
+                <Skeleton $w="160px" $h="0.85em" />
+              </>
+            ) : (
+              <>
+                <LeadKind>{learned.workforce_type}</LeadKind>
+                <LeadName>{company.name}</LeadName>
+              </>
+            )}
+          </LeadText>
+        </LeadTop>
+        <LeadFacts>
+          {loading ? (
+            <>
+              <Skeleton $w="110px" $h="0.9em" />
+              <Skeleton $w="150px" $h="0.9em" />
+              <Skeleton $w="170px" $h="0.9em" />
+            </>
+          ) : (
+            <>
+              <LeadFact>
+                <ClockIcon size={14} />
+                <LeadFactVal>Founded {company.founded}</LeadFactVal>
+              </LeadFact>
+              {company.parent && (
+                <LeadFact>
+                  <Building02Icon size={14} />
+                  <LeadFactVal>Part of {company.parent}</LeadFactVal>
+                </LeadFact>
+              )}
+              <LeadFact>
+                <Globe01Icon size={14} />
+                <LeadFactVal>{company.footprint}</LeadFactVal>
+              </LeadFact>
+            </>
+          )}
+        </LeadFacts>
+      </LeadCard>
+
+      {/* One card per narrative group, cascading in after the lead. */}
+      {learned.narrative.map((group, gi) => (
+        <ReadoutCard key={group.label} style={{ ['--group-i' as string]: gi + 1 }}>
+          {loading ? (
+            <>
+              <Skeleton $w="128px" $h="0.95em" />
+              <SkeletonLines>
+                <Skeleton $h="0.85em" />
+                <Skeleton $h="0.85em" />
+                <Skeleton $h="0.85em" $w="62%" />
+              </SkeletonLines>
+              <ReadoutTags>
+                <Skeleton $w="76px" $h="20px" $round />
+                <Skeleton $w="92px" $h="20px" $round />
+                <Skeleton $w="64px" $h="20px" $round />
+              </ReadoutTags>
+            </>
+          ) : (
+            <>
+              <ReadoutLabel>{group.label}</ReadoutLabel>
+              <ReadoutBody>{group.body}</ReadoutBody>
+              <ReadoutTags>
+                {group.tags.map(tag => (
+                  <Tag key={tag} size="sm" variant="subtle" color="neutral">{tag}</Tag>
+                ))}
+              </ReadoutTags>
+            </>
+          )}
+        </ReadoutCard>
+      ))}
+
+      <ReadoutCloseRow style={{ ['--group-i' as string]: learned.narrative.length + 1 }}>
+        {loading ? <Skeleton $w="152px" $h="0.95em" /> : <ReadoutClose>Consider it handled.</ReadoutClose>}
+      </ReadoutCloseRow>
+    </ReadoutWrap>
   );
 }
 
@@ -903,7 +1049,7 @@ function WorkforcePick({
   return (
     <StepIn>
       {failedWebsite && <MissNote>No problem — let's set it up together.</MissNote>}
-      <Prompt>What kind of workforce are you running?</Prompt>
+      <Prompt>What workforce do you need help with?</Prompt>
       <PromptSub>Say it in your own words — or grab one of these.</PromptSub>
 
       <PillRow>
@@ -1002,72 +1148,6 @@ function WorkforceQuestionsStep({ onComplete }: { onComplete: (a: IntroAnswers) 
           );
         })}
       </OptionColumn>
-    </StepIn>
-  );
-}
-
-// ── Steps 5 & 6 — roster / schedule uploads ───────────────────────────────────
-
-// Copy for the two upload steps — same shape, different subject. Uploading is
-// optional (a "Skip for now" escape hatch advances without a file), so the demo
-// never dead-ends on a file the tester doesn't have handy.
-const UPLOAD_CONFIG = {
-  roster: {
-    prompt: 'Upload your roster',
-    sub: "Drop in your team roster and I'll bring your people in for you.",
-    title: 'Choose your roster or drag & drop it here.',
-    description: 'Any spreadsheet or document works.',
-    accept: '.csv,.xlsx,.xls,.pdf',
-  },
-  schedule: {
-    prompt: 'Upload your schedule',
-    sub: "Drop in your current schedule and I'll turn it into shifts for you.",
-    title: 'Choose your schedule or drag & drop it here.',
-    description: 'Any spreadsheet or document works.',
-    accept: '.csv,.xlsx,.xls,.pdf',
-  },
-} as const;
-
-// The uploader is the step's one primary action: choosing a file IS the CTA, so
-// picking one hands off on its own (after a beat to show it landed). "Skip for
-// now" is the quiet secondary out.
-function UploadStep({ kind, onDone }: { kind: 'roster' | 'schedule'; onDone: (file: { name: string } | null) => void }) {
-  const cfg = UPLOAD_CONFIG[kind];
-  const reduced = usePrefersReducedMotion();
-  const [file, setFile] = useState<{ name: string; type?: string } | null>(null);
-  const advanced = useRef(false);
-
-  const handleSelect = (f: File) => {
-    if (advanced.current) return;
-    advanced.current = true;
-    setFile({ name: f.name, type: f.type });
-    // Let the "landed" state show for a beat, then hand off automatically —
-    // carrying the file name so the app can recap what came in.
-    window.setTimeout(() => onDone({ name: f.name }), reduced ? 250 : 1100);
-  };
-
-  return (
-    <StepIn key={kind}>
-      <Prompt>{cfg.prompt}</Prompt>
-      <PromptSub>{cfg.sub}</PromptSub>
-
-      <UploadWrap>
-        <FileUploader
-          variant="area"
-          accept={cfg.accept}
-          state={file ? 'complete' : 'empty'}
-          file={file}
-          title={cfg.title}
-          description={cfg.description}
-          onFileSelect={handleSelect}
-        />
-      </UploadWrap>
-
-      <AltRow>
-        <TextButton type="button" onClick={() => onDone(null)}>
-          Skip for now
-        </TextButton>
-      </AltRow>
     </StepIn>
   );
 }
@@ -1331,6 +1411,29 @@ const LandingPanels = styled.div`
   width: 100%;
 `;
 
+/* Hairline between the two halves — pinned on the centre line the fixed panels
+   meet at, fading out toward both ends so it sits softly on the ambient
+   backdrop. Wide screens only; the narrow stacked layout has no split to mark. */
+const CenterDivider = styled.div`
+  display: none;
+
+  @media (min-width: 801px) {
+    display: block;
+    position: fixed;
+    top: var(--space-12);
+    bottom: var(--space-12);
+    left: 50vw;
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      var(--color-border-opaque) 18%,
+      var(--color-border-opaque) 82%,
+      transparent 100%
+    );
+  }
+`;
+
 /* Left panel — mirrors ProofPanel's box: full height over the left half on wide
    screens, margins aligned with the Teambridge logo (space-5 top / left /
    bottom). Content is centered horizontally and vertically. Drops back into the
@@ -1457,28 +1560,6 @@ const GetStartedButton = styled(Button)`
   }
 `;
 
-/* The account step's sign-in block — the landing's sign-up column, re-centered
-   under the step prompt with a little air above it. */
-const AuthBlock = styled(SignUp)`
-  margin-top: var(--space-2);
-`;
-
-const EmailForm = styled.form`
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-`;
-
-const EmailFieldWrap = styled.div`
-  flex: 1;
-  min-width: 0;
-  /* Flex so the Alloy Tooltip's inline-flex wrapper stretches to fill, keeping
-     the email field full-width beside the submit button. */
-  display: flex;
-  & > * { flex: 1; min-width: 0; }
-`;
-
 /* Liquid-glass email field — the glass tint sits on the Alloy field's shell
    (the element that owns the border and radius) and the inner input goes
    transparent so it reads as one frosted control. Styling the root instead
@@ -1490,17 +1571,6 @@ const GlassEmailField = styled(EmailField)`
   }
   && input {
     background: transparent;
-  }
-`;
-
-/* Square, icon-only submit — pinned to the 40px (space-10) email-field height so
-   the field + button read as one paired control. `&&` beats Button's own
-   iconOnly size rule (36px at md). */
-const SubmitButton = styled(Button)`
-  && {
-    flex-shrink: 0;
-    width: var(--space-10);
-    height: var(--space-10);
   }
 `;
 
@@ -1525,16 +1595,9 @@ const ProofPanel = styled.div`
   justify-content: center;
   align-items: center;
 
-  /* Frosted-glass wrapper: a translucent tint of the surface (theme-aware via
-     color-mix on the semantic token) plus a backdrop blur, so the ambient
-     particles show through softly. */
+  /* No surface — the proof content sits directly on the ambient particle
+     backdrop; only the padding holds its measure. */
   padding: var(--space-10);
-  background: color-mix(in srgb, var(--color-bg-primary) 72%, transparent);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border: 1px solid var(--color-border-transparent);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-below-md);
   animation: ${subFadeIn} var(--duration-slow) var(--ease-out) both;
 
   /* Wide: full-height panel filling the right half. Logo-aligned outer margin
@@ -1571,12 +1634,17 @@ const ProofPanel = styled.div`
 const ProofInner = styled.div`
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-8);
   width: 100%;
+  /* Match the left column's content measure (LeftInner) so the two halves read
+     as the same-width column, just mirrored across the centre line. */
+  max-width: 400px;
 
+  /* Wide: cluster the three blocks together and center them vertically in the
+     panel, rather than spreading them to the top/middle/bottom edges. */
   @media (min-width: 801px) {
     flex: 1;
-    justify-content: space-between;
+    justify-content: center;
   }
 `;
 
@@ -1641,14 +1709,12 @@ const StatCaption = styled.span`
   color: var(--color-content-secondary);
 `;
 
-/* Customer wordmarks — muted text stand-ins for logos (no real trademarks), set
-   apart as a quiet footer under the quote by a single hairline. */
+/* Customer wordmarks — a quiet footer beneath the quote. */
 const LogoFooter = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border-opaque);
 `;
 
 const ProofLabel = styled.span`
@@ -1743,10 +1809,16 @@ const quotePop = keyframes`
 `;
 
 const Quote = styled.figure`
+  ${liquidGlass}
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   margin: 0;
+  /* Card treatment — a subtle glass surface with a 20px inset (var(--space-5)),
+     borderless (the fill alone carries the card). */
+  padding: var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
   /* Room for the tallest card (four relaxed text-md lines plus the byline) —
      raw px deliberately, so rotating cards of different lengths never reflow
      the spread panel around them. */
@@ -1767,9 +1839,27 @@ const QuoteText = styled.blockquote`
 `;
 
 const QuoteBy = styled.figcaption`
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  padding-top: var(--space-3);
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--color-border-opaque) 18%,
+      var(--color-border-opaque) 82%,
+      transparent
+    );
+  }
 `;
 
 const QuoteMeta = styled.span`
@@ -1979,10 +2069,21 @@ const shimmer = keyframes`
   to   { background-position: -200% 0; }
 `;
 
-/* The working segment's fill draws across its beat, left to right. */
-const segGrow = keyframes`
-  from { width: 0; }
-  to   { width: 100%; }
+/* Skeleton sweep — one soft highlight passing per cycle, seamless (the position
+   shifts by exactly one background tile, so the loop never blinks). */
+const skeletonSweep = keyframes`
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
+`;
+
+/* The working segment's fill draws in left→right, holds full for a beat, then
+   redraws — looping for as long as the segment is working, so the bar reads as
+   actively drawing rather than sitting complete. The draw takes ~the first
+   two-thirds of the cycle (≈BEAT_MS); the tail is the hold. */
+const segDrawLoop = keyframes`
+  0%   { transform: scaleX(0); }
+  68%  { transform: scaleX(1); }
+  100% { transform: scaleX(1); }
 `;
 
 /* Completion settle — every fill breathes once as the run lands. */
@@ -1992,11 +2093,6 @@ const segSettle = keyframes`
   100% { opacity: 1; }
 `;
 
-/* Each new beat label rises in under the bar. */
-const labelIn = keyframes`
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
 
 const ProgressWrap = styled.div`
   display: flex;
@@ -2044,71 +2140,256 @@ const SegmentFill = styled.div<{ $working?: boolean }>`
   background: var(--color-content-primary);
 
   ${p => p.$working && css`
-    animation: ${segGrow} ${BEAT_MS}ms ${SMOOTH_EASE} both;
+    /* The working fill draws in from the LEFT edge (scaleX, origin left) on a
+       loop — draw, hold, redraw — so the bar stays visibly in motion while it
+       waits for the next beat, reading as ongoing work rather than a stall. */
+    transform-origin: left center;
+    animation: ${segDrawLoop} ${BEAT_MS + 380}ms ${SMOOTH_EASE} infinite;
   `}
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
+    background: var(--color-content-primary);
   }
 `;
 
-/* Label + step counter, sharing the bar's width. */
-const ProgressMeta = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  width: 100%;
-`;
 
-const ProgressCount = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-content-tertiary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-`;
+/* ── Processed site read-out (SiteParse / LearnedReadout) ─────────────────────
+   What Ultron pulled off the pasted domain, written as a short narrative below
+   the activation bar: a source eyebrow, three bolded groups, and the sign-off. */
 
-const ProgressLabel = styled.span<{ $working?: boolean }>`
+/* Source line above the read-out — the domain + a "reading…" / signal tally. */
+const SummaryEyebrow = styled.div<{ $running?: boolean }>`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-content-secondary);
-  animation: ${labelIn} var(--duration-base) ${SMOOTH_EASE} both;
+  /* While the read is still running the line reads lighter (tertiary); once it
+     completes it firms up to secondary alongside the "read N signals" tally. */
+  color: ${p => (p.$running ? 'var(--color-content-tertiary)' : 'var(--color-content-secondary)')};
 
-  /* The settled state's check reads as the finish line. */
-  svg {
-    flex-shrink: 0;
-    color: var(--color-success-content);
-  }
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
+`;
 
-  ${p => p.$working && css`
-    /* Working shimmer — a light band sweeping through the muted label. Both
-       gradient stops are semantic tokens, so light and dark themes track. */
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--color-content-tertiary) 0%,
-      var(--color-content-primary) 50%,
-      var(--color-content-tertiary) 100%
-    );
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    animation: ${labelIn} var(--duration-base) ${SMOOTH_EASE} both,
-      ${shimmer} 1.6s linear infinite;
-  `}
+const SummaryEyebrowDot = styled.span`
+  color: var(--color-content-tertiary);
+`;
+
+const SummaryEyebrowRead = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-success-content);
+
+  svg { color: var(--color-success-content); }
+`;
+
+/* Pre-completion state — the current beat, shimmering while the bar runs. Kept
+   light: a disabled-tone base with only a secondary-tone band sweeping through. */
+const SummaryEyebrowReading = styled.span`
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--color-content-disabled) 0%,
+    var(--color-content-secondary) 50%,
+    var(--color-content-disabled) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: ${shimmer} 1.6s linear infinite;
 
   @media (prefers-reduced-motion: reduce) {
+    color: var(--color-content-tertiary);
+    background: none;
     animation: none;
-    ${p => p.$working && css`
-      color: var(--color-content-secondary);
-      background: none;
-    `}
   }
+`;
+
+/* Loading placeholder — a shimmering block sized to the content it stands in for,
+   so the read-out swaps skeletons for real text with minimal shift. */
+const Skeleton = styled.span<{ $w?: string; $h?: string; $round?: boolean }>`
+  display: inline-block;
+  flex-shrink: 0;
+  width: ${p => p.$w ?? '100%'};
+  height: ${p => p.$h ?? '0.9em'};
+  border-radius: ${p => (p.$round ? 'var(--radius-full)' : 'var(--radius-sm)')};
+  /* Wide, soft highlight so the sweep reads as a smooth sheen rather than a
+     hard band; paired with skeletonSweep it moves at a constant speed and loops
+     seamlessly (no blink). */
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-tertiary) 0%,
+    var(--color-bg-tertiary) 30%,
+    var(--color-border-opaque) 50%,
+    var(--color-bg-tertiary) 70%,
+    var(--color-bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: ${skeletonSweep} 1.6s linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    background: var(--color-bg-tertiary);
+    animation: none;
+  }
+`;
+
+/* Stacked line placeholders standing in for a category's read-out paragraph. */
+const SkeletonLines = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+`;
+
+/* The narrative column — stacked cards, kept to a readable measure. */
+const ReadoutWrap = styled.div`
+  width: 100%;
+  max-width: 680px;
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: left;
+`;
+
+/* Shared pop — each card lands on a per-index delay so the read-out cascades
+   top to bottom. Re-runs on the loading→content swap because the wrap is
+   remounted (keyed on loading) at that point. */
+const readoutPop = css`
+  animation: ${cardPop} var(--duration-base) ${SMOOTH_EASE} both;
+  animation-delay: calc(var(--group-i, 0) * 90ms);
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* Lead card — the classification + the facts read from the site. */
+const LeadCard = styled.div`
+  ${liquidGlass}
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  ${readoutPop}
+`;
+
+const LeadTop = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+`;
+
+const LeadMark = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-10);
+  height: var(--space-10);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-content-primary);
+`;
+
+const LeadText = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+`;
+
+const LeadKind = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+`;
+
+const LeadName = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-tertiary);
+`;
+
+/* Facts row — founded / parent / footprint, read from the site. */
+const LeadFacts = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-opaque);
+`;
+
+const LeadFact = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-content-secondary);
+
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
+`;
+
+const LeadFactVal = styled.span`
+  color: var(--color-content-primary);
+`;
+
+/* One narrative group per card: label, prose, then the signal chips. */
+const ReadoutCard = styled.div`
+  ${liquidGlass}
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  ${readoutPop}
+`;
+
+/* The group's bolded label ("Your business") — scannable without reading. */
+const ReadoutLabel = styled.span`
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+`;
+
+const ReadoutBody = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-content-secondary);
+`;
+
+/* The signals behind a group's prose, as a quiet chip row under the paragraph. */
+const ReadoutTags = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+`;
+
+/* The sign-off sits outside the cards, centered under the stack. */
+const ReadoutCloseRow = styled.div`
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-2);
+  ${readoutPop}
+`;
+
+/* The sign-off — label weight, so it closes the read as firmly as it opened. */
+const ReadoutClose = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+  text-align: center;
 `;
 
 /* No-website path note (shown only when a pasted entry didn't look like a site). */
@@ -2121,23 +2402,14 @@ const MissNote = styled.p`
   max-width: 480px;
 `;
 
-/* ── Steps 5 & 6 — uploads ───────────────────────────────────────────────────
-   Frames the Alloy FileUploader drop zone to the centered column width. */
-/* The drop area wears the shared liquid-glass surface (tint + blur + edge
-   highlight) in place of Alloy's opaque fill. `border-style: dashed` is
-   restated after the glass mixin (which sets a solid border) so the area keeps
-   reading as a drop zone. Scoped to :not([data-drag-over]) so Alloy's
-   drag-over feedback (secondary fill + focus border) still wins mid-drag. */
-const UploadWrap = styled.div`
-  width: 100%;
-  max-width: 520px;
-  margin-top: var(--space-2);
-  text-align: left;
 
-  & [class*='area']:not([data-drag-over]) {
-    ${liquidGlass}
-    border-style: dashed;
-  }
+/* Primary CTA row + quiet skip row for the result screens. */
+const ActionRow = styled.div`
+  margin-top: var(--space-5);
+`;
+
+const SkipRow = styled.div`
+  margin-top: var(--space-3);
 `;
 
 /* ── Step 4 — workforce questions ────────────────────────────────────────────

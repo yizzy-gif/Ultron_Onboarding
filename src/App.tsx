@@ -20,7 +20,7 @@ import {
   UltronIdentityCard, TypingText, caseLabel, mockUltronReply,
   type UltronSection, type ThreadStatus, type NewPageMessage,
 } from './pages/Ultron';
-import { WelcomeThread, type WelcomeAnswers } from './pages/WelcomeThread';
+import { WelcomeThread, companyName, type WelcomeAnswers } from './pages/WelcomeThread';
 import { useHashSync } from './nav/hashSync';
 import type { MobileModuleGroup } from './components/AppShell/MobileShell';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -366,10 +366,14 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // The Welcome thread's sidebar row — the post-onboarding recap, kept always
   // reachable. It lives with the cases and follows their lifecycle: listed
   // under New until the operator continues the conversation, under Working
-  // after (see welcomeContinued).
+  // after (see welcomeContinued). Named after what onboarding learned — the
+  // company (from the pasted website) or the workforce they described —
+  // falling back to a plain "Account setup" when neither is known (refresh).
+  const welcomeCompany =
+    companyName(introAnswers?.companyWebsite) ?? introAnswers?.workforceType ?? null;
   const welcomeNavChild = {
     id: 'welcome',
-    label: 'Welcome',
+    label: welcomeCompany ? `${welcomeCompany} account setup` : 'Account setup',
     icon: <DocumentIcon />,
     isActive: onWelcome,
     onClick: openWelcome,
