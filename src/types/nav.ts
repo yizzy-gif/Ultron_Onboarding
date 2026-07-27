@@ -39,6 +39,9 @@ export interface SecondaryNavMenuItem {
   onClick?: () => void;
   /** Optional trailing element (e.g. a pin / dismiss button) shown on the right edge. */
   trailingSlot?: ReactNode;
+  /** Optional guided-tour treatment that dims the app and calls attention to
+   *  this row until it is opened. */
+  spotlightPrompt?: string;
 }
 
 export interface SecondaryNavMenuGroup {

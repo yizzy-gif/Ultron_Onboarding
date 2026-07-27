@@ -11,6 +11,7 @@ import {
   SettingsGearIcon, CheckCircleIcon,
   Badge, AlertTriangleIcon, Save01Icon, Tooltip,
   DropdownMenu, DotsVerticalIcon, Trash01Icon,
+  Dialog, DialogHeader, DialogContent, DialogFooter, Button,
 } from 'alloy-design-system';
 import { HeadingText } from './components/TopNav/TopNav.styles';
 import policyActiveUrl from './assets/policy-icon-active.svg';
@@ -148,6 +149,16 @@ const SavedWorkflowMark = styled.span`
   }
 `;
 
+/* Body copy for the locked-module (waitlist) dialog — the Dialog portals to
+   document.body, outside the app root's font cascade, so set the type here. */
+const WaitlistBody = styled.p`
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-content-secondary);
+`;
+
 // The ⋯ trigger on a page row — a quiet, muted icon button on the row's trailing
 // edge. Hidden until the row is hovered/focused (or its menu is open), so rows
 // stay clean at rest. The page row is the ListItem root (role="button"); the
@@ -274,6 +285,9 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // message). Drives where the Welcome entry sits in the sidebar: New until
   // the conversation continues, Working after.
   const [welcomeContinued, setWelcomeContinued] = useState(false);
+  // After the live-test phone number lands, guide the operator directly to the
+  // Maria callout that Ultron just surfaced in New.
+  const [eventSpotlight, setEventSpotlight] = useState(false);
   // Live landing — Ultron's resting presence (large Circle mark, no case open).
   // Ultron's normal home: the user rests here, opening any case in the sidebar
   // leaves it, and clicking the identity returns to it. Starts inactive while the
@@ -339,13 +353,15 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   );
 
   // Rail rendering: only Ultron is wired. Every other module renders greyed-out
-  // and disabled (Settings, rendered separately by PrimaryNav, stays enabled).
+  // and locked (Settings, rendered separately by PrimaryNav, stays enabled) —
+  // tapping a locked module explains the waitlist instead of navigating.
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
   const withActive = (items: typeof PRIMARY_ITEMS): PrimaryNavItem[] =>
     items.map(item => ({
       ...item,
       isActive: item.id === activeId,
       disabled: item.id !== 'ultron',
-      onClick: item.id === 'ultron' ? () => setActiveId('ultron') : undefined,
+      onClick: item.id === 'ultron' ? () => setActiveId('ultron') : () => setWaitlistOpen(true),
     }));
 
   const pageEntries: SecondaryNavPageEntry[] = [
@@ -454,7 +470,17 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
                 ? <AgentMark mark="orbit2d" size={32} tone="auto" state={t.status === 'in_progress' ? 'active' : 'idle'} aria-label="Working" />
                 : <AgentMark mark="pulse" size={32} tone="auto" state={t.status === 'unresolved' ? 'idle' : 'static'} color={t.status === 'unresolved' ? 'var(--color-orange-content-tertiary)' : ultron.viewedIds.includes(t.id) ? 'var(--color-slate-content-tertiary)' : 'var(--color-green-content-tertiary)'} aria-label="Done" />,
               isActive: homeView === 'ultron' && !onLive && !activePage && homeSection === childSection && ultron.selectedId === t.id,
-              onClick: () => { setHomeView('ultron'); setOnWelcome(false); setOnLive(false); setActivePage(null); ultron.setSelectedId(t.id); },
+              onClick: () => {
+                if (t.id === 'shift_drop_maria') setEventSpotlight(false);
+                setHomeView('ultron');
+                setOnWelcome(false);
+                setOnLive(false);
+                setActivePage(null);
+                ultron.setSelectedId(t.id);
+              },
+              spotlightPrompt: eventSpotlight && t.id === 'shift_drop_maria'
+                ? 'Ultron caught the last-minute callout. Open it to see the response.'
+                : undefined,
               // Once the operator saves this case's play as a reusable workflow, the
               // row carries a trailing automation glyph so the saved state is legible
               // from the list without opening the case.
@@ -543,7 +569,14 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
       ) : homeView === 'account' ? (
         <AccountDatabasePage collectionId={accountCollection} />
       ) : onWelcome ? (
-        <WelcomeThread answers={introAnswers} onContinued={() => setWelcomeContinued(true)} />
+        <WelcomeThread
+          answers={introAnswers}
+          onContinued={() => setWelcomeContinued(true)}
+          onPhoneSubmitted={() => {
+            ultron.surfaceDemoThread('shift_drop_maria');
+            setEventSpotlight(true);
+          }}
+        />
       ) : activePage ? (
         <NewPage
           key={activePage}
@@ -577,6 +610,24 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
         />
       )}
     </AppShell>
+
+    {/* Locked-module explainer — why the rest of the rail is greyed out. */}
+    <Dialog open={waitlistOpen} onClose={() => setWaitlistOpen(false)} size="sm" aria-labelledby="waitlist-title">
+      <DialogHeader onClose={() => setWaitlistOpen(false)}>
+        <span id="waitlist-title">This app isn't unlocked yet</span>
+      </DialogHeader>
+      <DialogContent>
+        <WaitlistBody>
+          Demand for Ultron is extreme, so apps unlock in stages. Finish onboarding,
+          and once you're approved past the waitlist, everything opens up.
+        </WaitlistBody>
+      </DialogContent>
+      <DialogFooter>
+        <Button variant="primary" onClick={() => setWaitlistOpen(false)}>
+          Got it
+        </Button>
+      </DialogFooter>
+    </Dialog>
     </>
   );
 }

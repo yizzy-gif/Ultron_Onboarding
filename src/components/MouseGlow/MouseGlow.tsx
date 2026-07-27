@@ -58,9 +58,26 @@ const MOVE_OPACITY = 0.18;
 const OPACITY_EASE = 0.06;
 // How long after the last pointer movement the glow counts as "travelling" (ms).
 const MOVE_WINDOW_MS = 350;
-// Baseline hue drift speed (degrees per second) — a slow amble around the
-// color wheel that the random wander rides on top of.
+// Baseline hue drift speed (degrees of wander per second) — a slow amble along
+// the palette path that the random wander rides on top of.
 const HUE_SPEED = 9;
+
+// The holographic palette sampled from the reference art: hue anchors running
+// mint → sky → cornflower → periwinkle → orchid → pink → peach (390 = 30+360).
+// The wander ping-pongs along this path instead of lapping the wheel, so the
+// glow lives in the cool pastel family and the warm hues appear only as brief
+// accents — never a march through greens and yellows.
+const AURORA_HUES = [168, 197, 224, 250, 285, 330, 390];
+
+// Map an unbounded wander scalar onto the palette path: a triangle wave
+// bounces the scalar back and forth across the anchor list, lerping between
+// neighbours, so the hue flows smoothly out to peach and back without jumps.
+const paletteHue = (s: number): number => {
+  const n = AURORA_HUES.length - 1;
+  const tri = Math.abs(((s % 2) + 2) % 2 - 1) * n;
+  const i = Math.min(n - 1, Math.floor(tri));
+  return (AURORA_HUES[i] + (AURORA_HUES[i + 1] - AURORA_HUES[i]) * (tri - i)) % 360;
+};
 
 // The ambient field: how many free-wandering pools, their diameter range, and
 // their breathing opacity (a faint resting glow that swells slightly).
@@ -84,10 +101,11 @@ for (let i = 0; i < NODE_COUNT; i++)
 
 // A hue that shifts randomly but smoothly: the baseline amble plus two layered
 // sinusoids at incommensurate frequencies, so the color speeds up, slows down,
-// and doubles back unpredictably without ever jumping. `p` is a random phase
-// seeded per mount, so every visit wanders its own path.
+// and doubles back unpredictably without ever jumping — then mapped onto the
+// aurora palette path, so however far it wanders it never leaves the family.
+// `p` is a random phase seeded per mount, so every visit wanders its own path.
 const wanderHue = (t: number, p: number) =>
-  (t * HUE_SPEED + 80 * Math.sin(t * 0.23 + p) + 50 * Math.sin(t * 0.071 + p * 1.7) + 720) % 360;
+  paletteHue((t * HUE_SPEED + 80 * Math.sin(t * 0.23 + p) + 50 * Math.sin(t * 0.071 + p * 1.7)) / 360);
 
 // The morph: each of the eight border-radius values (4 horizontal / 4
 // vertical) oscillates around 50% on its own speed and phase, so the blob
@@ -166,12 +184,19 @@ export function MouseGlow() {
       el.style.height = `${a.size.toFixed(0)}px`;
     });
 
-    // Write one blob's gradient paint: two independently wandering hue stops
-    // and a slowly orbiting gradient center. `shift` offsets the whole palette
-    // a touch, keeping every pool kin to the orb without cloning it.
+    // Write one blob's gradient paint: two independently wandering cool stops,
+    // a warm rim hue pinned to the reference art's pink→peach arc, and a slowly
+    // orbiting gradient center. Only hues are written from JS — saturation,
+    // lightness, and alpha live in the stylesheet where dark mode can retune
+    // them. `shift` offsets the whole palette a touch, keeping every pool kin
+    // to the orb without cloning it.
     const paint = (el: HTMLDivElement, t: number, shift: number) => {
-      el.style.setProperty('--glow-a', `hsl(${wanderHue(t, ph[0] + shift).toFixed(1)} 85% 62% / 0.9)`);
-      el.style.setProperty('--glow-b', `hsl(${wanderHue(t, ph[1] + shift * 1.3).toFixed(1)} 85% 58% / 0.8)`);
+      el.style.setProperty('--glow-ha', wanderHue(t, ph[0] + shift).toFixed(1));
+      el.style.setProperty('--glow-hb', wanderHue(t, ph[1] + shift * 1.3).toFixed(1));
+      el.style.setProperty(
+        '--glow-hc',
+        ((318 + 42 * (0.5 + 0.5 * Math.sin(t * 0.17 + ph[2] * 1.9 + shift))) % 360).toFixed(1),
+      );
       el.style.setProperty('--glow-cx', `${(35 + 14 * Math.sin(t * 0.4 + ph[2] + shift)).toFixed(1)}%`);
       el.style.setProperty('--glow-cy', `${(35 + 14 * Math.cos(t * 0.31 + ph[3] + shift)).toFixed(1)}%`);
     };

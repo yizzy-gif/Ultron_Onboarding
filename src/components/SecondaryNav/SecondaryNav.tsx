@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { ListItem, ChevronDownIcon, ChevronRightIcon, SearchField } from 'alloy-design-system';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ListItem, ChevronDownIcon, ChevronRightIcon, ArrowNarrowRightIcon, SearchField } from 'alloy-design-system';
 import type {
   SecondaryNavMenuEntry,
   SecondaryNavMenuItem,
@@ -14,10 +15,80 @@ import {
   GroupRow, GroupLabel, GroupChevron, GroupChildren, ShowMoreRow, MenuGroupWrapper,
   MenuSectionLabel,
   SecNavIconSlot,
+  SpotlightPlaceholder, SpotlightPrompt, SpotlightRow, SpotlightScrim,
   NavBottom, BottomDivider, MenuDivider, BottomItemIcon,
   ResizeHandle,
   SECONDARY_NAV_WIDTH,
 } from './SecondaryNav.styles';
+
+function SpotlightedRow({ prompt, children }: { prompt: string; children: React.ReactNode }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+
+    const placePrompt = () => {
+      const rect = anchor.getBoundingClientRect();
+      setPosition({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+    };
+
+    placePrompt();
+    const observer = new ResizeObserver(placePrompt);
+    observer.observe(anchor);
+    window.addEventListener('resize', placePrompt);
+    window.addEventListener('scroll', placePrompt, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', placePrompt);
+      window.removeEventListener('scroll', placePrompt, true);
+    };
+  }, []);
+
+  return (
+    <>
+      <SpotlightPlaceholder ref={anchorRef} aria-hidden="true" />
+      {position && createPortal(
+        <>
+          <SpotlightScrim aria-hidden="true" />
+          <SpotlightRow
+            style={{
+              left: position.left,
+              top: position.top,
+              width: position.width,
+              height: position.height,
+            }}
+          >
+            {children}
+          </SpotlightRow>
+          <SpotlightPrompt
+            role="status"
+            aria-live="polite"
+            style={{
+              left: position.left + position.width + 20,
+              top: position.top + position.height / 2,
+            }}
+          >
+            <ArrowNarrowRightIcon size={22} aria-hidden="true" />
+            {prompt}
+          </SpotlightPrompt>
+        </>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 // ── Inline icons ───────────────────────────────────────────────────────────
 
@@ -108,9 +179,9 @@ function MenuGroupItem({ group }: { group: SecondaryNavMenuGroup }) {
 
       {expanded && (
         <GroupChildren>
-          {visibleChildren.map(child => (
-            <ListItem
-              key={child.id}
+          {visibleChildren.map(child => {
+            const row = (
+              <ListItem
               label={
                 <span style={{
                   // Active (currently-viewed) case reads as primary + medium
@@ -132,8 +203,17 @@ function MenuGroupItem({ group }: { group: SecondaryNavMenuGroup }) {
               size="md"
               aria-current={child.isActive ? 'page' : undefined}
               style={LIST_ITEM_SIZE_STYLE}
-            />
-          ))}
+              />
+            );
+
+            return child.spotlightPrompt ? (
+              <SpotlightedRow key={child.id} prompt={child.spotlightPrompt}>
+                {row}
+              </SpotlightedRow>
+            ) : (
+              <Fragment key={child.id}>{row}</Fragment>
+            );
+          })}
           {hiddenCount > 0 && (
             <ShowMoreRow type="button" onClick={() => setShowAll(true)}>
               Show {hiddenCount} more

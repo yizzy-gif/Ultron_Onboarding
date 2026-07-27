@@ -222,6 +222,85 @@ export const GroupChildren = styled.div`
   }
 `;
 
+const spotlightFade = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
+`;
+
+const spotlightCueIn = keyframes`
+  from { opacity: 0; transform: translate(8px, -50%); }
+  to   { opacity: 1; transform: translate(0, -50%); }
+`;
+
+/** Full-screen scrim used by the post-setup guided handoff. It intentionally
+ *  ignores pointer events so the highlighted navigation row remains clickable. */
+export const SpotlightScrim = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background: rgb(2 6 12 / 78%);
+  backdrop-filter: blur(2px);
+  animation: ${spotlightFade} 260ms var(--ease-out, ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+/** Holds the event row's place in the menu while its interactive copy is
+ *  rendered at document level, safely above every app-shell stacking context. */
+export const SpotlightPlaceholder = styled.div`
+  width: 100%;
+  min-height: 32px;
+`;
+
+/** Fixed, portal-rendered event row that sits definitively above the scrim. */
+export const SpotlightRow = styled.div`
+  position: fixed;
+  z-index: 1001;
+  border-radius: 8px;
+  background: var(--color-bg-primary, #fff);
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 92%),
+    0 0 24px rgb(255 255 255 / 28%);
+`;
+
+/** Portal-rendered guidance follows the measured row even when the secondary
+ *  navigation has been resized. */
+export const SpotlightPrompt = styled.div`
+  position: fixed;
+  z-index: 1002;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  transform: translateY(-50%);
+  pointer-events: none;
+  /* Sits on the dimmed scrim in both themes, so the white stays literal — a
+     theme-flipping token would go dark-on-dark. Type follows the Alloy scale. */
+  color: #fff;
+  font-family: var(--font-sans, 'Geist', sans-serif);
+  font-size: var(--text-md, 16px);
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: var(--line-height-normal, 1.3);
+  text-wrap: balance;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 65%);
+  animation: ${spotlightCueIn} 360ms 100ms var(--ease-out, ease-out) both;
+
+  /* The cue points back at the spotlit row; Alloy ships the narrow arrow
+     pointing right only, so it's flipped rather than drawn locally. */
+  & > svg {
+    flex: 0 0 auto;
+    transform: rotate(180deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
 /** "Show N more" / "Show less" toggle row inside a group's children. Text
  *  aligns under the child labels (past the 32px icon slot + gaps). */
 export const ShowMoreRow = styled.button`

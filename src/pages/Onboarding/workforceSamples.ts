@@ -32,6 +32,9 @@ export interface WorkforceSample {
    *  third label flexes per archetype (compliance vs operations). Each group
    *  carries a few short tags — the signals behind the prose, shown as chips. */
   narrative: { label: string; body: string; tags: string[] }[];
+  /** The "Configured for you" checklist that closes the read-out — the concrete
+   *  setup Ultron did, one checkable line each, distilled from the narrative. */
+  configured: string[];
 }
 
 export const WORKFORCE_SAMPLES: WorkforceSample[] = [
@@ -53,20 +56,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['Joint Commission', 'Credentialing', 'Immunization tracking', 'OSHA', 'Facility-specific training'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "Healthcare staffing with per diem, travel, contract, and permanent placements — plus MSP and vendor management programs. I've set up scheduling and pay structures for each, with room for client facilities and affiliate vendors, not just workers.",
         tags: ['Per diem', 'Travel', 'Contract', 'Permanent', 'MSP / VMS'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: 'RNs, CNAs, LPNs, allied health, advanced practice, and non-clinical roles — nationwide, 24/7, and mobile-first. Shifts, timecards, and urgent fills all work from a phone.',
         tags: ['RN / LPN / CNA', 'Allied health', 'Advanced practice', 'Non-clinical'],
       },
       {
-        label: 'Your compliance',
+        label: 'Compliance',
         body: "Credentialing is core to how you operate. I'm tracking licenses across states, compact nursing licenses included, with expirations covered.",
         tags: ['Credentialing', 'Compact licenses', 'Immunizations', 'Joint Commission'],
       },
+    ],
+    configured: [
+      'Scheduling for per diem, travel, contract, and permanent placements',
+      'Credentials and licenses tracked with expirations — compact nursing included',
+      'Access for client facilities and affiliate vendors, not just workers',
+      'Shifts, timecards, and urgent fills from a phone',
     ],
   },
   {
@@ -87,20 +96,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['OSHA 10/30', 'Trade licensing', 'Drug screening', 'Right-to-work / E-Verify', 'Site safety orientation'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "Skilled trades staffing across the Mountain West — day labor, project contracts, union dispatch, and direct hire. I've set up project-based scheduling with payroll hosting and union dispatch coordination built in, since a two-day pour and a six-month build don't run the same way.",
         tags: ['Day labor', 'Project contract', 'Union dispatch', 'Direct hire'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: 'Electricians, welders, carpenters, HVAC techs, and heavy equipment operators working job sites, not desks. Dispatch, field clock-ins, and timecards all work from a phone.',
         tags: ['Electricians', 'Welders', 'Carpenters', 'HVAC', 'Equipment operators'],
       },
       {
-        label: 'Your compliance',
+        label: 'Compliance',
         body: "Nobody steps on a site without the right cards. I'm tracking OSHA 10/30, trade licenses, and drug screens with expirations covered, and E-Verify is built into onboarding.",
         tags: ['OSHA 10/30', 'Trade licenses', 'Drug screening', 'E-Verify'],
       },
+    ],
+    configured: [
+      'Project-based scheduling with union dispatch coordination',
+      'Payroll hosting for W-2 placements',
+      'OSHA 10/30 and trade licenses tracked with expirations',
+      'Field clock-ins and timecards from a phone',
     ],
   },
   {
@@ -121,20 +136,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['Forklift certification (PIT)', 'I-9 / E-Verify', 'Safety training', 'Background check', "Workers' comp classification"],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "High-volume light industrial staffing — shift temps, temp-to-hire, and seasonal surge across 3PLs, fulfillment centers, and cold storage. I've set up shift-based scheduling that ramps headcount for peak season without breaking your regular fills.",
         tags: ['Shift temps', 'Temp-to-hire', 'Seasonal surge', 'On-site managed'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: 'Pickers, packers, forklift operators, and sortation associates running around the clock. Badge and kiosk clock-ins feed attendance and reliability scoring, so no-shows surface before a client feels them.',
         tags: ['Pickers / packers', 'Forklift operators', 'Sortation', 'Shift leads'],
       },
       {
-        label: 'Your operations',
+        label: 'Operations',
         body: "Your clients buy filled shifts, so I'm tracking fill rates and check-ins per site and keeping billing tied to verified hours. Forklift certifications and I-9s are tracked with expirations covered.",
         tags: ['Fill rates', 'Site check-ins', 'Forklift certs', 'I-9 / E-Verify'],
       },
+    ],
+    configured: [
+      'Shift scheduling that ramps headcount for peak season',
+      'Attendance and reliability scoring from badge clock-ins',
+      'Fill rates and check-ins tracked per site — billing tied to verified hours',
+      'Forklift certifications and I-9s tracked with expirations',
     ],
   },
   {
@@ -155,20 +176,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['State guard license / registration', 'Armed permit & firearms qualification', 'Background check & fingerprinting', 'Drug screening', 'Post-specific training / SOPs'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "Contract security and manned guarding — regular posts, flex relief, mobile patrol routes, and event details. I've set up post-based scheduling alongside patrol routes, since a fixed post and a rolling route don't run the same way.",
         tags: ['Fixed posts', 'Flex relief', 'Mobile patrol', 'Event details'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: "Armed and unarmed guards, patrol officers, console operators, and site supervisors across metro and industrial sites. Armed and unarmed posts carry different pay rates, so I've structured pay by post type.",
         tags: ['Armed guard', 'Unarmed guard', 'Console / CCTV', 'Site supervisors'],
       },
       {
-        label: 'Your operations',
+        label: 'Operations',
         body: "Your reputation runs on every post being covered and no ghost billing — so I'm tracking check-ins against scheduled posts, verifying who's actually on-site, and keeping billing tied to verified hours. Guard licenses and firearms qualifications are tracked with expirations covered.",
         tags: ['Post check-ins', 'Verified hours', 'Guard licenses', 'Firearms quals'],
       },
+    ],
+    configured: [
+      'Post-based scheduling alongside patrol routes and event details',
+      'Pay rates by post type — armed vs. unarmed',
+      'On-site check-ins tied to billing — no ghost shifts',
+      'Guard licenses and firearms qualifications tracked with expirations',
     ],
   },
   {
@@ -189,20 +216,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['State caregiver certification (HHA/CNA)', 'EVV (Electronic Visit Verification)', 'Background check & abuse registry', 'TB test / health screening', 'HIPAA & care plan compliance'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "In-home care spanning private-pay families, Medicaid waiver programs, and hospice partners. I've set up visit-based scheduling with care plans attached, since a live-in placement and an hourly visit don't run the same way.",
         tags: ['Private pay', 'Medicaid / waiver', 'Hospice partners', 'Live-in'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: "HHAs, CNAs, PCAs, companions, and skilled nurses working in clients' homes, matched to care plans. Visits, notes, and clock-ins all work from a phone.",
         tags: ['HHA', 'CNA', 'PCA', 'Skilled nurses'],
       },
       {
-        label: 'Your compliance',
+        label: 'Compliance',
         body: "EVV isn't optional in your world, so every clock-in doubles as visit verification and your Medicaid billing holds up. Caregiver certifications, TB screenings, and background checks are tracked with expirations covered.",
         tags: ['EVV', 'Certifications', 'TB screening', 'Abuse registry'],
       },
+    ],
+    configured: [
+      'Visit-based scheduling with care plans attached',
+      'EVV-compliant clock-ins on every visit — Medicaid billing holds up',
+      'Access for families and care coordinators, not just caregivers',
+      'Caregiver certifications and screenings tracked with expirations',
     ],
   },
   {
@@ -223,20 +256,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['H-2A / visa documentation', 'I-9 / work authorization', 'Farm Labor Contractor (FLC) license', 'Field sanitation & heat illness (OSHA/Cal-OSHA)', 'Piece-rate & minimum wage compliance'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "Seasonal agricultural labor with H-2A program administration — harvest crews, packing houses, and everything the season demands. I've set up crew-based scheduling with piece-rate pay built in, since a harvest crew and an hourly packing shift don't pay the same way.",
         tags: ['Harvest crews', 'H-2A program', 'Packing houses', 'Piece-rate'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: 'Field harvesters, packing workers, equipment operators, and crew leaders who move with the season. Crews dispatch by field and report through their crew leader, all from a phone.',
         tags: ['Harvesters', 'Packing workers', 'Equipment operators', 'Crew leaders'],
       },
       {
-        label: 'Your compliance',
+        label: 'Compliance',
         body: "H-2A paperwork can sink a season, so I'm tracking visa documentation, work authorizations, and your FLC license with expirations covered. Piece-rate records stay reconciled against minimum wage automatically.",
         tags: ['Visa docs', 'FLC license', 'Heat illness / OSHA', 'Wage compliance'],
       },
+    ],
+    configured: [
+      'Crew-based scheduling with piece-rate pay built in',
+      'Piece-rate records reconciled against minimum wage automatically',
+      'H-2A visa documentation and FLC license tracked with expirations',
+      'Field dispatch through crew leaders, from a phone',
     ],
   },
   {
@@ -257,20 +296,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['Food handler / alcohol service permits', 'I-9 / work authorization', 'Uniform & appearance standards', 'Minor labor law (if applicable)', 'Tip credit / wage compliance'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "Premium events and F&B staffing — per-event gigs, on-call pools, and seasonal placements across hotels, caterers, and venues. I've set up event-based scheduling with tip reconciliation built into pay, since a gala and a hotel shift don't settle the same way.",
         tags: ['Per-event gigs', 'On-call pool', 'Seasonal', 'Tip reconciliation'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: 'Servers, bartenders, cooks, housekeepers, and event captains working a different venue every week. Geo clock-ins confirm who is actually on-site, and your top-rated staff surface first for rebooking.',
         tags: ['Servers', 'Bartenders', 'Cooks', 'Event captains'],
       },
       {
-        label: 'Your operations',
+        label: 'Operations',
         body: "Your clients remember who showed up polished and on time — so I'm tracking check-ins per event and keeping billing tied to verified hours. Food handler and alcohol service permits are tracked with expirations covered.",
         tags: ['Geo clock-ins', 'Event check-ins', 'Food handler', 'Alcohol permits'],
       },
+    ],
+    configured: [
+      'Event-based scheduling with tip reconciliation built into pay',
+      'Geo clock-ins tied to billing per event',
+      'Top-rated staff surface first for rebooking',
+      'Food handler and alcohol service permits tracked with expirations',
     ],
   },
   {
@@ -291,20 +336,26 @@ export const WORKFORCE_SAMPLES: WorkforceSample[] = [
     compliance: ['Background check', 'I-9 / work authorization', 'PCI-DSS (payment handling)', 'HIPAA (healthcare campaigns)', 'Data security & remote-work policy'],
     narrative: [
       {
-        label: 'Your business',
+        label: 'Business',
         body: "Contact center and back-office BPO staffing, campaign by campaign — inbound, outbound, and data entry, on-site and offshore. I've set up campaign-based scheduling that handles surge ramps and time zones from the Philippines to LatAm.",
         tags: ['Campaign staffing', 'Surge ramps', 'On-site + remote', 'Offshore'],
       },
       {
-        label: 'Your workforce',
+        label: 'Workforce',
         body: 'Agents, technical support reps, and team leads split between sites and work-from-home. Remote clock-ins and activity tracking keep a distributed floor visible without hovering.',
         tags: ['Inbound agents', 'Outbound / sales', 'Tech support', 'Team leads / QA'],
       },
       {
-        label: 'Your compliance',
+        label: 'Compliance',
         body: "Your campaigns touch payments and health data, so I'm tracking PCI and HIPAA requirements per campaign, not just per worker. Background checks and I-9s are covered, with expirations tracked.",
         tags: ['PCI-DSS', 'HIPAA', 'Background checks', 'I-9'],
       },
+    ],
+    configured: [
+      'Campaign-based scheduling across sites, time zones, and surge ramps',
+      'Remote clock-ins and activity tracking for work-from-home agents',
+      'PCI and HIPAA requirements tracked per campaign',
+      'Background checks and I-9s tracked with expirations',
     ],
   },
 ];
