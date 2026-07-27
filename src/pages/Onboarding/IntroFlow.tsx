@@ -36,13 +36,15 @@ import styled, { css, keyframes } from 'styled-components';
 import {
   Avatar, Tooltip, Tag,
   Button, EmailField, ComposerActions, ComposerSendButton,
-  ArrowNarrowRightIcon, CheckCircleIcon, Map01Icon,
+  ArrowNarrowRightIcon, CheckCircleIcon, CheckIcon, Map01Icon, Settings02Icon,
   Link01Icon, Building02Icon,
   Microphone02Icon, MedicalCrossIcon, PackageIcon, Lock01Icon,
-  Building05Icon,
+  Building05Icon, Tool01Icon, HomeSmileIcon, SunIcon, MessageCircle02Icon,
+  Users03Icon, Speedometer02Icon, CheckVerified01Icon,
   BankNote01Icon, ReceiptCheckIcon, CoinsStacked03Icon, ClockIcon, CurrencyDollarIcon, Pin01Icon,
   Globe01Icon,
 } from 'alloy-design-system';
+import type { TagColor } from 'alloy-design-system';
 import { matchWorkforceSample } from './workforceSamples';
 import type { WorkforceSample } from './workforceSamples';
 import { AgentMark } from '../Ultron';
@@ -470,9 +472,8 @@ function looksLikeEmail(v: string): boolean {
 }
 
 function LandingStep({ onNext }: { onNext: () => void }) {
-  // The headline pops in; a beat later the body + sign-up block follow as one
-  // group. Advancing is the admin's own action (any sign-up control) — no auto-jump.
-  const [headingDone, setHeadingDone] = useState(false);
+  // The complete landing composition arrives together. Advancing is the
+  // admin's own action (any sign-up control) — no auto-jump.
   const [email, setEmail] = useState('');
   // Email-validity feedback shown via an Alloy Tooltip (replacing the browser's
   // native constraint-validation bubble). An object, not a bare string, so each
@@ -480,12 +481,6 @@ function LandingStep({ onNext }: { onNext: () => void }) {
   // the message is unchanged. Empty stays valid: the demo advances without one.
   const [error, setError] = useState<{ text: string } | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
-  const reduced = usePrefersReducedMotion();
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setHeadingDone(true), reduced ? 0 : 500);
-    return () => window.clearTimeout(t);
-  }, [reduced]);
 
   // Alloy's Tooltip shows on hover/focus, so surface a submit-time error by
   // focusing the field once the error is set (after the render that enables the
@@ -514,8 +509,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
             />
           </MarkBloom>
           <Headline>{GREETING_HEADLINE}</Headline>
-          {headingDone && (
-            <SubGroup>
+          <SubGroup>
               <Sub>{GREETING_BODY}</Sub>
 
               {/* One combined sign-up block: quick SSO choices, or email with
@@ -579,8 +573,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
                   </Fine>
                 </GetStartedForm>
               </SignUp>
-            </SubGroup>
-          )}
+          </SubGroup>
         </LeftInner>
       </LeftPanel>
 
@@ -588,7 +581,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
       <CenterDivider aria-hidden="true" />
 
       {/* Right panel — the proof card, full-height over the right half. */}
-      {headingDone && <SocialProof />}
+      <SocialProof />
     </LandingPanels>
   );
 }
@@ -797,6 +790,31 @@ function SiteParse({
   // `allDone` flips once the last beat settles — the point the read is complete.
   const [active, setActive] = useState(1);
   const [allDone, setAllDone] = useState(false);
+  const completionEndRef = useRef<HTMLDivElement>(null);
+  const reduced = usePrefersReducedMotion();
+
+  // Completion adds the configured summary and both actions beneath the fold.
+  // Bring the true end of the read into view once React has laid that content
+  // out, so the completed state lands with every final control visible.
+  useEffect(() => {
+    if (!allDone) return;
+    const frame = window.requestAnimationFrame(() => {
+      const end = completionEndRef.current;
+      const scrollContainer = end?.closest('main');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollHeight,
+          behavior: reduced ? 'auto' : 'smooth',
+        });
+      } else {
+        end?.scrollIntoView({
+          behavior: reduced ? 'auto' : 'smooth',
+          block: 'end',
+        });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [allDone, reduced]);
 
   // The read's working window: from mount until the last beat settles. The mark
   // morphing back to its circle at `allDone` is part of the completion moment.
@@ -838,34 +856,37 @@ function SiteParse({
   const beatLabel = ACTIVATION_BEATS[active - 1];
 
   return (
-    /* …and while the read runs, tapping anywhere on the step advances too (the
-       touch counterpart of 't'). Once complete, taps stop advancing so a stray
-       one can't blow past the summary — the CTA carries the flow on. */
+    <>
+    {/* …and while the read runs, tapping anywhere on the step advances too (the
+        touch counterpart of 't'). Once complete, taps stop advancing so a stray
+        one can't blow past the summary — the CTA carries the flow on. */}
     <StepIn $wide onClick={() => { if (!allDone) advance(); }}>
-      <Prompt>
-        {allDone ? 'Nearly there!' : `Turning on ${name}`}
+      {/* While the read runs the heading IS the current beat — the copy steps
+          through the activation beats as each one completes — then settles to
+          the completion line. */}
+      <Prompt key={allDone ? 'done' : beatLabel}>
+        {allDone ? 'Nearly there! Your free account is taking shape.' : `${beatLabel}…`}
       </Prompt>
       <PromptSub>
         {allDone
-          ? 'Your free account is taking shape.'
+          ? `Here's what I learned about ${name}.`
           : "Hang tight — I'm reading your site and getting your workspace ready."}
       </PromptSub>
 
       {/* One merged status cluster: the source line and the segmented activation
-          bar read as a single unit. While the bar runs the source line carries
-          the current beat ("Turning on scheduling…"), shimmering; on completion
-          it settles to the signal tally. Nothing renders below the bar. */}
-      <ProgressWrap role="status" aria-live="polite">
+          bar read as a single unit. While the bar runs the line carries just the
+          source; on completion it settles to the signal tally. */}
+      <ProgressWrap role="status" aria-live="polite" $complete={allDone}>
         <SummaryEyebrow $running={!allDone}>
           <Link01Icon size={14} />
           {host}
-          <SummaryEyebrowDot aria-hidden="true">·</SummaryEyebrowDot>
-          {allDone ? (
-            <SummaryEyebrowRead>
-              <CheckCircleIcon size={13} /> read {signalCount} signals
-            </SummaryEyebrowRead>
-          ) : (
-            <SummaryEyebrowReading key={beatLabel}>{`${beatLabel}…`}</SummaryEyebrowReading>
+          {allDone && (
+            <>
+              <SummaryEyebrowDot aria-hidden="true">·</SummaryEyebrowDot>
+              <SummaryEyebrowRead>
+                <CheckCircleIcon size={13} /> read {signalCount} signals
+              </SummaryEyebrowRead>
+            </>
           )}
         </SummaryEyebrow>
         <SegmentRow
@@ -887,22 +908,25 @@ function SiteParse({
         </SegmentRow>
       </ProgressWrap>
 
-      <LearnedReadout learned={learned} loading={!allDone} />
+      <LearnedReadout learned={learned} host={host} completed={allDone ? total : active - 1} done={allDone} />
 
-      {/* Read complete → the primary way on ('t' still continues for keyboard),
-          with a quiet restart underneath for replaying the read. */}
+      {/* The sign-off closes the read. The primary path now follows the full
+          summary, with the quiet restart kept last. */}
       {allDone && (
         <>
-          <ActionRow>
+          <ReadoutCloseRow>
+            <ReadoutClose>Consider it handled.</ReadoutClose>
+          </ReadoutCloseRow>
+          <ActionsRow>
             <Button
               variant="primary"
-              size="lg"
+              size="md"
               onClick={() => onDone({})}
-              trailingArtwork={<ArrowNarrowRightIcon size={18} />}
+              trailingArtwork={<ArrowNarrowRightIcon size={16} />}
             >
               Looks good, continue
             </Button>
-          </ActionRow>
+          </ActionsRow>
           <SkipRow>
             <TextButton
               type="button"
@@ -914,106 +938,213 @@ function SiteParse({
               Start over
             </TextButton>
           </SkipRow>
+          <CompletionEnd ref={completionEndRef} aria-hidden="true" />
         </>
       )}
     </StepIn>
+    </>
   );
 }
 
-// The read-out itself — a lead card carrying the classification + company facts,
-// then one card per narrative group: a bolded label ("Your business / …"), three
-// sentences at most ending with what Ultron DID about it, and the signal chips
-// behind the prose. A centered sign-off closes the read. All from the matched
-// sample dataset (workforceSamples.ts) — nothing is really crawled. Rendered
-// below the activation bar (see SiteParse), so it's visible while the bar runs;
-// until the read completes (`loading`) it shows shimmering placeholders shaped
-// like the eventual cards, then swaps in the real content.
-function LearnedReadout({ learned, loading }: { learned: WorkforceSample; loading?: boolean }) {
+// The read-out itself — one merged card carrying the classification + company
+// facts, then a divided section per narrative group: a bolded label
+// ("Business / …") with the signal chips behind it, followed by the
+// "Configured for you" checklist card. All from the matched sample dataset
+// (workforceSamples.ts) — nothing is really crawled. Rendered below the
+// activation bar (see SiteParse), so it's visible while the bar runs — and it
+// reveals WITH the bar: beat 1 lands the lead, beat 2 lands every narrative
+// section together, and the checklist lands at completion. The sign-off + CTA
+// follow the read-out in SiteParse.
+// Fallback mark per workforce archetype — shown when the pasted site has no
+// favicon of its own (keyed by the sample's workforce_type).
+const WORKFORCE_ICONS: Record<string, ComponentType<{ size?: number }>> = {
+  'Healthcare / Clinical Staffing': MedicalCrossIcon,
+  'Skilled Trades / Construction Labor': Tool01Icon,
+  'Warehouse / Logistics & Light Industrial': PackageIcon,
+  'Security / Guarding Services': Lock01Icon,
+  'Home Care / In-Home Support': HomeSmileIcon,
+  'Agriculture / Seasonal Labor': SunIcon,
+  'Hospitality / Events Staffing': Microphone02Icon,
+  'Call Center / BPO Staffing': MessageCircle02Icon,
+};
+
+// Mark + chip colour per narrative group. The icon fills the same slot as the
+// "Configured for you" head; the colour gives each group its own scale so the
+// chip rows read apart at a glance. The third group's label flexes per
+// archetype (operations vs compliance).
+const GROUP_MARKS: Record<string, { icon: ComponentType<{ size?: number }>; color: TagColor }> = {
+  Business: { icon: Building02Icon, color: 'blue' },
+  Workforce: { icon: Users03Icon, color: 'purple' },
+  Operations: { icon: Speedometer02Icon, color: 'orange' },
+  Compliance: { icon: CheckVerified01Icon, color: 'green' },
+};
+
+function LearnedReadout({ learned, host, completed, done }: {
+  learned: WorkforceSample;
+  /** Host of the pasted website — the lead mark shows its favicon. */
+  host: string;
+  /** How many activation beats have completed — drives the section reveals. */
+  completed: number;
+  /** The whole read has settled — reveals the "Configured for you" card. */
+  done?: boolean;
+}) {
   const { company } = learned;
+  const leadLoading = completed < 1;
+  // The lead mark carries the site's own favicon (via Google's favicon
+  // service). The workforce-category icon stands in until it loads — and
+  // stays when the site has none: for favicon-less domains the service
+  // answers with its tiny default globe (16px), so a real icon is anything
+  // that comes back at a proper size.
+  const [faviconReady, setFaviconReady] = useState(false);
+  const CategoryIcon = WORKFORCE_ICONS[learned.workforce_type] ?? Building05Icon;
   return (
-    <ReadoutWrap key={loading ? 'readout-loading' : 'readout-ready'}>
-      {/* Lead card — the classification + the facts read from the site. */}
+    <ReadoutWrap>
+      {/* The read itself — ONE card: the classification + company facts up top,
+          then a divided section per narrative group. Each section is keyed on
+          its own loading flip so the pop-in replays as its content lands; a
+          freshly revealed section pops immediately (delay 0), while the initial
+          skeleton set keeps its top-to-bottom cascade. */}
       <LeadCard>
-        <LeadTop>
-          <LeadMark aria-hidden="true">
-            {loading ? <Skeleton $w="20px" $h="20px" $round /> : <Building05Icon size={20} />}
-          </LeadMark>
-          <LeadText>
-            {loading ? (
-              <>
-                <Skeleton $w="240px" $h="1em" />
-                <Skeleton $w="160px" $h="0.85em" />
-              </>
-            ) : (
-              <>
-                <LeadKind>{learned.workforce_type}</LeadKind>
-                <LeadName>{company.name}</LeadName>
-              </>
-            )}
-          </LeadText>
-        </LeadTop>
-        <LeadFacts>
-          {loading ? (
-            <>
-              <Skeleton $w="110px" $h="0.9em" />
-              <Skeleton $w="150px" $h="0.9em" />
-              <Skeleton $w="170px" $h="0.9em" />
-            </>
-          ) : (
-            <>
-              <LeadFact>
-                <ClockIcon size={14} />
-                <LeadFactVal>Founded {company.founded}</LeadFactVal>
-              </LeadFact>
-              {company.parent && (
-                <LeadFact>
-                  <Building02Icon size={14} />
-                  <LeadFactVal>Part of {company.parent}</LeadFactVal>
-                </LeadFact>
+        <LeadSection key={leadLoading ? 'lead-loading' : 'lead-ready'}>
+          <LeadTop>
+            <LeadMark aria-hidden="true">
+              {leadLoading ? (
+                <Skeleton $w="20px" $h="20px" $round />
+              ) : (
+                <>
+                  {!faviconReady && <CategoryIcon size={20} />}
+                  <LeadFavicon
+                    src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`}
+                    alt=""
+                    $visible={faviconReady}
+                    onLoad={e => setFaviconReady(e.currentTarget.naturalWidth >= 32)}
+                    onError={() => setFaviconReady(false)}
+                  />
+                </>
               )}
-              <LeadFact>
-                <Globe01Icon size={14} />
-                <LeadFactVal>{company.footprint}</LeadFactVal>
-              </LeadFact>
-            </>
-          )}
-        </LeadFacts>
+            </LeadMark>
+            <LeadText>
+              {leadLoading ? (
+                <>
+                  <Skeleton $w="240px" $h="1em" />
+                  <Skeleton $w="160px" $h="0.85em" />
+                </>
+              ) : (
+                <>
+                  <LeadKind>{learned.workforce_type}</LeadKind>
+                  <LeadName>{company.name}</LeadName>
+                </>
+              )}
+              {/* The facts ride inside the text block, so they left-align with
+                  the heading copy rather than the card edge. */}
+              <LeadFacts>
+                {leadLoading ? (
+                  <>
+                    <Skeleton $w="110px" $h="0.9em" />
+                    <Skeleton $w="150px" $h="0.9em" />
+                    <Skeleton $w="170px" $h="0.9em" />
+                  </>
+                ) : (
+                  <>
+                    <LeadFact>
+                      <ClockIcon size={14} />
+                      <LeadFactVal>Founded {company.founded}</LeadFactVal>
+                    </LeadFact>
+                    {company.parent && (
+                      <LeadFact>
+                        <Building02Icon size={14} />
+                        <LeadFactVal>Part of {company.parent}</LeadFactVal>
+                      </LeadFact>
+                    )}
+                    <LeadFact>
+                      <Globe01Icon size={14} />
+                      <LeadFactVal>{company.footprint}</LeadFactVal>
+                    </LeadFact>
+                  </>
+                )}
+              </LeadFacts>
+            </LeadText>
+          </LeadTop>
+        </LeadSection>
+
+        {/* The narrative groups land as one: every section reveals together
+            once the second beat completes, cascading top to bottom. */}
+        {learned.narrative.map((group, gi) => {
+          const sectionLoading = completed < 2;
+          const { icon: GroupIcon, color: groupColor } =
+            GROUP_MARKS[group.label] ?? { icon: Building02Icon, color: 'neutral' as TagColor };
+          return (
+            <ReadoutSection
+              key={`${group.label}-${sectionLoading ? 'loading' : 'ready'}`}
+              style={{ ['--group-i' as string]: sectionLoading ? gi + 1 : gi }}
+            >
+              {sectionLoading ? (
+                <>
+                  <ReadoutLabel as="div">
+                    <Skeleton $w="16px" $h="16px" $round />
+                    <Skeleton $w="112px" $h="0.95em" />
+                  </ReadoutLabel>
+                  <ReadoutTags>
+                    <Skeleton $w="76px" $h="20px" $round />
+                    <Skeleton $w="92px" $h="20px" $round />
+                    <Skeleton $w="64px" $h="20px" $round />
+                  </ReadoutTags>
+                </>
+              ) : (
+                <>
+                  <ReadoutLabel>
+                    <GroupIcon size={16} />
+                    {group.label}
+                  </ReadoutLabel>
+                  <ReadoutTags>
+                    {group.tags.map(tag => (
+                      <Tag key={tag} size="sm" variant="subtle" color={groupColor}>{tag}</Tag>
+                    ))}
+                  </ReadoutTags>
+                </>
+              )}
+            </ReadoutSection>
+          );
+        })}
       </LeadCard>
 
-      {/* One card per narrative group, cascading in after the lead. */}
-      {learned.narrative.map((group, gi) => (
-        <ReadoutCard key={group.label} style={{ ['--group-i' as string]: gi + 1 }}>
-          {loading ? (
-            <>
-              <Skeleton $w="128px" $h="0.95em" />
-              <SkeletonLines>
-                <Skeleton $h="0.85em" />
-                <Skeleton $h="0.85em" />
-                <Skeleton $h="0.85em" $w="62%" />
-              </SkeletonLines>
-              <ReadoutTags>
-                <Skeleton $w="76px" $h="20px" $round />
-                <Skeleton $w="92px" $h="20px" $round />
-                <Skeleton $w="64px" $h="20px" $round />
-              </ReadoutTags>
-            </>
-          ) : (
-            <>
-              <ReadoutLabel>{group.label}</ReadoutLabel>
-              <ReadoutBody>{group.body}</ReadoutBody>
-              <ReadoutTags>
-                {group.tags.map(tag => (
-                  <Tag key={tag} size="sm" variant="subtle" color="neutral">{tag}</Tag>
-                ))}
-              </ReadoutTags>
-            </>
-          )}
-        </ReadoutCard>
-      ))}
-
-      <ReadoutCloseRow style={{ ['--group-i' as string]: learned.narrative.length + 1 }}>
-        {loading ? <Skeleton $w="152px" $h="0.95em" /> : <ReadoutClose>Consider it handled.</ReadoutClose>}
-      </ReadoutCloseRow>
+      {/* "Configured for you" — the concrete setup behind the narrative, as a
+          checklist. It lands with the completion moment (alongside the
+          sign-off), closing the read on what Ultron actually DID. */}
+      <ReadoutCard
+        key={done ? 'configured-ready' : 'configured-loading'}
+        style={{ ['--group-i' as string]: done ? 0 : learned.narrative.length + 1 }}
+      >
+        {done ? (
+          <>
+            <ConfiguredHead>
+              <Settings02Icon size={16} />
+              Configured for you
+            </ConfiguredHead>
+            <ConfiguredList>
+              {learned.configured.map(item => (
+                <ConfiguredItem key={item}>
+                  <CheckIcon size={16} />
+                  {item}
+                </ConfiguredItem>
+              ))}
+            </ConfiguredList>
+          </>
+        ) : (
+          <>
+            <ConfiguredHead as="div">
+              <Skeleton $w="16px" $h="16px" $round />
+              <Skeleton $w="132px" $h="0.95em" />
+            </ConfiguredHead>
+            <SkeletonLines>
+              <Skeleton $h="0.85em" $w="84%" />
+              <Skeleton $h="0.85em" $w="72%" />
+              <Skeleton $h="0.85em" $w="78%" />
+              <Skeleton $h="0.85em" $w="66%" />
+            </SkeletonLines>
+          </>
+        )}
+      </ReadoutCard>
     </ReadoutWrap>
   );
 }
@@ -1400,6 +1531,13 @@ const Content = styled.div<{ $exiting?: boolean; $augment?: boolean }>`
   }
 `;
 
+/* A single opacity envelope keeps the fixed left/right panels visually in sync
+   on first paint without turning this ancestor into their containing block. */
+const landingReveal = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
+`;
+
 /* The landing is two symmetric panels. On wide screens each is a fixed, full-
    height half of the viewport (see LeftPanel / ProofPanel), so this wrapper only
    governs the narrow case, where the panels drop back into a centered stack. */
@@ -1409,6 +1547,11 @@ const LandingPanels = styled.div`
   align-items: center;
   gap: var(--space-8);
   width: 100%;
+  animation: ${landingReveal} 560ms ${SMOOTH_EASE} both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `;
 
 /* Hairline between the two halves — pinned on the centre line the fixed panels
@@ -2063,12 +2206,6 @@ const cardPop = keyframes`
   to   { opacity: 1; transform: translateY(0) scale(1); }
 `;
 
-/* Light band sweeping through the working label (background-clip text). */
-const shimmer = keyframes`
-  from { background-position: 200% 0; }
-  to   { background-position: -200% 0; }
-`;
-
 /* Skeleton sweep — one soft highlight passing per cycle, seamless (the position
    shifts by exactly one background tile, so the loop never blinks). */
 const skeletonSweep = keyframes`
@@ -2094,7 +2231,10 @@ const segSettle = keyframes`
 `;
 
 
-const ProgressWrap = styled.div`
+/* The whole status cluster (source line + bar) leaves once the read settles:
+   the fills pulse, then the cluster fades and gives its space back — the
+   completed read-out below speaks for itself. */
+const ProgressWrap = styled.div<{ $complete?: boolean }>`
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2102,10 +2242,28 @@ const ProgressWrap = styled.div`
   width: 100%;
   max-width: 360px;
   margin-top: var(--space-5);
+  overflow: hidden;
+  max-height: 96px;
+  transition:
+    opacity 400ms ${SMOOTH_EASE} 950ms,
+    max-height 400ms ${SMOOTH_EASE} 950ms,
+    margin-top 400ms ${SMOOTH_EASE} 950ms;
+
+  ${p => p.$complete && css`
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    pointer-events: none;
+  `}
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
 `;
 
 /* One equal-width cell per activation beat. On completion the fills settle
-   with a single soft pulse before the step fades out. */
+   with a single soft pulse before the whole cluster (see ProgressWrap) fades
+   out and gives its space back. */
 const SegmentRow = styled.div<{ $complete?: boolean }>`
   display: flex;
   gap: var(--space-1);
@@ -2185,28 +2343,6 @@ const SummaryEyebrowRead = styled.span`
   svg { color: var(--color-success-content); }
 `;
 
-/* Pre-completion state — the current beat, shimmering while the bar runs. Kept
-   light: a disabled-tone base with only a secondary-tone band sweeping through. */
-const SummaryEyebrowReading = styled.span`
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--color-content-disabled) 0%,
-    var(--color-content-secondary) 50%,
-    var(--color-content-disabled) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: ${shimmer} 1.6s linear infinite;
-
-  @media (prefers-reduced-motion: reduce) {
-    color: var(--color-content-tertiary);
-    background: none;
-    animation: none;
-  }
-`;
-
 /* Loading placeholder — a shimmering block sized to the content it stands in for,
    so the read-out swaps skeletons for real text with minimal shift. */
 const Skeleton = styled.span<{ $w?: string; $h?: string; $round?: boolean }>`
@@ -2217,20 +2353,22 @@ const Skeleton = styled.span<{ $w?: string; $h?: string; $round?: boolean }>`
   border-radius: ${p => (p.$round ? 'var(--radius-full)' : 'var(--radius-sm)')};
   /* Wide, soft highlight so the sweep reads as a smooth sheen rather than a
      hard band; paired with skeletonSweep it moves at a constant speed and loops
-     seamlessly (no blink). */
+     seamlessly (no blink). Bands are content-color mixes (not opaque bg fills)
+     so the shimmer stays clearly visible on the translucent glass in BOTH
+     themes — bg-tertiary all but vanished in light mode. */
   background: linear-gradient(
     90deg,
-    var(--color-bg-tertiary) 0%,
-    var(--color-bg-tertiary) 30%,
-    var(--color-border-opaque) 50%,
-    var(--color-bg-tertiary) 70%,
-    var(--color-bg-tertiary) 100%
+    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 0%,
+    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 30%,
+    color-mix(in srgb, var(--color-content-primary) 28%, transparent) 50%,
+    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 70%,
+    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 100%
   );
   background-size: 200% 100%;
   animation: ${skeletonSweep} 1.6s linear infinite;
 
   @media (prefers-reduced-motion: reduce) {
-    background: var(--color-bg-tertiary);
+    background: color-mix(in srgb, var(--color-content-primary) 10%, transparent);
     animation: none;
   }
 `;
@@ -2264,7 +2402,8 @@ const readoutPop = css`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-/* Lead card — the classification + the facts read from the site. */
+/* The merged read card — the classification + facts, then a divided section
+   per narrative group. */
 const LeadCard = styled.div`
   ${liquidGlass}
   border: none;
@@ -2276,9 +2415,30 @@ const LeadCard = styled.div`
   ${readoutPop}
 `;
 
+/* The card's opening section — classification + facts. Popped on its own key
+   flip (skeleton → content) independently of the card shell. */
+const LeadSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  ${readoutPop}
+`;
+
+/* One narrative group inside the merged card, divided from the section above. */
+const ReadoutSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-opaque);
+  padding-top: var(--space-4);
+  ${readoutPop}
+`;
+
 const LeadTop = styled.div`
   display: flex;
-  align-items: center;
+  /* Top-aligned: the text block now carries the facts row below the heading,
+     so the mark should hug the heading rather than float mid-block. */
+  align-items: flex-start;
   gap: var(--space-3);
 `;
 
@@ -2292,6 +2452,19 @@ const LeadMark = styled.span`
   border-radius: var(--radius-md);
   background: var(--color-bg-tertiary);
   color: var(--color-content-primary);
+  /* Clip the full-bleed favicon to the mark's rounded corners. */
+  overflow: hidden;
+`;
+
+/* The pasted site's favicon — fills the whole lead-mark slot. Hidden until it
+   loads at a real size, so the category icon covers the fetch, a failure, and
+   the service's tiny default-globe answer for favicon-less domains. */
+const LeadFavicon = styled.img<{ $visible?: boolean }>`
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: ${p => (p.$visible ? 'block' : 'none')};
 `;
 
 const LeadText = styled.div`
@@ -2314,13 +2487,13 @@ const LeadName = styled.span`
   color: var(--color-content-tertiary);
 `;
 
-/* Facts row — founded / parent / footprint, read from the site. */
+/* Facts row — founded / parent / footprint, read from the site. Sits inside
+   the text block under the heading, left-aligned with the copy. */
 const LeadFacts = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-5);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border-opaque);
+  margin-top: var(--space-2);
 `;
 
 const LeadFact = styled.span`
@@ -2350,20 +2523,18 @@ const ReadoutCard = styled.div`
   ${readoutPop}
 `;
 
-/* The group's bolded label ("Your business") — scannable without reading. */
+/* The group's bolded label ("Business") — scannable without reading. Carries
+   the same icon slot as the "Configured for you" head. */
 const ReadoutLabel = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-content-primary);
-`;
-
-const ReadoutBody = styled.p`
-  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  line-height: var(--line-height-relaxed);
-  color: var(--color-content-secondary);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
 `;
 
 /* The signals behind a group's prose, as a quiet chip row under the paragraph. */
@@ -2372,6 +2543,45 @@ const ReadoutTags = styled.div`
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-1);
+`;
+
+/* "Configured for you" header — icon + label, same weight as the group labels. */
+const ConfiguredHead = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-content-primary);
+
+  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
+`;
+
+/* The checklist of what Ultron set up — one check-led line per item. */
+const ConfiguredList = styled.ul`
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+`;
+
+const ConfiguredItem = styled.li`
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-content-secondary);
+
+  svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-success-content);
+  }
 `;
 
 /* The sign-off sits outside the cards, centered under the stack. */
@@ -2403,13 +2613,30 @@ const MissNote = styled.p`
 `;
 
 
-/* Primary CTA row + quiet skip row for the result screens. */
-const ActionRow = styled.div`
-  margin-top: var(--space-5);
+/* The primary CTA, centered beneath the completed read-out. Alloy's size scale
+   steps 36 → 48px, so the button is held at 40px here. */
+const ActionsRow = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-2);
+
+  & > button {
+    height: 40px;
+    padding: 0 var(--space-4);
+  }
 `;
 
+/* The quiet restart, centered below the sign-off at the very bottom. */
 const SkipRow = styled.div`
-  margin-top: var(--space-3);
+  display: flex;
+  justify-content: center;
+`;
+
+/* Zero-size target used to align the completed read's true bottom with the
+   bottom edge of the scrolling viewport. */
+const CompletionEnd = styled.div`
+  width: 100%;
+  height: 0;
 `;
 
 /* ── Step 4 — workforce questions ────────────────────────────────────────────

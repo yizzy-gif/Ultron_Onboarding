@@ -222,6 +222,214 @@ export const GroupChildren = styled.div`
   }
 `;
 
+const spotlightFade = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
+`;
+
+const spotlightGlowLoop = keyframes`
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgb(255 255 255 / 92%),
+      0 0 24px rgb(255 255 255 / 28%);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgb(255 255 255 / 100%),
+      0 0 0 5px color-mix(in srgb, var(--color-orange-content-tertiary, #f97316) 30%, transparent),
+      0 0 38px color-mix(in srgb, var(--color-orange-content-tertiary, #f97316) 46%, transparent);
+  }
+`;
+
+const spotlightRippleLoop = keyframes`
+  0% {
+    opacity: 0.72;
+    box-shadow: 0 0 0 0 color-mix(
+      in srgb,
+      var(--color-orange-content-tertiary, #f97316) 72%,
+      white
+    );
+  }
+  72%, 100% {
+    opacity: 0;
+    box-shadow: 0 0 0 14px transparent;
+  }
+`;
+
+/** Handwriting stack for the spotlight cue, so the coach-mark reads as a note
+ *  pencilled onto the screen rather than more product chrome. Deliberately no
+ *  webfont: these are handwriting faces the host OS already ships, ordered
+ *  macOS → Windows and ending in the generic `cursive` so every platform lands
+ *  on something written rather than falling back to the UI sans. */
+const handwrittenStack = `'Bradley Hand', 'Segoe Print', 'Marker Felt',
+  'Chalkboard SE', 'Comic Sans MS', cursive`;
+
+/* The cue arrives in the order someone would actually draw it: the shaft strokes
+   itself from the note back toward the row, the barbs snap on at the tip, then
+   the handwriting pops in beside it. Each path carries pathLength="1", so one
+   dash rule covers all three regardless of their real lengths. */
+const sketchDraw = keyframes`
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+`;
+
+/* Overshoots just past full size and settles back, with a degree of rotation
+   shed on the way — the note lands like it was jotted, not placed. */
+const notePop = keyframes`
+  0%   { opacity: 0; transform: scale(0.82) rotate(-2deg); }
+  55%  { opacity: 1; transform: scale(1.06) rotate(0.8deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+`;
+
+/** Timings for the cue's entrance, shared so the note starts as the shaft
+ *  finishes and the whole thing reads as one gesture. */
+const SHAFT_MS = 420;
+const BARB_MS = 180;
+const NOTE_DELAY_MS = SHAFT_MS - 60;
+
+/** Full-screen scrim used by the post-setup guided handoff. It is a backdrop
+ *  button: clicking outside the elevated event row dismisses the spotlight. */
+export const SpotlightScrim = styled.button`
+  appearance: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  cursor: default;
+  background: rgb(2 6 12 / 78%);
+  backdrop-filter: blur(2px);
+  animation: ${spotlightFade} 260ms var(--ease-out, ease-out) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+/** Holds the event row's place in the menu while its interactive copy is
+ *  rendered at document level, safely above every app-shell stacking context. */
+export const SpotlightPlaceholder = styled.div`
+  width: 100%;
+  min-height: 32px;
+`;
+
+/** Fixed, portal-rendered event row that sits definitively above the scrim. */
+export const SpotlightRow = styled.div`
+  position: fixed;
+  z-index: 1001;
+  border-radius: 8px;
+  background: var(--color-bg-primary, #fff);
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 92%),
+    0 0 24px rgb(255 255 255 / 28%);
+  animation: ${spotlightGlowLoop} 2.4s ease-in-out infinite;
+
+  /* Two evenly spreading rings keep the surfaced event gently radiating until
+     the user opens it. Shadow spread moves every edge by the same distance, so
+     the row itself never scales or stretches. */
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    animation: ${spotlightRippleLoop} 2.4s ease-out infinite;
+  }
+
+  &::after {
+    animation-delay: 1.2s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+
+    &::before,
+    &::after {
+      display: none;
+    }
+  }
+`;
+
+/** Portal-rendered guidance follows the measured row even when the secondary
+ *  navigation has been resized. */
+export const SpotlightPrompt = styled.div`
+  position: fixed;
+  z-index: 1002;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  /* The sketched arrow leads in from the left and the note sits beside it, so
+     the two align on the arrow's shaft rather than on their boxes. */
+  align-items: center;
+  transform: translateY(-50%);
+  pointer-events: none;
+  /* Sits on the dimmed scrim in both themes, so the white stays literal — a
+     theme-flipping token would go dark-on-dark. */
+  color: #fff;
+  /* Handwritten rather than the UI sans — this is an aside to the operator, not
+     part of the interface. Handwriting faces run small and loose for their point
+     size, so it takes a step up the scale and a tighter line height to hold
+     together against the sans around it. */
+  font-family: ${handwrittenStack};
+  font-size: var(--text-lg, 18px);
+  font-weight: var(--font-weight-bold, 700);
+  line-height: var(--line-height-snug, 1.25);
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 65%);
+  /* The container only positions — the arrow and the note carry their own
+     entrances (see SpotlightArrow / SpotlightNote), so the translateY that
+     centres this on the row stays put and never fights their transforms. */
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+/** The sketched arrow, stroking itself on from the note back toward the row. */
+export const SpotlightArrow = styled.svg`
+  flex: 0 0 auto;
+  overflow: visible;
+
+  path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: ${sketchDraw} ${SHAFT_MS}ms var(--ease-out, ease-out) both;
+  }
+
+  /* The barbs are struck once the shaft has arrived at the tip. */
+  path + path {
+    animation-duration: ${BARB_MS}ms;
+    animation-delay: ${SHAFT_MS - 40}ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    path,
+    path + path {
+      stroke-dashoffset: 0;
+      animation: none;
+    }
+  }
+`;
+
+/** The handwritten note, popping in as the arrow lands. */
+export const SpotlightNote = styled.span`
+  display: inline-block;
+  transform-origin: left center;
+  animation: ${notePop} 420ms ${NOTE_DELAY_MS}ms
+    cubic-bezier(0.34, 1.56, 0.64, 1) both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: ${spotlightFade} 200ms both;
+    transform: none;
+  }
+`;
+
 /** "Show N more" / "Show less" toggle row inside a group's children. Text
  *  aligns under the child labels (past the 32px icon slot + gaps). */
 export const ShowMoreRow = styled.button`

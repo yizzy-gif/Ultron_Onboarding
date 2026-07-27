@@ -26,11 +26,38 @@ export const Blob = styled.div`
   position: absolute;
   top: 0;
   left: 0;
+
+  /* Holographic pastel light sampled from the reference art — decorative glow,
+     not UI color, so no semantic token exists for these hues. The rAF loop
+     writes only the wandering hue numbers (--glow-ha/--glow-hb cool stops,
+     --glow-hc warm pink→peach rim); saturation and lightness are theme knobs
+     here so dark mode deepens the light instead of branching in JS. */
+  --glow-sat: 86%;
+  --glow-lit: 66%;
+  --glow-rim-lit: 72%;
+
   background: radial-gradient(
     circle at var(--glow-cx, 35%) var(--glow-cy, 35%),
-    var(--glow-a, hsl(210 85% 62% / 0.9)),
-    var(--glow-b, hsl(250 85% 60% / 0.8)) 78%
+    hsl(var(--glow-ha, 200) var(--glow-sat) var(--glow-lit) / 0.9),
+    hsl(var(--glow-hb, 245) var(--glow-sat) var(--glow-lit) / 0.8) 62%,
+    hsl(var(--glow-hc, 330) var(--glow-sat) var(--glow-rim-lit) / 0.5) 88%
   );
   filter: blur(48px);
   will-change: transform, opacity, border-radius;
+
+  /* Dark mode: the same palette read as emitted light — a touch deeper and
+     less milky so the pastels don't wash grey over dark surfaces. Mirrors
+     Alloy's theming (media query + .dark/.light class overrides on <html>). */
+  @media (prefers-color-scheme: dark) {
+    html:not(.light) & {
+      --glow-sat: 78%;
+      --glow-lit: 58%;
+      --glow-rim-lit: 63%;
+    }
+  }
+  html.dark & {
+    --glow-sat: 78%;
+    --glow-lit: 58%;
+    --glow-rim-lit: 63%;
+  }
 `;

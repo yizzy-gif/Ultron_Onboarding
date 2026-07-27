@@ -30,12 +30,15 @@ function NavItem({
 
   return (
     <NavItemWrapper $isActive={isActive} $isAi={isAi}>
+      {/* Locked modules keep their greyed look but stay clickable (aria-disabled,
+          not the disabled attribute) so a tap can explain WHY they're locked —
+          the consumer passes the waitlist dialog as their onClick. */}
       <NavItemBtn
         $isActive={isActive}
         $isAiActive={isActive && !!isAi}
         $disabled={disabled}
-        disabled={disabled}
-        onClick={disabled ? undefined : item.onClick}
+        aria-disabled={disabled || undefined}
+        onClick={item.onClick}
         aria-current={isActive ? 'page' : undefined}
         title={!isExpanded ? item.label : undefined}
       >

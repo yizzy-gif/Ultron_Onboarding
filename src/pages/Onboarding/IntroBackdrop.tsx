@@ -183,19 +183,62 @@ export function IntroBackdrop({ links = 0 }: IntroBackdropProps) {
 
 // ── Styled ───────────────────────────────────────────────────────────────────
 
-/* Sits behind the intro content: the slate wash falls from the top-right corner
-   toward the center (token-based, so it flips with the theme), with the particle
-   canvas painting over it. Purely decorative — never intercepts input. */
+/* Sits behind the intro content: a holographic aurora — pools of mint, sky,
+   cornflower, and periwinkle with a warm pink/peach rim on the right, sampled
+   from the reference art — laid over the original slate wash falling from the
+   top-right corner (token-based, so it flips with the theme). The particle
+   canvas paints over it. Purely decorative — never intercepts input.
+
+   These hues are decorative light, not UI color, so no semantic token exists
+   for them; theme fit comes from the strength/palette knobs below, which the
+   dark overrides retune (deeper stops, gentler mix) so the aurora reads as
+   emitted glow on dark surfaces instead of a grey film. */
 const Layer = styled.div`
   position: absolute;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  background: radial-gradient(
-    120% 90% at 100% 0%,
-    var(--color-bg-secondary) 0%,
-    transparent 55%
-  );
+
+  --aurora-mint: hsl(170 72% 64%);
+  --aurora-sky: hsl(202 82% 64%);
+  --aurora-blue: hsl(228 84% 64%);
+  --aurora-violet: hsl(252 78% 64%);
+  --aurora-pink: hsl(330 82% 68%);
+  --aurora-peach: hsl(32 88% 66%);
+  --aurora-core: 18%;
+  --aurora-rim: 12%;
+
+  background:
+    radial-gradient(34% 30% at 40% 24%, color-mix(in srgb, var(--aurora-mint) var(--aurora-core), transparent), transparent 72%),
+    radial-gradient(44% 40% at 52% 40%, color-mix(in srgb, var(--aurora-sky) var(--aurora-core), transparent), transparent 74%),
+    radial-gradient(42% 44% at 36% 60%, color-mix(in srgb, var(--aurora-blue) var(--aurora-core), transparent), transparent 74%),
+    radial-gradient(36% 40% at 26% 42%, color-mix(in srgb, var(--aurora-violet) var(--aurora-rim), transparent), transparent 72%),
+    radial-gradient(30% 34% at 70% 32%, color-mix(in srgb, var(--aurora-pink) var(--aurora-rim), transparent), transparent 70%),
+    radial-gradient(26% 28% at 68% 62%, color-mix(in srgb, var(--aurora-peach) var(--aurora-rim), transparent), transparent 70%),
+    radial-gradient(120% 90% at 100% 0%, var(--color-bg-secondary) 0%, transparent 55%);
+
+  @media (prefers-color-scheme: dark) {
+    html:not(.light) & {
+      --aurora-mint: hsl(170 70% 56%);
+      --aurora-sky: hsl(202 78% 56%);
+      --aurora-blue: hsl(228 80% 58%);
+      --aurora-violet: hsl(252 74% 58%);
+      --aurora-pink: hsl(330 76% 60%);
+      --aurora-peach: hsl(32 82% 58%);
+      --aurora-core: 14%;
+      --aurora-rim: 9%;
+    }
+  }
+  html.dark & {
+    --aurora-mint: hsl(170 70% 56%);
+    --aurora-sky: hsl(202 78% 56%);
+    --aurora-blue: hsl(228 80% 58%);
+    --aurora-violet: hsl(252 74% 58%);
+    --aurora-pink: hsl(330 76% 60%);
+    --aurora-peach: hsl(32 82% 58%);
+    --aurora-core: 14%;
+    --aurora-rim: 9%;
+  }
 
   & > canvas {
     width: 100%;

@@ -108,6 +108,9 @@ export interface UltronStore {
   /** Open a fresh analyzing case from a risk signal detected on the Live
    *  landing. Idempotent per signal; the user stays on Live while it lands. */
   detectRisk: (event: IncomingEvent) => void;
+  /** Surface one authored demo event on demand. Used by the welcome flow so
+   *  Maria Ellis's shift drop genuinely arrives only after the phone handoff. */
+  surfaceDemoThread: (threadId: string) => void;
   /** DEMO ONLY — advance an analyzing case to Needs approval (reveals the prompt). */
   decide: (threadId: string) => void;
   commit: (threadId: string, label: string) => void;
@@ -145,14 +148,21 @@ export interface UltronStore {
 }
 
 export function useUltronStore(): UltronStore {
-  const [threads, dispatch] = useReducer(reducer, ultronThreads);
+  // Maria's shift drop is the welcome flow's first live event. Hold it back
+  // until the operator shares a phone number instead of showing it before
+  // Ultron has offered the live demonstration.
+  const initialThreads = useMemo(
+    () => ultronThreads.filter(thread => thread.id !== 'shift_drop_maria'),
+    [],
+  );
+  const [threads, dispatch] = useReducer(reducer, initialThreads);
 
   // Default selection: the first thread that needs attention.
   const [selectedId, setSelectedIdRaw] = useState<string | null>(() => {
-    const first = ultronThreads.find(
+    const first = initialThreads.find(
       t => t.status === 'needs_approval' || t.status === 'recommended',
     );
-    return first?.id ?? ultronThreads[0]?.id ?? null;
+    return first?.id ?? initialThreads[0]?.id ?? null;
   });
 
   // Cases the user has opened. Drives the Done "Resolved" mark: green (unviewed)
@@ -239,6 +249,16 @@ export function useUltronStore(): UltronStore {
   // sidebar). The user stays on the Live landing; the New badge ticks up.
   const detectRisk = (event: IncomingEvent) => {
     dispatch({ type: 'detect', thread: spawnThreadFromEvent(event) });
+  };
+
+  const surfaceDemoThread = (threadId: string) => {
+    const thread = ultronThreads.find(item => item.id === threadId);
+    if (!thread) return;
+    dispatch({ type: 'detect', thread });
+    // Authored needs-attention cases normally reveal from the New deck. This
+    // one arrives while the user remains in Welcome, so reveal its sidebar row
+    // immediately alongside the New badge increment.
+    revealNew(threadId);
   };
 
   // DEMO ONLY — simulate Ultron finishing its analysis: flip the case to Needs
@@ -361,5 +381,5 @@ export function useUltronStore(): UltronStore {
     replyTimers.current[threadId] = timer;
   };
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved, revealedNewIds, revealNew };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, surfaceDemoThread, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved, revealedNewIds, revealNew };
 }

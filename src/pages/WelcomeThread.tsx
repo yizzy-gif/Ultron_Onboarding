@@ -16,13 +16,16 @@ import type { ComponentType, FormEvent } from 'react';
 import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
 import {
   Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, Dialog, XCloseIcon,
-  Users03Icon, ClockIcon, File04Icon, CheckVerified01Icon, Tag,
+  Users03Icon, ClockIcon, File04Icon, Tag,
   AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader,
 } from 'alloy-design-system';
 import { mockUltronReply } from './Ultron/fixtures';
+import type { ActivityMilestone } from './Ultron/fixtures';
+import { ActivityTrailCards } from './Ultron/ActivityTrail';
 import { AgentMark } from './Ultron/AgentMark';
 import { IntroBackdrop } from './Onboarding/IntroBackdrop';
 import { TeambridgeMark } from './Onboarding/TeambridgeMark';
+import { liquidGlass } from './Onboarding/glass';
 import { MouseGlow } from '../components/MouseGlow';
 import {
   MERIDIAN_ROSTER, planWeekProblems, generateWeekShifts, scheduleShapesFor,
@@ -49,6 +52,11 @@ interface Msg {
   /** A rich block delivered as its own Ultron message — the roster import
    *  result, or the built week. Rendered full-width in the thread. */
   card?: 'roster' | 'week' | 'scheduleCta';
+  /** The activity group Ultron worked through to produce this turn — rendered
+   *  as a collapsed "thinking" trail directly above the message. Set on the
+   *  FIRST part of a turn only, so a multi-part turn carries one group rather
+   *  than one per part. */
+  activity?: ActivityMilestone[];
 }
 
 interface IntakeFile {
@@ -73,15 +81,15 @@ type OpeningBeat = { kind: 'text'; text: string } | { kind: 'rosterCta' };
 type IntroPhase = 'delivering' | 'ready';
 
 /** Where the in-chat setup stands: Ultron is waiting on the roster, then the
- *  schedule, then the setup is done and the thread becomes a normal
- *  conversation (mocked replies, next-step suggestions, the grant ask). */
+ *  schedule, then the setup is done and asks for a phone handoff before the
+ *  thread becomes a normal conversation. */
 type SetupStage = 'roster' | 'schedule' | 'done';
 type AccessModalMode = 'grant' | 'waitlist';
 
 const REPLY_DELAY_MS = 1100;
 
 // ── Landing choreography timing ────────────────────────────────────────────
-/** Typing-dots beat shown before each inbound message lands. */
+/** Typing-indicator beat shown before each inbound message lands. */
 const THINK_MS = 440;
 /** Per-character cadence of the typewriter pass on a text beat. */
 const TYPE_CHAR_MS = 4;
@@ -97,20 +105,30 @@ const WORKING_MS = 2000;
 /** Gap between the parts of one multi-message Ultron turn (text → card → ask). */
 const TURN_GAP_MS = 950;
 
-/** One-tap next steps above the composer once setup is done — the same offers
- *  as Ultron's closing ask, so the admin can hand one over without typing. A
- *  tap sends the label as the operator's message; the row retires once used. */
-const NEXT_STEP_SUGGESTIONS: { icon: ComponentType<{ size?: number }>; label: string }[] = [
-  { icon: Users03Icon, label: 'Build out coverage' },
-  { icon: ClockIcon, label: 'Chase open shifts' },
-  { icon: CheckVerified01Icon, label: 'Tidy compliance' },
-];
-
-/** How long after the setup completes (the closing ask lands) the grant modal
- *  opens — lets the week card breathe before the conversion ask takes over. */
-const GRANT_OPEN_DELAY_MS = 900;
 /** How long the "you're set" confirmation shows before the modal closes itself. */
 const GRANT_CONFIRM_HOLD_MS = 1600;
+
+// ── Header morph ─────────────────────────────────────────────────────────────
+// The welcome identity lands as a hero lockup and settles to an app-bar once the
+// operator scrolls into the thread. These heights are shared with the header's
+// own CSS (see PageHeaderInner) so the scroll maths and the rendered height
+// cannot drift apart.
+const HEADER_HERO_PX = 249;
+const HEADER_BAR_PX = 68;
+const HEADER_HERO_SM_PX = 229;
+const HEADER_BAR_SM_PX = 47;
+/** Scrolled past this, a downward gesture settles the header to the bar. */
+const HEADER_CONDENSE_AT_PX = 56;
+/** Back within this of the top, an upward gesture restores the hero. */
+const HEADER_EXPAND_AT_PX = 8;
+/** Condensing hands the hero's ~180px back to the thread, which shortens the
+ *  scroll by the same amount. If the thread has less overflow than that, the
+ *  collapse would leave nothing to scroll — and with no scroll there is no way
+ *  to scroll back up, so the header would stick small with the hero unreachable.
+ *  Requiring more overflow than the hero's FULL height clears the reclaimed
+ *  space with margin at both breakpoints, so there is always scroll left to
+ *  carry the operator back to the top. */
+const HEADER_CONDENSE_MIN_OVERFLOW_PX = HEADER_HERO_PX;
 
 // ── The scripted import results ──────────────────────────────────────────────
 // The spec's numbers verbatim (mirroring the old onboarding steps); the demo
@@ -128,6 +146,8 @@ const ROSTER_FLOW_PEOPLE = [
   { name: 'Priya Raman', photo: 'https://i.pravatar.cc/96?u=priya.raman' },
   { name: 'Sofia Delgado', photo: 'https://i.pravatar.cc/96?u=sofia.delgado' },
 ] as const;
+/** Shift counts in the uploader's looping miniature week preview. */
+const SCHEDULE_PREVIEW_DAYS = [2, 3, 2, 3, 2, 1, 2] as const;
 /** The scripted shape of a built week — plausible for any shift operation. */
 const WEEK_DAYS = 7;
 const WEEK_SHIFTS = 24;
@@ -158,10 +178,312 @@ const SCHEDULE_ASK =
   "I'll turn it into shifts. Or just tell me the shape of your week and I'll " +
   'build a realistic one.';
 
-const CLOSING_ASK =
-  "That's the essentials in place. What would you like me to take on next? I can " +
-  'build out coverage, chase down open shifts, tidy compliance, or anything else ' +
-  'on your plate.';
+const PHONE_ASK =
+  "Time for a test run, so you can see how I work? Let's simulate a last minute call out.\n\n" +
+  'If you provide your cell number we can make sure everything is hooked up and ' +
+  'test things live together.';
+
+const PHONE_CONFIRMATION =
+  'Perfect — I’ll text you there. And here’s Ultron live: Maria Ellis just dropped ' +
+  'her 2:00 PM shift at Riverside Clinic. I opened it under New and found 8 ' +
+  'qualified RNs who can cover it.';
+
+// ── Ultron's activity groups ─────────────────────────────────────────────────
+// Every inbound turn is introduced by the activity group Ultron worked through
+// to produce it — the same collapsed thinking trail the case threads carry
+// (<ActivityTrailCards>, folded to a one-line recap the operator can open).
+//
+// The collapsed line IS the headlines joined (see ActivityTrail's foldedSummary),
+// so headlines stay two or three words — the recap has to summarize at a glance,
+// not wrap or truncate. Everything concrete (the file name, the shape they typed,
+// the flagged rows, the counts) lives in each step's block, which is what the
+// operator opens the group to read.
+
+/** The opening turn — Ultron arrives straight out of the site read, so its
+ *  first group is the read itself and the workspace it stood up from it. */
+function openingActivity(company: string | null, answers: WelcomeAnswers): ActivityMilestone[] {
+  const shape = [
+    answers.workforceType && `Workforce: ${answers.workforceType}`,
+    answers.worksite && `Worksites: ${answers.worksite}`,
+    answers.pay && `Pay: ${answers.pay}`,
+    answers.billing && `Billing: ${answers.billing}`,
+  ].filter(Boolean) as string[];
+  return [
+    {
+      icon: 'chart',
+      headline: 'Read your site',
+      blocks: [{
+        text: `Went through ${company ? `the ${company} site` : 'your site'} end to end — the `
+          + 'services you run, the places you run them, and the kind of work you staff. '
+          + 'Every page, not just the homepage.',
+      }],
+    },
+    {
+      icon: 'clock',
+      headline: 'Mapped your operation',
+      blocks: shape.length
+        ? [{ label: 'What I settled on', bullets: shape }]
+        : [{ text: 'Inferred the roles you hire, where they work, and how the week '
+            + 'is likely to run, so nothing here starts from a blank slate.' }],
+    },
+    {
+      icon: 'edit',
+      headline: 'Set up your workspace',
+      blocks: [{
+        text: 'Turned on the modules that fit the operation, pre-filled their settings, '
+          + 'and left the rest out of your way until you need them.',
+      }],
+    },
+    {
+      icon: 'send',
+      headline: "Planned what's next",
+      blocks: [{
+        label: 'Left to collect',
+        bullets: [
+          'Your roster — so I know who I am scheduling',
+          'Your schedule — so I can turn it into real shifts',
+        ],
+      }],
+    },
+  ];
+}
+
+/** A roster file (or pasted table) landed — read it, map it, write the people in. */
+function rosterImportActivity(fileName: string): ActivityMilestone[] {
+  return [
+    {
+      icon: 'clock',
+      headline: 'Read your roster',
+      blocks: [{
+        text: `Opened ${fileName} and took every row and header as written — no cleanup `
+          + 'asked of you first, and nothing skipped for being messy.',
+      }],
+    },
+    {
+      icon: 'chart',
+      headline: 'Mapped the columns',
+      blocks: [{
+        label: 'How the columns landed',
+        bullets: [
+          'Names, roles and licenses mapped straight across',
+          'Home locations resolved against your worksites',
+          "3 columns I didn't recognize kept verbatim on each record",
+        ],
+      }],
+    },
+    {
+      icon: 'alert',
+      headline: `Flagged ${ROSTER_TOTAL - ROSTER_CLEAN} rows`,
+      blocks: [{
+        label: 'Held for you, none dropped',
+        bullets: QUARANTINE_ROWS.map(r => `${r.where} — ${r.reason}`),
+      }],
+    },
+    {
+      icon: 'edit',
+      headline: `Added ${ROSTER_CLEAN} teammates`,
+      blocks: [{
+        text: 'Each one carries their role, licenses, home location and contact details, '
+          + 'so they are schedulable the moment the week exists.',
+      }],
+    },
+  ];
+}
+
+/** No roster handy — Ultron generates a stand-in crew off the site read. */
+function rosterSampleActivity(signal: string): ActivityMilestone[] {
+  return [
+    {
+      icon: 'clock',
+      headline: 'Reused your site read',
+      blocks: [{
+        text: signal
+          ? `Took "${signal}" as the brief, so the stand-in crew looks like the people `
+            + 'you actually staff rather than generic filler.'
+          : 'Took the roles and worksites I read off your site as the brief, so the '
+            + 'stand-in crew looks like the people you actually staff.',
+      }],
+    },
+    {
+      icon: 'chart',
+      headline: 'Modeled a matching crew',
+      blocks: [{
+        label: 'What I balanced',
+        bullets: [
+          'Role mix weighted the way your operation reads',
+          'Licenses and certifications appropriate to each role',
+          'Home locations spread across your worksites',
+        ],
+      }],
+    },
+    {
+      icon: 'edit',
+      headline: `Generated ${SAMPLE_COUNT} teammates`,
+      blocks: [{
+        text: 'Full records — role, license, location, availability — so every downstream '
+          + 'step behaves exactly as it will with your real people.',
+      }],
+    },
+    {
+      icon: 'done',
+      headline: 'Tagged them Sample',
+      blocks: [{
+        text: 'One tap clears the whole set the moment your real roster lands. Nothing '
+          + 'you build on top of them is lost in the swap.',
+      }],
+    },
+  ];
+}
+
+/** A schedule landed as a document — read the pattern out of it and build the week. */
+function weekFromFileActivity(fileName: string, problemCount: number): ActivityMilestone[] {
+  return [
+    {
+      icon: 'clock',
+      headline: 'Read your schedule',
+      blocks: [{
+        text: `Opened ${fileName} and took the grid as laid out — whatever the format, `
+          + 'the pattern is the part that matters.',
+      }],
+    },
+    {
+      icon: 'chart',
+      headline: 'Found your pattern',
+      blocks: [{
+        label: 'What the file told me',
+        bullets: [
+          'Recurring start and end times per day',
+          'Which roles each shift needs, and how many',
+          'The days that run light and the days that run heavy',
+        ],
+      }],
+    },
+    buildStep(),
+    coverageStep(problemCount),
+  ];
+}
+
+/** The operator described their week instead of uploading one. */
+function weekFromShapeActivity(shape: string, problemCount: number): ActivityMilestone[] {
+  return [
+    {
+      icon: 'clock',
+      headline: 'Took your week shape',
+      blocks: [{
+        text: `Read "${shape}" as the rhythm to build to, then filled in the detail your `
+          + 'site and roster already imply.',
+      }],
+    },
+    {
+      icon: 'chart',
+      headline: 'Modeled demand',
+      blocks: [{
+        label: 'What I reasoned about',
+        bullets: [
+          'How that shape distributes hours over the week',
+          'Coverage each worksite needs to stay staffed',
+          'Which roles have to be on at the same time',
+        ],
+      }],
+    },
+    buildStep(),
+    coverageStep(problemCount),
+  ];
+}
+
+/** The two steps both week paths share once the pattern is settled. */
+function buildStep(): ActivityMilestone {
+  return {
+    icon: 'edit',
+    headline: `Built ${WEEK_SHIFTS} shifts`,
+    blocks: [{
+      text: `Laid out across ${WEEK_DAYS} days, assigned from your roster where the fit `
+        + 'was obvious and left open where it was not, rather than guessing at coverage.',
+    }],
+  };
+}
+
+function coverageStep(problemCount: number): ActivityMilestone {
+  return {
+    icon: 'alert',
+    headline: 'Checked coverage',
+    blocks: [{
+      text: 'Cross-referenced every shift with licenses, availability and hours. '
+        + `${problemCount} things need you — they are called out on the week below.`,
+    }],
+  };
+}
+
+/** The operator said something while Ultron is still waiting on a document. */
+function nudgeActivity(wanted: 'roster' | 'schedule'): ActivityMilestone[] {
+  return [
+    { icon: 'clock', headline: 'Read your message' },
+    {
+      icon: 'alert',
+      headline: `Found no ${wanted}`,
+      blocks: [{
+        text: `Nothing in it parsed as ${wanted} data, so I held the setup here rather `
+          + 'than building on a guess.',
+      }],
+    },
+  ];
+}
+
+/** The phone handoff — the number lands and the live test run is armed. */
+function phoneCapturedActivity(): ActivityMilestone[] {
+  return [
+    {
+      icon: 'clock',
+      headline: 'Checked your number',
+      blocks: [{ text: 'Read it as a reachable mobile and stored just the digits.' }],
+    },
+    {
+      icon: 'edit',
+      headline: 'Wired it up',
+      blocks: [{
+        text: 'Texts from me now reach you there — the same channel I use to chase '
+          + 'fills and confirmations.',
+      }],
+    },
+    {
+      icon: 'send',
+      headline: 'Armed a live event',
+      blocks: [{
+        text: 'Picked a real-shaped call-out from your new week so you can watch me work '
+          + 'it end to end instead of reading about it.',
+      }],
+    },
+  ];
+}
+
+/** The number didn't read as a phone number. */
+function phoneRetryActivity(): ActivityMilestone[] {
+  return [
+    { icon: 'clock', headline: 'Read your message' },
+    {
+      icon: 'alert',
+      headline: 'Found no number',
+      blocks: [{ text: 'Held off on saving anything rather than storing a number I would fail to reach you on.' }],
+    },
+  ];
+}
+
+/** Setup is done — the thread is a normal conversation and every reply still
+ *  shows the thinking behind it. */
+function chatReplyActivity(): ActivityMilestone[] {
+  return [
+    { icon: 'clock', headline: 'Read your message' },
+    {
+      icon: 'chart',
+      headline: 'Checked your workspace',
+      blocks: [{
+        text: 'Looked at your people, your week and what is already open before answering, '
+          + 'so the reply reflects your setup rather than a generic one.',
+      }],
+    },
+    { icon: 'send', headline: 'Drafted a reply' },
+  ];
+}
 
 /** One line of the setup recap — something Ultron actually turned on. */
 /** Title-cased company name derived from the pasted website (mirrors the
@@ -188,6 +510,12 @@ function looksLikePastedTable(text: string): boolean {
   return text.includes('\t') || text.trim().includes('\n');
 }
 
+/** Whether the thread has enough overflow that settling the header to the bar
+ *  still leaves it scrollable — see HEADER_CONDENSE_MIN_OVERFLOW_PX. */
+function threadOutgrowsHero(el: HTMLElement): boolean {
+  return el.scrollHeight - el.clientHeight > HEADER_CONDENSE_MIN_OVERFLOW_PX;
+}
+
 // Two-letter initials for the teammate avatar tiles.
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -212,6 +540,8 @@ function avatarPhoto(index: number): string {
 const NO_ANSWERS: WelcomeAnswers = {};
 
 interface WelcomeThreadProps {
+  /** Whether this kept-alive thread is the currently visible app surface. */
+  active?: boolean;
   /** Everything onboarding collected — drives the recap card and the
    *  vertical-appropriate sample data (shapes, problems, sample crew). */
   answers?: WelcomeAnswers;
@@ -219,14 +549,22 @@ interface WelcomeThreadProps {
    *  static recap and became a working conversation (the app moves its nav
    *  entry from New to Working on this signal). */
   onContinued?: () => void;
+  /** Fired once a valid phone reply lands after schedule setup. The app uses
+   *  this moment to surface the Maria Ellis shift-drop event under New. */
+  onPhoneSubmitted?: (phone: string) => void;
 }
 
-export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThreadProps) {
+export function WelcomeThread({
+  active = true,
+  answers = NO_ANSWERS,
+  onContinued,
+  onPhoneSubmitted,
+}: WelcomeThreadProps) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
   // Files staged for the next message — chips above the input until sent.
   const [attachments, setAttachments] = useState<string[]>([]);
-  // Ultron's reply state: null = idle; '' = plain typing dots; a non-empty
+  // Ultron's reply state: null = idle; '' = the bare typing mark; a non-empty
   // string = dots plus a shimmering working label ("Bringing your people in…").
   const [replying, setReplying] = useState<string | null>(null);
   // Where the in-chat setup stands (roster ask → schedule ask → done).
@@ -243,11 +581,12 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   // The built week (problems + calendar), generated once when the schedule
   // lands and held stable across re-renders.
   const [weekData, setWeekData] = useState<{ problems: WeekProblem[]; week: WeekDay[] } | null>(null);
-  // Once the admin hands over a first post-setup task, the next-step pills retire.
-  const [nextStepUsed, setNextStepUsed] = useState(false);
   // Sales reach-out — the number the admin leaves for the grant unlock.
   // DEMO ONLY: held in memory, never sent anywhere.
   const [phone, setPhone] = useState('');
+  // The in-chat conversion is complete once the operator replies to the
+  // post-schedule ask with a plausible mobile number.
+  const [phoneCaptured, setPhoneCaptured] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [waitlistJoined, setWaitlistJoined] = useState(false);
   const [accessModalMode, setAccessModalMode] = useState<AccessModalMode>('grant');
@@ -283,7 +622,6 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   const turnAdvance = useRef<(() => void) | null>(null);
   const grantTimer = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const userScrollIntent = useRef(false);
 
   // The signal the sample data derives from — what they typed for their
   // workforce, falling back to the company name from their website — so a
@@ -321,6 +659,30 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     timers.current.forEach(id => window.clearTimeout(id));
     if (turnTimer.current) window.clearTimeout(turnTimer.current);
   }, []);
+
+  // ── Header morph ───────────────────────────────────────────────────────────
+  /** The header follows where the thread actually sits: hero at the top, app-bar
+   *  once the thread is scrolled into. Position alone drives it — the earlier
+   *  version only reacted to wheel/touch gestures, which meant the thread could
+   *  auto-scroll (every new message ends with a scrollIntoView) and run right
+   *  under a hero that never settled.
+   *
+   *  This is safe from the bounce that gesture gate was guarding against because
+   *  of the overflow rule below. Collapsing shortens the thread by the height it
+   *  reclaims, and the resize emits its own scroll event; if that landed back at
+   *  the top the header would expand, re-lengthen the thread and oscillate.
+   *  Condensing only when the thread outgrows the hero keeps the post-collapse
+   *  scroll well clear of the expand threshold, so the resize's scroll event
+   *  finds the header already settled and nothing flips back. */
+  const resolveHeaderForScroll = (el: HTMLElement) => {
+    const scrollTop = el.scrollTop;
+    setHeaderCondensed(condensed => (condensed
+      // Hold the bar until the operator is genuinely back at the top.
+      ? scrollTop > HEADER_EXPAND_AT_PX
+      // Settle to the bar once scrolled in — but only when the thread has the
+      // length to spare, so there is always scroll left to carry them back up.
+      : scrollTop > HEADER_CONDENSE_AT_PX && threadOutgrowsHero(el)));
+  };
   useEffect(() => {
     const query = window.matchMedia?.('(max-width: 600px)');
     if (!query) return;
@@ -355,7 +717,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     after(780, () => setScheduleUpload({ file, state: 'complete', progress: 100 }));
   };
 
-  // The landing sequence: deliver each opening beat immediately — typing dots,
+  // The landing sequence: deliver each opening beat immediately — the typing mark,
   // then a typewriter pass (text) or a fade-in (recap card) — and finally flip
   // to 'ready', which brings in the composer and suggestions. Reduced-motion
   // lands everything at once.
@@ -424,16 +786,6 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     };
   }, [openingBeats, prefersReduced]);
 
-  // Bring up the grant ask once the in-chat setup has fully completed.
-  useEffect(() => {
-    if (stage !== 'done') return;
-    grantTimer.current = window.setTimeout(() => {
-      setAccessModalMode('grant');
-      setGrantOpen(true);
-    }, GRANT_OPEN_DELAY_MS);
-    return () => { if (grantTimer.current) window.clearTimeout(grantTimer.current); };
-  }, [stage]);
-
   // Demo shortcut: M opens whichever access-modal variant was selected last.
   // Ignore editable controls so typing a phone number or message never triggers it.
   useEffect(() => {
@@ -464,8 +816,14 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
   };
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [messages, replying, phase, revealed, activeIdx, typed, showDots]);
+    if (active) endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [active, messages, replying, phase, revealed, activeIdx, typed, showDots]);
+
+  // Portaled dialogs live outside the hidden keep-alive surface, so explicitly
+  // close the grant modal when the operator leaves Welcome.
+  useEffect(() => {
+    if (!active) setGrantOpen(false);
+  }, [active]);
 
   const canSend = (draft.trim().length > 0 || attachments.length > 0) && replying === null;
 
@@ -481,7 +839,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   // ── Ultron's turns ─────────────────────────────────────────────────────────
 
   /** Deliver one Ultron turn: an optional labeled "working" hold, then each
-   *  part with a typing-dots breath between. `then` fires as the last part
+   *  part with a typing-mark breath between. `then` fires as the last part
    *  lands (stage advances there, so mid-turn state can't race). */
   const deliverTurn = (
     parts: Msg[],
@@ -536,14 +894,21 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   // The roster landed (a file, a pasted table, or the sample offer) → the
   // believable import: a working hold, what came in, the result card, then
   // straight into the schedule ask.
-  const runRosterImport = (fileName: string, uploadFile?: IntakeFile) => {
+  //
+  // `cardFile` is set ONLY when the drop zone itself took the file — that's the
+  // one case where the intake card should show it reading in. A file sent
+  // through the composer is a chat attachment: it already shows as a chip on
+  // the operator's message, so the card just holds its working row rather than
+  // adopting a document it never received.
+  const runRosterImport = (fileName: string, cardFile?: IntakeFile) => {
     setRosterSample(false);
     setRosterCommitted(true);
-    if (uploadFile) animateRosterUpload(uploadFile);
+    if (cardFile) animateRosterUpload(cardFile);
     deliverTurn(
       [
         {
           role: 'ultron',
+          activity: rosterImportActivity(fileName),
           text: `Got it — read ${fileName}: ${ROSTER_TOTAL} people, licenses, home locations. ` +
             "3 columns I didn't recognize; I kept them so nothing's lost.",
         },
@@ -566,6 +931,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
       [
         {
           role: 'ultron',
+          activity: rosterSampleActivity(signal),
           text: `Done — I spun up ${SAMPLE_COUNT} sample teammates that look like your operation. ` +
             'Every one is tagged "Sample" — one tap to remove them when your real roster lands.',
         },
@@ -582,19 +948,26 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
   };
 
   // The schedule landed (a file / pasted table) or was described (a shape) →
-  // build the week, show it, then close the setup with the "what next" ask.
-  const runWeekBuild = (source: { fileName?: string; file?: IntakeFile; shape?: string }) => {
-    if (source.file) animateScheduleUpload(source.file);
-    setWeekData({ problems: planWeekProblems(signal), week: generateWeekShifts(signal) });
+  // build the week, show it, then invite the operator to watch Ultron handle a
+  // real event by replying with their phone number.
+  // `cardFile` follows the same rule as the roster's (see runRosterImport): only
+  // a file the schedule drop zone took itself drives that card's upload state.
+  const runWeekBuild = (source: { fileName?: string; cardFile?: IntakeFile; shape?: string }) => {
+    if (source.cardFile) animateScheduleUpload(source.cardFile);
+    const problems = planWeekProblems(signal);
+    setWeekData({ problems, week: generateWeekShifts(signal) });
     const lead = source.fileName
       ? `Read ${source.fileName} — turned it into next week's shifts. A few columns I ` +
         "didn't recognize, kept so nothing's lost."
       : `Built you a realistic week — ${source.shape!.toLowerCase()}. Here's what's in it.`;
+    const activity = source.fileName
+      ? weekFromFileActivity(source.fileName, problems.length)
+      : weekFromShapeActivity(source.shape!.toLowerCase(), problems.length);
     deliverTurn(
       [
-        { role: 'ultron', text: lead },
+        { role: 'ultron', activity, text: lead },
         { role: 'ultron', text: '', card: 'week' },
-        { role: 'ultron', text: CLOSING_ASK },
+        { role: 'ultron', text: PHONE_ASK },
       ],
       {
         workingLabel: source.fileName ? 'Turning it into shifts…' : 'Building your week…',
@@ -610,25 +983,48 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     if ((!text && files.length === 0) || replying !== null) return;
     postOperator(text, files);
 
+    // A composer attachment reads as a document sent in conversation, so it
+    // travels as the chip on the operator's message and nothing more — no
+    // `cardFile`, so the intake card is left alone rather than showing a file
+    // it never took.
     if (stage === 'roster') {
-      if (files.length > 0) runRosterImport(files[0], { name: files[0] });
+      if (files.length > 0) runRosterImport(files[0]);
       else if (looksLikePastedTable(text)) runRosterImport('your pasted roster');
-      else deliverTurn([{ role: 'ultron', text: ROSTER_NUDGE }]);
+      else deliverTurn([{ role: 'ultron', activity: nudgeActivity('roster'), text: ROSTER_NUDGE }]);
       return;
     }
 
     if (stage === 'schedule') {
-      if (files.length > 0) runWeekBuild({ fileName: files[0], file: { name: files[0] } });
+      if (files.length > 0) runWeekBuild({ fileName: files[0] });
       else if (looksLikePastedTable(text)) runWeekBuild({ fileName: 'your pasted schedule' });
       // Any typed answer here is the shape of their week — build around it.
       else runWeekBuild({ shape: text });
       return;
     }
 
-    // Setup done — a normal conversation turn (Ultron mocks a reply a beat later).
-    setNextStepUsed(true);
+    // The first post-setup reply is the requested mobile number. Accept common
+    // formatting such as "(415) 555-0199" or "+1 415 555 0199"; only the digits
+    // are handed to the app's in-memory event trigger.
+    if (!phoneCaptured) {
+      const digits = text.replace(/\D/g, '');
+      if (digits.length >= 7 && digits.length <= 15) {
+        setPhoneCaptured(true);
+        setPhone(digits);
+        onPhoneSubmitted?.(digits);
+        deliverTurn([{ role: 'ultron', activity: phoneCapturedActivity(), text: PHONE_CONFIRMATION }]);
+      } else {
+        deliverTurn([{
+          role: 'ultron',
+          activity: phoneRetryActivity(),
+          text: 'Send me the best mobile number to reach you — any normal format is fine.',
+        }]);
+      }
+      return;
+    }
+
+    // Phone captured — the welcome thread now behaves like a normal conversation.
     const replyCount = messages.filter(m => m.role === 'ultron').length;
-    deliverTurn([{ role: 'ultron', text: mockUltronReply(text, replyCount) }]);
+    deliverTurn([{ role: 'ultron', activity: chatReplyActivity(), text: mockUltronReply(text, replyCount) }]);
   };
 
   const send = () => {
@@ -639,9 +1035,9 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     setAttachments([]);
   };
 
-  // The roster drop zone's picker — a file chosen there lands exactly like one
-  // sent through the composer: an operator message with the attachment, then
-  // the import runs. Only live while the setup is still waiting on the roster.
+  // The roster drop zone's picker — the file was handed to the card, so the card
+  // is what shows it reading in (`cardFile`). Only live while the setup is still
+  // waiting on the roster.
   const pickRosterFiles = (files: FileList | File[] | null) => {
     if (!files || files.length === 0 || stage !== 'roster' || replying !== null) return;
     const picked = Array.from(files);
@@ -654,9 +1050,8 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     });
   };
 
-  // The schedule drop zone's picker — same contract as the roster one: a chosen
-  // file posts as an operator message with the attachment, then the week
-  // builds. Only live while the setup is still waiting on the schedule.
+  // The schedule drop zone's picker — same contract as the roster one: the card
+  // took the file, so the card carries the upload.
   const pickScheduleFiles = (files: FileList | File[] | null) => {
     if (!files || files.length === 0 || stage !== 'schedule' || replying !== null) return;
     const picked = Array.from(files);
@@ -664,7 +1059,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
     postOperator('', names);
     runWeekBuild({
       fileName: names[0],
-      file: {
+      cardFile: {
         name: picked[0].name,
         type: picked[0].type,
         size: picked[0].size,
@@ -674,7 +1069,8 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
 
   // ── One-tap pills, by stage ────────────────────────────────────────────────
   // Roster: the sample-crew stand-in. Schedule: the vertical-appropriate week
-  // shapes. Done: the next-step offers (until one is used).
+  // shapes. Both dock inside their drop zone. Once setup is done the thread is
+  // a plain conversation — no suggestion row above the composer.
   const pills: { icon?: ComponentType<{ size?: number }>; label: string; onTap: () => void }[] =
     replying !== null
       ? []
@@ -688,21 +1084,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
           label: s,
           onTap: () => { postOperator(s); runWeekBuild({ shape: s }); },
         }))
-      : nextStepUsed
-      ? []
-      : NEXT_STEP_SUGGESTIONS.map(({ icon, label }) => ({ icon, label, onTap: () => post(label) }));
-
-  // Post-setup next-step suggestions — the row above the composer.
-  const pillRow = pills.length > 0 ? (
-    <SuggestionRow aria-label="Suggestions">
-      {pills.map(({ icon: Icon, label, onTap }) => (
-        <SuggestionPill key={label} type="button" onClick={onTap}>
-          {Icon && <Icon size={14} />}
-          {label}
-        </SuggestionPill>
-      ))}
-    </SuggestionRow>
-  ) : null;
+      : [];
 
   // While the setup is collecting a document, the stage's pills dock inside
   // the drop zone itself, under its browse button (FileUploader's footerSlot).
@@ -722,7 +1104,10 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
       ? 'Attach your roster, or ask Ultron anything…'
       : stage === 'schedule'
       ? 'Attach your schedule, or describe your week…'
-      : 'Tell Ultron what to take on next…';
+      : phoneCaptured
+      ? 'Tell Ultron what to take on next…'
+      : 'Enter your cell number…';
+  const awaitingPhone = stage === 'done' && !phoneCaptured;
   const isWaitlistModal = accessModalMode === 'waitlist';
   const accessConfirmed = isWaitlistModal ? waitlistJoined : unlocked;
 
@@ -736,19 +1121,21 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
       {/* Page header — the event page's header lockup (title over a muted
           one-line subtitle), with the case avatar swapped for the page's
           document icon and no trailing open-record control. */}
-      <PageHeader>
+      <PageHeader $condensed={headerCondensed}>
         <PageHeaderInner $condensed={headerCondensed}>
           {/* The leading artwork is Ultron's magnetic globe — the same identity
               the onboarding flow built cell by cell, now held compactly in the
               header while the welcome messages begin immediately. */}
-          <PageHeaderIcon $condensed={headerCondensed}>
-            <AgentMark
-              mark="magnetic"
-              size={140}
-              tone="light"
-              state="active"
-              aria-label="Ultron"
-            />
+          <PageHeaderIcon $condensed={headerCondensed} role="img" aria-label="Ultron">
+            {/* Keep both canvases at a native render size and cross-fade them.
+                Scaling the detailed 140px canvas through fractional sizes made
+                its particles shimmer while the header was moving. */}
+            <PageHeaderMarkLayer $show={!headerCondensed} aria-hidden="true">
+              <AgentMark mark="magnetic" size={140} tone="auto" state="active" />
+            </PageHeaderMarkLayer>
+            <PageHeaderMarkLayer $show={headerCondensed} $compact aria-hidden="true">
+              <AgentMark mark="magnetic" size={36} tone="auto" state="active" />
+            </PageHeaderMarkLayer>
           </PageHeaderIcon>
           <PageHeaderText $condensed={headerCondensed}>
             <PageHeaderTitle $condensed={headerCondensed}>Welcome</PageHeaderTitle>
@@ -758,21 +1145,21 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
           </PageHeaderText>
         </PageHeaderInner>
       </PageHeader>
-      <Scroll
-        onWheel={() => { userScrollIntent.current = true; }}
-        onTouchMove={() => { userScrollIntent.current = true; }}
-        onScroll={event => {
-          if (!userScrollIntent.current) return;
-          const scrollTop = event.currentTarget.scrollTop;
-          setHeaderCondensed(current => current ? scrollTop > 8 : scrollTop > 56);
-        }}
-      >
+      <Scroll onScroll={event => resolveHeaderForScroll(event.currentTarget)}>
         <Thread>
             {/* Opening turn — Ultron greets, then asks for the roster.
                 Delivered one beat at a time: text beats type in, the roster
                 drop zone fades in as its own beat. */}
             <Row data-from="ultron">
               <Stack>
+                {/* The work behind the greeting — the site read that stood this
+                    workspace up. Lands with the turn's first beat, so the group
+                    introduces the message rather than preceding an empty column. */}
+                {(activeIdx >= 0 || revealed > 0) && (
+                  <ActivityGroupSlot>
+                    <ActivityTrailCards milestones={openingActivity(companyName(answers.companyWebsite), answers)} collapsed hideActions />
+                  </ActivityGroupSlot>
+                )}
                 {openingBeats
                   .slice(0, activeIdx >= 0 ? activeIdx + 1 : revealed)
                   .map((beat, i) => {
@@ -835,7 +1222,14 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                                   <RowIcon aria-hidden="true"><Users03Icon size={16} /></RowIcon>
                                   <RowText>
                                     <RowLabel>Roster</RowLabel>
-                                    <RowDetail>{replying || 'Generating sample teammates…'}</RowDetail>
+                                    {/* Ultron's working label, falling back to the
+                                        quiet in-between-parts state — which reads
+                                        off how the roster arrived, since this row
+                                        now also carries composer attachments and
+                                        pasted tables, not just the sample crew. */}
+                                    <RowDetail>
+                                      {replying || (rosterSample ? 'Generating sample teammates…' : 'Reading your roster…')}
+                                    </RowDetail>
                                   </RowText>
                                   <RowStatus aria-hidden="true">
                                     <RowSpinner />
@@ -843,7 +1237,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                                 </SummaryItemCard>
                               )
                             ) : (
-                              <SummaryItemCard>
+                              <SummaryItemCard $done>
                                 <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
                                 <RowText>
                                   <RowLabel>Roster</RowLabel>
@@ -868,8 +1262,8 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                   })}
                 {showDots && (
                   <DotsRow>
-                    <Typing aria-label="Ultron is typing">
-                      <Dot /><Dot /><Dot />
+                    <Typing role="status" aria-label="Ultron is typing">
+                      <AgentMark mark="lines" size={30} tone="auto" state="active" coreHalo={false} aria-hidden="true" />
                     </Typing>
                   </DotsRow>
                 )}
@@ -877,12 +1271,21 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
             </Row>
 
             {messages.map((m, i) => {
+              // The turn's activity group — the thinking/working trail that
+              // produced this message, folded to a one-line recap above it.
+              // Only the first part of a turn carries one (see Msg.activity).
+              const activity = m.activity ? (
+                <ActivityGroupSlot>
+                  <ActivityTrailCards milestones={m.activity} collapsed hideActions />
+                </ActivityGroupSlot>
+              ) : null;
               // Result cards span the thread column, like the recap card above.
               if (m.card) {
                 return (
                   <Row key={i} data-from="ultron">
                     <Stack>
-                      <BeatReveal>
+                      {activity}
+                      <BeatReveal $pop={m.card === 'week'}>
                         {m.card === 'roster' ? (
                           <RosterResultCard sample={rosterSample} />
                         ) : m.card === 'scheduleCta' ? (
@@ -907,33 +1310,57 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                                 onClear={() => {}}
                               />
                             ) : replying !== null ? (
-                              <SummaryItemCard>
-                                <RowIcon aria-hidden="true"><ClockIcon size={16} /></RowIcon>
-                                <RowText>
-                                  <RowLabel>Schedule</RowLabel>
-                                  <RowDetail>{replying || 'Building your week…'}</RowDetail>
-                                </RowText>
-                                <RowStatus aria-hidden="true">
-                                  <RowSpinner />
-                                </RowStatus>
-                              </SummaryItemCard>
+                              <ScheduleGeneratingReveal>
+                                <SummaryItemCard>
+                                  <RowIcon aria-hidden="true"><ClockIcon size={16} /></RowIcon>
+                                  <RowText>
+                                    <RowLabel>Schedule</RowLabel>
+                                    <RowDetail>{replying || 'Building your week…'}</RowDetail>
+                                  </RowText>
+                                  <RowStatus aria-hidden="true">
+                                    <RowSpinner />
+                                  </RowStatus>
+                                </SummaryItemCard>
+                              </ScheduleGeneratingReveal>
                             ) : (
-                              <IntakeUploader
-                                variant="area"
-                                browseButtonVariant="primary"
-                                accept=".csv,.xlsx,.xls,.pdf,image/*"
-                                title="Drop your schedule here, or browse your files"
-                                description="Spreadsheet, PDF, or a photo — any format works"
-                                state="empty"
-                                progress={0}
-                                file={null}
-                                footerSlot={cardPills}
-                                onFileSelect={file => pickScheduleFiles([file])}
-                                onClear={() => {}}
-                              />
+                              <ScheduleUploaderStage>
+                                <SchedulePreview aria-hidden="true">
+                                  {SCHEDULE_PREVIEW_DAYS.map((shiftCount, dayIndex) => {
+                                    const offset = SCHEDULE_PREVIEW_DAYS
+                                      .slice(0, dayIndex)
+                                      .reduce((total, count) => total + count, 0);
+                                    return (
+                                      <SchedulePreviewDay key={dayIndex}>
+                                        <SchedulePreviewDayHead />
+                                        {Array.from({ length: shiftCount }, (_, shiftIndex) => (
+                                          <SchedulePreviewShift
+                                            key={shiftIndex}
+                                            $sequence={offset + shiftIndex}
+                                            $accent={(dayIndex + shiftIndex) % 5 === 0}
+                                          />
+                                        ))}
+                                      </SchedulePreviewDay>
+                                    );
+                                  })}
+                                </SchedulePreview>
+                                <IntakeUploader
+                                  data-schedule-flow=""
+                                  variant="area"
+                                  browseButtonVariant="primary"
+                                  accept=".csv,.xlsx,.xls,.pdf,image/*"
+                                  title="Drop your schedule here, or browse your files"
+                                  description="Spreadsheet, PDF, or a photo — any format works"
+                                  state="empty"
+                                  progress={0}
+                                  file={null}
+                                  footerSlot={cardPills}
+                                  onFileSelect={file => pickScheduleFiles([file])}
+                                  onClear={() => {}}
+                                />
+                              </ScheduleUploaderStage>
                             )
                           ) : (
-                            <SummaryItemCard>
+                            <SummaryItemCard $done>
                               <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
                               <RowText>
                                 <RowLabel>Schedule</RowLabel>
@@ -952,21 +1379,32 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                   </Row>
                 );
               }
+              const group = (
+                <MsgGroup data-from={m.role}>
+                  {m.text && <Bubble data-from={m.role}>{m.text}</Bubble>}
+                  {m.attachments && (
+                    <SentFiles>
+                      {m.attachments.map(name => (
+                        <FileChip key={name}>
+                          <File04Icon size={14} />
+                          {name}
+                        </FileChip>
+                      ))}
+                    </SentFiles>
+                  )}
+                </MsgGroup>
+              );
               return (
                 <Row key={i} data-from={m.role}>
-                  <MsgGroup data-from={m.role}>
-                    {m.text && <Bubble data-from={m.role}>{m.text}</Bubble>}
-                    {m.attachments && (
-                      <SentFiles>
-                        {m.attachments.map(name => (
-                          <FileChip key={name}>
-                            <File04Icon size={14} />
-                            {name}
-                          </FileChip>
-                        ))}
-                      </SentFiles>
-                    )}
-                  </MsgGroup>
+                  {/* An introduced turn stacks its activity group over the message,
+                      full-width like the result cards; a bare message keeps the
+                      80%-capped group on its own. */}
+                  {activity ? (
+                    <Stack>
+                      {activity}
+                      {group}
+                    </Stack>
+                  ) : group}
                 </Row>
               );
             })}
@@ -980,7 +1418,7 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
                 >
                   <TypingCluster>
                     <Typing aria-hidden="true">
-                      <Dot /><Dot /><Dot />
+                      <AgentMark mark="lines" size={30} tone="auto" state="active" coreHalo={false} aria-hidden="true" />
                     </Typing>
                     {replying && (
                       <WorkingLabel role="status" aria-live="polite">{replying}</WorkingLabel>
@@ -998,27 +1436,22 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
           delivered, then arrive together. */}
       {phase === 'ready' && (
       <ComposerWrap>
-        {/* Ultron's presence mark above the composer — the resting magnetic
-            form, morphing to the working lines form while a reply is in
-            flight (the same presence the case pages pin over their composers). */}
-        <FootMarkRow
-          role={replying !== null ? 'status' : 'img'}
-          aria-label={replying !== null ? 'Ultron is working' : 'Ultron'}
-        >
+        {/* Ultron's presence mark above the composer — the resting magnetic form,
+            and ONLY that: it marks stand-by. While a reply is in flight the working
+            presence is the lines mark in the thread, so this one fades out rather
+            than doubling it up. The row keeps its box either way, so the composer
+            doesn't shift as the mark comes and goes. */}
+        <FootMarkRow role="img" aria-label="Ultron" aria-hidden={replying !== null}>
           <MarkMorphBox aria-hidden="true">
-            <MarkFormLayer $show={replying !== null}>
-              <AgentMark mark="lines" size={30} tone="auto" state="active" coreHalo={false} aria-hidden="true" />
-            </MarkFormLayer>
             <MarkFormLayer $show={replying === null}>
               <AgentMark mark="magnetic2d" size={24} tone="auto" state="idle" motionSpeed={2.5} coreHalo={false} aria-hidden="true" />
             </MarkFormLayer>
           </MarkMorphBox>
         </FootMarkRow>
-        {/* One-tap offers above the composer — only the post-setup next-step
-            suggestions; the stand-ins and skips render under their intake
-            drop zones in the thread while documents are being collected. */}
-        {stage === 'done' && pillRow}
-        <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
+        <Composer
+          $phoneMode={awaitingPhone}
+          onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}
+        >
           {attachments.length > 0 && (
             <PendingFiles aria-label="Files to send">
               {attachments.map(name => (
@@ -1037,15 +1470,23 @@ export function WelcomeThread({ answers = NO_ANSWERS, onContinued }: WelcomeThre
             </PendingFiles>
           )}
           <InputRow>
-            <ActionSlot>
-              <ComposerAttachment state="idle" onSelect={addFiles} />
-            </ActionSlot>
+            {!awaitingPhone && (
+              <ActionSlot>
+                <ComposerAttachment state="idle" onSelect={addFiles} />
+              </ActionSlot>
+            )}
             <Field
+              $phoneMode={awaitingPhone}
               rows={1}
               value={draft}
               placeholder={placeholder}
-              aria-label="Message Ultron"
-              onChange={e => setDraft(e.target.value)}
+              aria-label={awaitingPhone ? 'Cell phone number' : 'Message Ultron'}
+              inputMode={awaitingPhone ? 'tel' : 'text'}
+              autoComplete={awaitingPhone ? 'tel' : 'off'}
+              onChange={e => {
+                const value = e.target.value;
+                setDraft(awaitingPhone ? value.replace(/[^\d+().\-\s]/g, '') : value);
+              }}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
               }}
@@ -1242,7 +1683,7 @@ function RosterResultCard({ sample }: { sample: boolean }) {
             </PersonAvatar>
             <PersonWho>
               <PersonName>{w.name}</PersonName>
-              <PersonMeta>{w.role} · {w.location} · {w.tenure}</PersonMeta>
+              <PersonMeta>{w.role} · {w.tenure}</PersonMeta>
             </PersonWho>
             {w.credentialStatus === 'expiring' ? (
               <Tag size="sm" variant="subtle" color="yellow" dot>
@@ -1305,6 +1746,11 @@ function RosterResultCard({ sample }: { sample: boolean }) {
  *  the seven-day calendar of shifts. */
 function WeekResultCard({ problems, week }: { problems: WeekProblem[]; week: WeekDay[] }) {
   const [waitingOpen, setWaitingOpen] = useState(false);
+  // Sequence shift entrances down each day before moving to the next column,
+  // so the calendar fills top-to-bottom, then left-to-right.
+  const shiftOffsets = week.map((_, dayIndex) =>
+    week.slice(0, dayIndex).reduce((total, day) => total + day.shifts.length, 0),
+  );
 
   return (
     <ResultCard aria-label="Your week">
@@ -1354,11 +1800,15 @@ function WeekResultCard({ problems, week }: { problems: WeekProblem[]; week: Wee
       {/* The week itself — a calendar of shifts across the seven days. */}
       <CalScroll>
         <CalGrid role="table" aria-label="Next week's shifts">
-          {week.map(day => (
+          {week.map((day, dayIndex) => (
             <CalDay key={day.label} role="column">
               <CalDayHead>{day.label}</CalDayHead>
               {day.shifts.map((s, i) => (
-                <ShiftChip key={`${day.label}-${i}`} $flag={s.flag}>
+                <ShiftChip
+                  key={`${day.label}-${i}`}
+                  $flag={s.flag}
+                  $sequence={shiftOffsets[dayIndex] + i}
+                >
                   <ShiftTime>{s.time}</ShiftTime>
                   <ShiftWho>{s.who}</ShiftWho>
                 </ShiftChip>
@@ -1426,7 +1876,7 @@ const glassBarFade = (fade: 'down' | 'up') => css`
   pointer-events: none;
 `;
 
-const PageHeader = styled.header`
+const PageHeader = styled.header<{ $condensed: boolean }>`
   flex-shrink: 0;
   position: relative;
   isolation: isolate;
@@ -1434,55 +1884,47 @@ const PageHeader = styled.header`
   z-index: 2;
   background: transparent;
 
+  /* The glass bar only exists in the condensed state: the large welcome lockup
+     floats directly on the scene with no frost or fade, and the bar eases in
+     as the header condenses over scrolling content. */
   &::before {
     ${glassBarFrost}
+    opacity: ${p => (p.$condensed ? 1 : 0)};
+    transition: opacity 220ms var(--ease-out);
   }
   &::after {
     ${glassBarFade('down')}
+    opacity: ${p => (p.$condensed ? 1 : 0)};
+    transition: opacity 220ms var(--ease-out);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before,
+    &::after {
+      transition: none;
+    }
   }
 `;
 
-const expandedHeaderIn = keyframes`
-  from { opacity: 0.56; transform: translateY(-5px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
-
-const compactHeaderIn = keyframes`
-  from { opacity: 0.56; transform: translateY(5px); }
-  to   { opacity: 1; transform: translateY(0); }
-`;
+const HEADER_MORPH_MS = '320ms';
+const HEADER_MORPH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 const PageHeaderInner = styled.div<{ $condensed: boolean }>`
   position: relative;
   z-index: 1;
-  display: flex;
-  flex-direction: ${p => p.$condensed ? 'row' : 'column'};
-  align-items: center;
-  justify-content: ${p => p.$condensed ? 'flex-start' : 'center'};
-  gap: ${p => p.$condensed ? 'var(--space-3)' : 'var(--space-4)'};
   width: 100%;
+  height: ${p => (p.$condensed ? HEADER_BAR_PX : HEADER_HERO_PX)}px;
   /* Match the thread column exactly: 720px of content plus the same side
      padding, so the header lockup left-aligns with the bubbles and composer. */
   max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
-  padding: ${p => p.$condensed
-    ? 'var(--space-4) var(--space-6) var(--space-2)'
-    : 'var(--space-6) var(--space-6) var(--space-3)'};
-  animation: ${p => p.$condensed ? compactHeaderIn : expandedHeaderIn}
-    220ms var(--ease-out) both;
-  transition:
-    gap 220ms var(--ease-out),
-    padding 220ms var(--ease-out);
+  transition: height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    gap: ${p => p.$condensed ? 'var(--space-2)' : 'var(--space-3)'};
-    padding: ${p => p.$condensed
-      ? 'var(--space-2) var(--space-4) var(--space-1)'
-      : 'var(--space-4) var(--space-4) var(--space-3)'};
+    height: ${p => (p.$condensed ? HEADER_BAR_SM_PX : HEADER_HERO_SM_PX)}px;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    animation: none;
     transition: none;
   }
 `;
@@ -1494,14 +1936,20 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  position: relative;
+  position: absolute;
+  top: ${p => p.$condensed ? '20px' : '24px'};
+  left: ${p => p.$condensed ? 'var(--space-6)' : '50%'};
   width: ${p => p.$condensed ? '36px' : '140px'};
   height: ${p => p.$condensed ? '36px' : '140px'};
+  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
   opacity: 1;
   visibility: visible;
   transition:
-    width 220ms var(--ease-out),
-    height 220ms var(--ease-out);
+    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    width ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   &::before {
     content: '';
@@ -1516,19 +1964,33 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
     pointer-events: none;
   }
 
-  & > canvas {
-    position: relative;
-    z-index: 1;
-    transform: scale(${p => p.$condensed ? 0.3143 : 1});
-  }
-
   @media (max-width: 600px) {
+    top: ${p => p.$condensed ? '10px' : '16px'};
+    left: ${p => p.$condensed ? 'var(--space-4)' : '50%'};
     width: ${p => p.$condensed ? '32px' : '140px'};
     height: ${p => p.$condensed ? '32px' : '140px'};
+  }
 
-    & > canvas {
-      transform: scale(${p => p.$condensed ? 0.3143 : 1});
-    }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+`;
+
+const PageHeaderMarkLayer = styled.span<{ $show: boolean; $compact?: boolean }>`
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  display: block;
+  opacity: ${p => p.$show ? 1 : 0};
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  pointer-events: none;
+  transition: opacity ${p => p.$show ? '190ms 55ms' : '130ms'} var(--ease-out);
+  will-change: opacity;
+
+  @media (max-width: 600px) {
+    transform: translate(-50%, -50%) scale(${p => p.$compact ? 0.8889 : 1});
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1537,32 +1999,52 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
 `;
 
 const PageHeaderText = styled.div<{ $condensed: boolean }>`
-  display: flex;
-  flex-direction: column;
-  align-items: ${p => p.$condensed ? 'flex-start' : 'center'};
-  min-width: 0;
-  text-align: ${p => p.$condensed ? 'left' : 'center'};
+  display: contents;
 `;
 
 /* Alloy label / medium: 14px · medium · relaxed · wide tracking — the event
    header's CardTitle. */
 const PageHeaderTitle = styled.span<{ $condensed: boolean }>`
+  position: absolute;
+  top: ${p => p.$condensed ? '15px' : '180px'};
+  left: ${p => p.$condensed ? '72px' : '50%'};
+  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
+  max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
   font-family: var(--font-sans);
   font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'clamp(24px, 3vw, 30px)'};
   font-weight: ${p => p.$condensed ? 'var(--font-weight-medium)' : 'var(--font-weight-bold)'};
   line-height: ${p => p.$condensed ? 'var(--line-height-relaxed)' : 'var(--line-height-tight)'};
   letter-spacing: ${p => p.$condensed ? 'var(--tracking-wide)' : 'var(--tracking-tight)'};
   color: var(--color-content-primary);
+  white-space: nowrap;
+  transition:
+    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    font-weight ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    letter-spacing ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
+    top: ${p => p.$condensed ? '7px' : '168px'};
+    left: ${p => p.$condensed ? '56px' : '50%'};
+    max-width: ${p => p.$condensed ? 'calc(100% - 72px)' : 'calc(100% - 32px)'};
     font-size: ${p => p.$condensed ? 'var(--text-sm)' : '24px'};
   }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 /* One-line muted subtitle — the event header's CardSubtitle, with the muted
    tone drawn from the neutral family (this header sits on the primary surface,
    not the card's tonal fill). */
 const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
+  position: absolute;
+  top: ${p => p.$condensed ? '36px' : '213px'};
+  left: ${p => p.$condensed ? '72px' : '50%'};
+  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
+  max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
   font-family: var(--font-sans);
   font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'var(--text-md)'};
   font-weight: var(--font-weight-regular);
@@ -1572,8 +2054,17 @@ const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
+    line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
+    top: ${p => p.$condensed ? '27px' : '197px'};
+    left: ${p => p.$condensed ? '56px' : '50%'};
+    max-width: ${p => p.$condensed ? 'calc(100% - 72px)' : 'calc(100% - 32px)'};
     font-size: ${p => p.$condensed ? 'var(--text-xs)' : 'var(--text-sm)'};
     line-height: ${p => p.$condensed ? 'var(--line-height-snug)' : 'var(--line-height-relaxed)'};
   }
@@ -1581,6 +2072,8 @@ const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
   @media (max-width: 600px) and (max-height: 700px) {
     display: ${p => p.$condensed ? 'none' : 'block'};
   }
+
+  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 const Scroll = styled.div`
@@ -1600,10 +2093,39 @@ const turnIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
+/* The schedule generation beat has a little more presence than an ordinary
+   reply: it fades up from the composer edge, briefly overshoots, then settles
+   into the thread. The same motion lands the completed week card. */
+const schedulePopIn = keyframes`
+  0%   { opacity: 0; transform: translateY(12px) scale(0.94); }
+  68%  { opacity: 1; transform: translateY(-2px) scale(1.018); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+`;
+
+/* Individual shifts populate the finished calendar in reading order. */
+const shiftPopIn = keyframes`
+  0%   { opacity: 0; transform: translateY(-8px) scale(0.9); }
+  72%  { opacity: 1; transform: translateY(1px) scale(1.035); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+`;
+
 /* Wraps a beat that arrives without a typewriter pass (the recap and result
    cards) so it fades + rises in as its own moment. */
-const BeatReveal = styled.div`
-  animation: ${turnIn} var(--duration-slow, 420ms) var(--ease-out) both;
+const BeatReveal = styled.div<{ $pop?: boolean }>`
+  animation: ${p => p.$pop ? schedulePopIn : turnIn}
+    ${p => p.$pop ? '520ms' : 'var(--duration-slow, 420ms)'}
+    ${p => p.$pop ? 'cubic-bezier(0.22, 1, 0.36, 1)' : 'var(--ease-out)'}
+    both;
+
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* This wrapper mounts only when the schedule prompt turns into its generating
+   state, ensuring the entrance plays even though the surrounding message card
+   has already been in the thread for several beats. */
+const ScheduleGeneratingReveal = styled.div`
+  transform-origin: center bottom;
+  animation: ${schedulePopIn} 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
@@ -1622,6 +2144,8 @@ const RosterUploaderStage = styled.div`
   position: relative;
   width: 100%;
 `;
+
+const ScheduleUploaderStage = styled(RosterUploaderStage)``;
 
 /* Four teammates stay in frame while the repeated track advances one profile
    at a time. The mask makes each face gently arrive from the left and dissolve
@@ -1699,6 +2223,78 @@ const RosterFlowAvatar = styled.span`
   }
 `;
 
+const schedulePreviewShiftIn = keyframes`
+  0%, 8%   { opacity: 0; transform: translateY(-5px) scale(0.84); }
+  18%, 72% { opacity: 1; transform: translateY(0) scale(1); }
+  84%, 100% { opacity: 0; transform: translateY(3px) scale(0.94); }
+`;
+
+/* A tiny seven-day schedule takes the upload glyph's place. Its shift blocks
+   populate in the same top-to-bottom, left-to-right order as the generated
+   week, then clear and loop while the uploader is waiting. */
+const SchedulePreview = styled.div`
+  position: absolute;
+  z-index: 2;
+  top: var(--space-6);
+  left: 50%;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 184px;
+  height: 62px;
+  padding: 7px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 1px solid var(--color-border-opaque);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-bg-primary) 88%, transparent);
+  box-shadow: var(--shadow-below-low);
+  pointer-events: none;
+
+  @media (max-width: 600px) {
+    top: var(--space-4);
+    width: 168px;
+    height: 56px;
+    padding: 6px;
+  }
+`;
+
+const SchedulePreviewDay = styled.span`
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+`;
+
+const SchedulePreviewDayHead = styled.span`
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin-bottom: 1px;
+  border-radius: var(--radius-full);
+  background: var(--color-border-opaque);
+`;
+
+const SchedulePreviewShift = styled.span<{ $sequence: number; $accent: boolean }>`
+  display: block;
+  width: 100%;
+  height: 9px;
+  border-radius: 3px;
+  background: ${p => p.$accent
+    ? 'var(--color-warning-bg)'
+    : 'var(--color-bg-tertiary)'};
+  border: 1px solid ${p => p.$accent
+    ? 'var(--color-warning-border)'
+    : 'var(--color-border-transparent)'};
+  transform-origin: top center;
+  animation: ${schedulePreviewShiftIn} 4.8s var(--ease-out) infinite both;
+  animation-delay: calc(${p => p.$sequence} * 90ms);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
 /* One persistent intake surface across empty → uploading → complete. Alloy's
    FileUploader supplies the states; these overrides make its height, padding,
    border, and newly mounted state content glide together instead of snapping
@@ -1724,8 +2320,14 @@ const IntakeUploader = styled(FileUploader)`
     gap: var(--space-4);
   }
 
-  /* The roster-specific people flow replaces Alloy's upload-cloud glyph. */
-  &&[data-roster-flow][data-state='empty'] > span.alloy-icon-slot {
+  &&[data-schedule-flow][data-state='empty'] {
+    min-height: 224px;
+    padding-top: 112px;
+    gap: var(--space-4);
+  }
+
+  /* The custom roster and schedule previews replace Alloy's upload glyph. */
+  &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty'] > span.alloy-icon-slot {
     display: none;
   }
 
@@ -1742,6 +2344,31 @@ const IntakeUploader = styled(FileUploader)`
     gap: var(--space-2);
     border-style: solid;
     border-color: var(--color-success-border);
+  }
+
+  /* The drop zone's headline carries the ask, so it leads at body size rather
+     than Alloy's default caption scale. */
+  &&[data-state='empty'] p:first-of-type {
+    font-size: var(--text-md);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  /* Keep the welcome intake action visually consistent with the rounded
+     suggestion controls below it without affecting footer actions. Alloy's
+     primary fill (--color-bg-inverse-primary) resolves to the page surface
+     inside this card, so the button disappears against the dark drop zone —
+     pin the inverse pair to the content/bg tokens, which flip correctly with
+     the theme (white fill on dark, dark fill on light). */
+  &&[data-state='empty'] > button {
+    min-width: 112px;
+    padding-inline: var(--space-4);
+    border-radius: var(--radius-full);
+    background: var(--color-content-primary);
+    color: var(--color-bg-primary);
+  }
+
+  &&[data-state='empty'] > button:hover:not(:disabled) {
+    background: var(--color-content-secondary);
   }
 
   & > *:not(input) {
@@ -1764,6 +2391,12 @@ const IntakeUploader = styled(FileUploader)`
     &&[data-roster-flow][data-state='empty'] {
       min-height: 166px;
       padding: 76px var(--space-4) var(--space-4);
+      gap: var(--space-2);
+    }
+
+    &&[data-schedule-flow][data-state='empty'] {
+      min-height: 188px;
+      padding: 84px var(--space-4) var(--space-4);
       gap: var(--space-2);
     }
 
@@ -1790,8 +2423,8 @@ const IntakeUploader = styled(FileUploader)`
   }
 `;
 
-/* Left-aligns the typing-dots pill within the opening stack (the stack stretches
-   its children full-width; the pill should hug its content on the left). */
+/* Left-aligns the typing mark within the opening stack (the stack stretches
+   its children full-width; the mark should hug its content on the left). */
 const DotsRow = styled.div`
   display: flex;
   justify-content: flex-start;
@@ -1816,6 +2449,15 @@ const Caret = styled.span`
   animation: ${caretBlink} 1s step-end infinite;
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* Holds an inbound turn's activity group above the message it introduces. The
+   trail ships with its own vertical padding (sized for the case pages' denser
+   stack); the thread already spaces its rows, so the slot pulls that padding
+   back in and keeps the recap line tight against the prose under it. */
+const ActivityGroupSlot = styled.div`
+  width: 100%;
+  margin-bottom: calc(var(--space-2) * -1);
 `;
 
 /* The thread column. Its max-width leaves room for the side padding so the
@@ -1865,6 +2507,7 @@ const Bubble = styled.div`
   font-size: var(--text-sm);
   line-height: var(--line-height-relaxed);
   color: var(--color-content-primary);
+  white-space: pre-line;
 
   /* Outbound (operator) — slate bubble, right side (matches the event page).
      Width is capped by the enclosing MsgGroup. */
@@ -1894,7 +2537,7 @@ const Bubble = styled.div`
 /* One set-up item as its own card — mirrors the Ultron thread's workflow
    offer/saved card surface (UltronCard's OfferCard): primary bg, opaque
    border, lg radius, low shadow, and the same small hover lift. */
-const SummaryItemCard = styled.div`
+const SummaryItemCard = styled.div<{ $done?: boolean }>`
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -1904,15 +2547,32 @@ const SummaryItemCard = styled.div`
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-below-low);
   transition: transform var(--duration-base) var(--ease-out),
-              box-shadow var(--duration-base) var(--ease-out);
+              box-shadow var(--duration-base) var(--ease-out),
+              opacity var(--duration-base) var(--ease-out);
 
   &:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-below-md);
   }
 
+  /* Settled state — the step is done, so the row recedes: liquid glass instead
+     of the opaque fill, dimmed, and no lift on hover. It stays legible as a
+     record of what happened without competing with the live beat below it.
+     Declared after the base :hover so it wins at equal specificity. */
+  ${p => p.$done && css`
+    ${liquidGlass}
+    opacity: 0.6;
+    box-shadow: none;
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+      opacity: 1;
+    }
+  `}
+
   @media (prefers-reduced-motion: reduce) {
-    transition: box-shadow var(--duration-base) var(--ease-out);
+    transition: opacity var(--duration-base) var(--ease-out);
     &:hover { transform: none; }
   }
 `;
@@ -2417,7 +3077,7 @@ const CalDayHead = styled.span`
 
 /* A single shift block. 'open' reads as a gap needing a fill; 'watch' carries a
    quiet flag (a punch problem) — both echo the "waiting" list above. */
-const ShiftChip = styled.div<{ $flag?: 'open' | 'watch' }>`
+const ShiftChip = styled.div<{ $flag?: 'open' | 'watch'; $sequence: number }>`
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -2426,6 +3086,9 @@ const ShiftChip = styled.div<{ $flag?: 'open' | 'watch' }>`
   border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-transparent);
+  transform-origin: top left;
+  animation: ${shiftPopIn} 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(180ms + ${p => p.$sequence} * 70ms);
 
   ${p => p.$flag === 'open' && css`
     background: var(--color-error-bg);
@@ -2440,6 +3103,10 @@ const ShiftChip = styled.div<{ $flag?: 'open' | 'watch' }>`
     gap: 2px;
     padding: var(--space-1);
     border-radius: var(--radius-sm);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
   }
 `;
 
@@ -2934,39 +3601,20 @@ const GrantFinePrint = styled.p`
   color: var(--Alloy-slate-400);
 `;
 
-const blink = keyframes`
-  0%, 80%, 100% { opacity: 0.25; }
-  40% { opacity: 1; }
-`;
-
+/* Ultron's working presence while a reply is in flight — the lines mark, the
+   same form the composer presence morphs into. It carries its own motion, so
+   no bubble chrome around it. */
 const Typing = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-secondary);
+  padding: var(--space-1) 0;
 
   @media (max-width: 600px) {
     padding: 0;
-    background: transparent;
   }
 `;
 
-const Dot = styled.span`
-  width: var(--space-1);
-  height: var(--space-1);
-  border-radius: var(--radius-full);
-  background: var(--color-content-tertiary);
-  animation: ${blink} 1.2s infinite ease-in-out;
-
-  &:nth-child(2) { animation-delay: 0.2s; }
-  &:nth-child(3) { animation-delay: 0.4s; }
-
-  @media (prefers-reduced-motion: reduce) { animation: none; }
-`;
-
-/* The typing dots plus, while Ultron is "working" a submitted document, a
+/* The typing mark plus, while Ultron is "working" a submitted document, a
    shimmering label naming the work ("Bringing your people in…"). */
 const TypingCluster = styled.div`
   display: inline-flex;
@@ -3111,8 +3759,8 @@ const FootMarkRow = styled.div`
   justify-content: flex-start;
 `;
 
-/* Holds the two mark forms (lines / magnetic) stacked so they can cross-fade —
-   the presence morphs between working and resting rather than hard-swapping. */
+/* Reserves the mark's box so the composer holds its position while the stand-by
+   presence fades in and out (it only shows when Ultron is idle). */
 const MarkMorphBox = styled.span`
   position: relative;
   width: 24px;
@@ -3123,8 +3771,7 @@ const MarkMorphBox = styled.span`
 const MarkFormLayer = styled.span<{ $show?: boolean }>`
   position: absolute;
   inset: 0;
-  /* Center the canvas so the two forms stay concentric through the cross-fade
-     even when one renders larger to match the other's visible footprint. */
+  /* Center the canvas in the reserved box so the mark holds its place. */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3139,27 +3786,6 @@ const CardPills = styled.div`
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-2);
-`;
-
-/* One-tap offers above the composer — aligned to its left edge. */
-const SuggestionRow = styled.div`
-  width: 100%;
-  max-width: 720px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-
-  @media (max-width: 600px) {
-    flex-wrap: nowrap;
-    gap: var(--space-1);
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-  }
 `;
 
 /* A quiet chip on the page surface (the app context calls for the standard
@@ -3216,20 +3842,60 @@ const SuggestionPill = styled.button`
 
 /* Stacks an optional pending-files row over the input row. The composer-button
    sizing vars live here so the attach and send slots share them. */
-const Composer = styled.form`
+const Composer = styled.form<{ $phoneMode: boolean }>`
   width: 100%;
   max-width: 720px;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-2);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border-opaque);
+  /* Mirror the ambient backdrop palette while the composer is collecting the
+     phone number, so the live-test handoff reads as a distinct action. */
+  --phone-aurora-mint: hsl(170 72% 64%);
+  --phone-aurora-sky: hsl(202 82% 64%);
+  --phone-aurora-blue: hsl(228 84% 64%);
+  --phone-aurora-violet: hsl(252 78% 64%);
+  --phone-aurora-pink: hsl(330 82% 68%);
+  --phone-aurora-peach: hsl(32 88% 66%);
+  /* How far the ring is carried past the bloom's pastel toward the page's own
+     ink, so a 1px outline holds a defined edge instead of washing out against
+     the composer fill. Mixing toward --color-content-primary rather than a
+     fixed dark keeps it theme-correct: it deepens the ring on a light surface
+     and lifts it on a dark one, so the edge holds either way. */
+  --phone-aurora-depth: 42%;
+  background: ${p => p.$phoneMode
+    ? `linear-gradient(var(--color-bg-primary), var(--color-bg-primary)) padding-box,
+       linear-gradient(
+         110deg,
+         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-mint)),
+         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-sky)) 25%,
+         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-blue)) 44%,
+         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-violet)) 62%,
+         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-pink)) 82%,
+         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-peach))
+       ) border-box`
+    : 'var(--color-bg-primary)'};
+  border: 1px solid ${p => p.$phoneMode ? 'transparent' : 'var(--color-border-opaque)'};
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-below-low);
-  transition: border-color var(--duration-fast) var(--ease-default);
+  box-shadow: ${p => p.$phoneMode
+    ? `0 0 0 1px color-mix(in srgb, var(--phone-aurora-blue) 18%, transparent),
+       -18px 2px 38px color-mix(in srgb, var(--phone-aurora-sky) 14%, transparent),
+       16px 4px 42px color-mix(in srgb, var(--phone-aurora-violet) 16%, transparent),
+       0 12px 48px color-mix(in srgb, var(--phone-aurora-pink) 10%, transparent)`
+    : 'var(--shadow-below-low)'};
+  transition:
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-slow) var(--ease-out);
 
-  &:focus-within { border-color: var(--color-border-focus); }
+  &:focus-within {
+    border-color: ${p => p.$phoneMode ? 'transparent' : 'var(--color-border-focus)'};
+    box-shadow: ${p => p.$phoneMode
+      ? `0 0 0 2px color-mix(in srgb, var(--phone-aurora-sky) 38%, transparent),
+         -20px 2px 44px color-mix(in srgb, var(--phone-aurora-sky) 20%, transparent),
+         18px 4px 48px color-mix(in srgb, var(--phone-aurora-violet) 22%, transparent),
+         0 14px 54px color-mix(in srgb, var(--phone-aurora-pink) 14%, transparent)`
+      : 'var(--shadow-below-low)'};
+  }
 
   --composer-btn-size: var(--space-8);
   --composer-btn-icon-attach: var(--space-4);
@@ -3309,10 +3975,13 @@ const SentFiles = styled.span`
   gap: var(--space-2);
 `;
 
-const Field = styled.textarea`
+const Field = styled.textarea<{ $phoneMode: boolean }>`
   flex: 1;
   min-width: 0;
-  padding: calc((var(--space-8) - 1lh) / 2) 0;
+  /* Phone mode drops the attachment button, so the field carries its own left
+     inset instead of sitting flush against the composer's edge. */
+  padding: calc((var(--space-8) - 1lh) / 2) 0
+           calc((var(--space-8) - 1lh) / 2) ${p => (p.$phoneMode ? 'var(--space-3)' : '0')};
   border: none;
   background: transparent;
   resize: none;
@@ -3320,9 +3989,16 @@ const Field = styled.textarea`
   font-family: var(--font-sans);
   font-size: var(--text-md);
   line-height: var(--line-height-relaxed);
+  /* Phone mode keeps the composer's own type — only the digits get tabular
+     figures, so entered numbers align without the placeholder reading as a
+     different typeface from the rest of the app. */
+  font-variant-numeric: ${p => p.$phoneMode ? 'tabular-nums' : 'normal'};
   color: var(--color-content-primary);
+  caret-color: ${p => p.$phoneMode ? 'var(--phone-aurora-sky)' : 'auto'};
 
-  &::placeholder { color: var(--color-content-disabled); }
+  &::placeholder {
+    color: var(--color-content-disabled);
+  }
 
   @media (max-width: 600px) {
     font-size: var(--text-sm);
