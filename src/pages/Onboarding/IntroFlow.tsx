@@ -472,9 +472,8 @@ function looksLikeEmail(v: string): boolean {
 }
 
 function LandingStep({ onNext }: { onNext: () => void }) {
-  // The headline pops in; a beat later the body + sign-up block follow as one
-  // group. Advancing is the admin's own action (any sign-up control) — no auto-jump.
-  const [headingDone, setHeadingDone] = useState(false);
+  // The complete landing composition arrives together. Advancing is the
+  // admin's own action (any sign-up control) — no auto-jump.
   const [email, setEmail] = useState('');
   // Email-validity feedback shown via an Alloy Tooltip (replacing the browser's
   // native constraint-validation bubble). An object, not a bare string, so each
@@ -482,12 +481,6 @@ function LandingStep({ onNext }: { onNext: () => void }) {
   // the message is unchanged. Empty stays valid: the demo advances without one.
   const [error, setError] = useState<{ text: string } | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
-  const reduced = usePrefersReducedMotion();
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setHeadingDone(true), reduced ? 0 : 500);
-    return () => window.clearTimeout(t);
-  }, [reduced]);
 
   // Alloy's Tooltip shows on hover/focus, so surface a submit-time error by
   // focusing the field once the error is set (after the render that enables the
@@ -516,8 +509,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
             />
           </MarkBloom>
           <Headline>{GREETING_HEADLINE}</Headline>
-          {headingDone && (
-            <SubGroup>
+          <SubGroup>
               <Sub>{GREETING_BODY}</Sub>
 
               {/* One combined sign-up block: quick SSO choices, or email with
@@ -581,8 +573,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
                   </Fine>
                 </GetStartedForm>
               </SignUp>
-            </SubGroup>
-          )}
+          </SubGroup>
         </LeftInner>
       </LeftPanel>
 
@@ -590,7 +581,7 @@ function LandingStep({ onNext }: { onNext: () => void }) {
       <CenterDivider aria-hidden="true" />
 
       {/* Right panel — the proof card, full-height over the right half. */}
-      {headingDone && <SocialProof />}
+      <SocialProof />
     </LandingPanels>
   );
 }
@@ -799,6 +790,31 @@ function SiteParse({
   // `allDone` flips once the last beat settles — the point the read is complete.
   const [active, setActive] = useState(1);
   const [allDone, setAllDone] = useState(false);
+  const completionEndRef = useRef<HTMLDivElement>(null);
+  const reduced = usePrefersReducedMotion();
+
+  // Completion adds the configured summary and both actions beneath the fold.
+  // Bring the true end of the read into view once React has laid that content
+  // out, so the completed state lands with every final control visible.
+  useEffect(() => {
+    if (!allDone) return;
+    const frame = window.requestAnimationFrame(() => {
+      const end = completionEndRef.current;
+      const scrollContainer = end?.closest('main');
+      if (scrollContainer) {
+        scrollContainer.scrollTo({
+          top: scrollContainer.scrollHeight,
+          behavior: reduced ? 'auto' : 'smooth',
+        });
+      } else {
+        end?.scrollIntoView({
+          behavior: reduced ? 'auto' : 'smooth',
+          block: 'end',
+        });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [allDone, reduced]);
 
   // The read's working window: from mount until the last beat settles. The mark
   // morphing back to its circle at `allDone` is part of the completion moment.
@@ -892,31 +908,25 @@ function SiteParse({
         </SegmentRow>
       </ProgressWrap>
 
-      {/* Read complete → the primary way on ('t' still continues for keyboard)
-          sits under the sub-heading, above the read-out, with the quiet restart
-          beside it on the left. */}
-      {allDone && (
-        <ActionsRow>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={() => onDone({})}
-            trailingArtwork={<ArrowNarrowRightIcon size={16} />}
-          >
-            Looks good, continue
-          </Button>
-        </ActionsRow>
-      )}
-
       <LearnedReadout learned={learned} host={host} completed={allDone ? total : active - 1} done={allDone} />
 
-      {/* The sign-off closes the whole read, centered under the card stack,
-          with the quiet restart last — out of the way of the primary path. */}
+      {/* The sign-off closes the read. The primary path now follows the full
+          summary, with the quiet restart kept last. */}
       {allDone && (
         <>
           <ReadoutCloseRow>
             <ReadoutClose>Consider it handled.</ReadoutClose>
           </ReadoutCloseRow>
+          <ActionsRow>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => onDone({})}
+              trailingArtwork={<ArrowNarrowRightIcon size={16} />}
+            >
+              Looks good, continue
+            </Button>
+          </ActionsRow>
           <SkipRow>
             <TextButton
               type="button"
@@ -928,6 +938,7 @@ function SiteParse({
               Start over
             </TextButton>
           </SkipRow>
+          <CompletionEnd ref={completionEndRef} aria-hidden="true" />
         </>
       )}
     </StepIn>
@@ -943,7 +954,7 @@ function SiteParse({
 // activation bar (see SiteParse), so it's visible while the bar runs — and it
 // reveals WITH the bar: beat 1 lands the lead, beat 2 lands every narrative
 // section together, and the checklist lands at completion. The sign-off + CTA
-// live above the read-out, in SiteParse.
+// follow the read-out in SiteParse.
 // Fallback mark per workforce archetype — shown when the pasted site has no
 // favicon of its own (keyed by the sample's workforce_type).
 const WORKFORCE_ICONS: Record<string, ComponentType<{ size?: number }>> = {
@@ -1520,6 +1531,13 @@ const Content = styled.div<{ $exiting?: boolean; $augment?: boolean }>`
   }
 `;
 
+/* A single opacity envelope keeps the fixed left/right panels visually in sync
+   on first paint without turning this ancestor into their containing block. */
+const landingReveal = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
+`;
+
 /* The landing is two symmetric panels. On wide screens each is a fixed, full-
    height half of the viewport (see LeftPanel / ProofPanel), so this wrapper only
    governs the narrow case, where the panels drop back into a centered stack. */
@@ -1529,6 +1547,11 @@ const LandingPanels = styled.div`
   align-items: center;
   gap: var(--space-8);
   width: 100%;
+  animation: ${landingReveal} 560ms ${SMOOTH_EASE} both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 `;
 
 /* Hairline between the two halves — pinned on the centre line the fixed panels
@@ -2590,8 +2613,8 @@ const MissNote = styled.p`
 `;
 
 
-/* The primary CTA, centered under the sub-heading. Alloy's size scale steps
-   36 → 48px, so the button is held at 40px here. */
+/* The primary CTA, centered beneath the completed read-out. Alloy's size scale
+   steps 36 → 48px, so the button is held at 40px here. */
 const ActionsRow = styled.div`
   display: flex;
   justify-content: center;
@@ -2607,6 +2630,13 @@ const ActionsRow = styled.div`
 const SkipRow = styled.div`
   display: flex;
   justify-content: center;
+`;
+
+/* Zero-size target used to align the completed read's true bottom with the
+   bottom edge of the scrolling viewport. */
+const CompletionEnd = styled.div`
+  width: 100%;
+  height: 0;
 `;
 
 /* ── Step 4 — workforce questions ────────────────────────────────────────────

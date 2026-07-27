@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ListItem, ChevronDownIcon, ChevronRightIcon, ArrowNarrowRightIcon, SearchField } from 'alloy-design-system';
+import { ListItem, ChevronDownIcon, ChevronRightIcon, SearchField } from 'alloy-design-system';
 import type {
   SecondaryNavMenuEntry,
   SecondaryNavMenuItem,
@@ -15,13 +15,59 @@ import {
   GroupRow, GroupLabel, GroupChevron, GroupChildren, ShowMoreRow, MenuGroupWrapper,
   MenuSectionLabel,
   SecNavIconSlot,
+  SpotlightArrow, SpotlightNote,
   SpotlightPlaceholder, SpotlightPrompt, SpotlightRow, SpotlightScrim,
   NavBottom, BottomDivider, MenuDivider, BottomItemIcon,
   ResizeHandle,
   SECONDARY_NAV_WIDTH,
 } from './SecondaryNav.styles';
 
-function SpotlightedRow({ prompt, children }: { prompt: string; children: React.ReactNode }) {
+/** The spotlight cue's arrow, curving back to the highlighted row. Sketched
+ *  rather than geometric — an off-centre bow, tapering stroke ends and two
+ *  slightly unequal barbs — so it reads as pencilled onto the screen next to
+ *  the handwritten note, instead of as another piece of interface. Drawn here
+ *  rather than taken from Alloy, which ships only the straight narrow arrow. */
+function SketchArrowLeft() {
+  return (
+    // pathLength="1" normalises every path to a single unit, so one
+    // stroke-dasharray/offset rule draws all three (see SpotlightArrow).
+    <SpotlightArrow width="54" height="34" viewBox="0 0 54 34" fill="none" aria-hidden="true">
+      {/* Shaft — a single relaxed sweep from the note down to the row. */}
+      <path
+        d="M51.5 5.2C41.9 3.4 32 4.6 23.6 8.9c-6.4 3.2-11.9 8.5-15.2 14.9"
+        pathLength={1}
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      {/* Barbs — struck back along the shaft, uneven the way a drawn one is. */}
+      <path
+        d="M15.4 19c-3.4.4-6.3 1.9-7.7 4.9"
+        pathLength={1}
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6.4 14.2c.9 3.5 1.4 6.7 1.3 9.7"
+        pathLength={1}
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+    </SpotlightArrow>
+  );
+}
+
+function SpotlightedRow({
+  prompt,
+  onDismiss,
+  children,
+}: {
+  prompt: string;
+  onDismiss?: () => void;
+  children: React.ReactNode;
+}) {
   const anchorRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{
     left: number;
@@ -61,7 +107,11 @@ function SpotlightedRow({ prompt, children }: { prompt: string; children: React.
       <SpotlightPlaceholder ref={anchorRef} aria-hidden="true" />
       {position && createPortal(
         <>
-          <SpotlightScrim aria-hidden="true" />
+          <SpotlightScrim
+            type="button"
+            aria-label="Dismiss event highlight"
+            onClick={onDismiss}
+          />
           <SpotlightRow
             style={{
               left: position.left,
@@ -80,8 +130,8 @@ function SpotlightedRow({ prompt, children }: { prompt: string; children: React.
               top: position.top + position.height / 2,
             }}
           >
-            <ArrowNarrowRightIcon size={22} aria-hidden="true" />
-            {prompt}
+            <SketchArrowLeft />
+            <SpotlightNote>{prompt}</SpotlightNote>
           </SpotlightPrompt>
         </>,
         document.body,
@@ -207,7 +257,11 @@ function MenuGroupItem({ group }: { group: SecondaryNavMenuGroup }) {
             );
 
             return child.spotlightPrompt ? (
-              <SpotlightedRow key={child.id} prompt={child.spotlightPrompt}>
+              <SpotlightedRow
+                key={child.id}
+                prompt={child.spotlightPrompt}
+                onDismiss={child.spotlightDismiss}
+              >
                 {row}
               </SpotlightedRow>
             ) : (

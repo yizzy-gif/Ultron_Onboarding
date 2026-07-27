@@ -42,6 +42,8 @@ export interface SecondaryNavMenuItem {
   /** Optional guided-tour treatment that dims the app and calls attention to
    *  this row until it is opened. */
   spotlightPrompt?: string;
+  /** Dismisses the guided spotlight without opening the highlighted row. */
+  spotlightDismiss?: () => void;
 }
 
 export interface SecondaryNavMenuGroup {

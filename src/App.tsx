@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { AppShell } from './components/AppShell';
 import type { PrimaryNavItem, SecondaryNavMenuEntry, SecondaryNavPageEntry } from './types/nav';
@@ -54,6 +54,9 @@ const BOTTOM_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
   { id: 'payroll',    label: 'Payroll',         icon: <PayrollIcon /> },
   { id: 'esign',      label: 'E-Sign Studio',   icon: <ESignIcon /> },
 ];
+
+const EVENT_SPOTLIGHT_DELAY_MS = 3000;
+const EVENT_STANDBY_DELAY_MS = 4000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -157,6 +160,41 @@ const WaitlistBody = styled.p`
   font-size: var(--text-sm);
   line-height: var(--line-height-relaxed);
   color: var(--color-content-secondary);
+`;
+
+/* This compact alert reads as one continuous surface, without the standard
+   Dialog section rules separating its header and footer from the body. */
+const WaitlistHeader = styled(DialogHeader)`
+  && {
+    border-bottom: none;
+    padding-bottom: var(--space-2);
+  }
+`;
+
+const WaitlistContent = styled(DialogContent)`
+  && {
+    padding-top: 0;
+    padding-bottom: var(--space-2);
+  }
+`;
+
+const WaitlistFooter = styled(DialogFooter)`
+  && {
+    border-top: none;
+    padding-top: 0;
+  }
+`;
+
+/* The Welcome chat stays mounted after its first visit so its conversation and
+   setup state survive navigation to another app page. */
+const WelcomeThreadKeepAlive = styled.div<{ $visible: boolean }>`
+  display: ${p => (p.$visible ? 'flex' : 'none')};
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 `;
 
 // The ⋯ trigger on a page row — a quiet, muted icon button on the row's trailing
@@ -285,9 +323,53 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // message). Drives where the Welcome entry sits in the sidebar: New until
   // the conversation continues, Working after.
   const [welcomeContinued, setWelcomeContinued] = useState(false);
+  // Arriving through onboarding mounts Welcome immediately. A refreshed app
+  // mounts it on first open, then retains it for every subsequent return.
+  const [welcomeMounted, setWelcomeMounted] = useState(Boolean(introAnswers));
   // After the live-test phone number lands, guide the operator directly to the
   // Maria callout that Ultron just surfaced in New.
   const [eventSpotlight, setEventSpotlight] = useState(false);
+  const eventSpotlightTimer = useRef<number | null>(null);
+  // The surfaced event arrives with Ultron's loading orbit, then settles to
+  // the orange pulse used for a New event standing by for review.
+  const [eventMarkLoading, setEventMarkLoading] = useState(false);
+  const eventStandbyTimer = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (eventSpotlightTimer.current !== null) {
+      window.clearTimeout(eventSpotlightTimer.current);
+    }
+    if (eventStandbyTimer.current !== null) {
+      window.clearTimeout(eventStandbyTimer.current);
+    }
+  }, []);
+
+  const dismissEventSpotlight = () => {
+    if (eventSpotlightTimer.current !== null) {
+      window.clearTimeout(eventSpotlightTimer.current);
+      eventSpotlightTimer.current = null;
+    }
+    setEventSpotlight(false);
+  };
+
+  const scheduleEventSpotlight = () => {
+    dismissEventSpotlight();
+    eventSpotlightTimer.current = window.setTimeout(() => {
+      eventSpotlightTimer.current = null;
+      setEventSpotlight(true);
+    }, EVENT_SPOTLIGHT_DELAY_MS);
+  };
+
+  const startEventLoading = () => {
+    if (eventStandbyTimer.current !== null) {
+      window.clearTimeout(eventStandbyTimer.current);
+    }
+    setEventMarkLoading(true);
+    eventStandbyTimer.current = window.setTimeout(() => {
+      eventStandbyTimer.current = null;
+      setEventMarkLoading(false);
+    }, EVENT_STANDBY_DELAY_MS);
+  };
   // Live landing — Ultron's resting presence (large Circle mark, no case open).
   // Ultron's normal home: the user rests here, opening any case in the sidebar
   // leaves it, and clicking the identity returns to it. Starts inactive while the
@@ -302,7 +384,13 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   const pageSeq = useRef(0);
   const openPage = (id: string) => { setHomeView('ultron'); setOnWelcome(false); setOnLive(false); setActivePage(id); };
   // Re-open the welcome recap from its Pages entry, so it isn't lost on nav.
-  const openWelcome = () => { setHomeView('ultron'); setOnLive(false); setActivePage(null); setOnWelcome(true); };
+  const openWelcome = () => {
+    setWelcomeMounted(true);
+    setHomeView('ultron');
+    setOnLive(false);
+    setActivePage(null);
+    setOnWelcome(true);
+  };
   const createPage = () => {
     const id = `page-${pageSeq.current++}`;
     setPages(prev => [...prev, { id, title: 'New page' }]);
@@ -462,7 +550,17 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
               // still analyzing, which keeps the orbiting mark. Working cases
               // use the orbiting/idling identity mark; Done cases the Pulse
               // mark (orange while unresolved, muted once settled).
-              icon: childSection === 'new'
+              icon: t.id === 'shift_drop_maria' && eventMarkLoading
+                ? (
+                    <AgentMark
+                      mark="orbit2d"
+                      size={32}
+                      tone="auto"
+                      state="active"
+                      aria-label="Ultron is preparing this event"
+                    />
+                  )
+                : childSection === 'new'
                 ? (t.status === 'analyzing'
                     ? <AgentMark mark="orbit2d" size={32} tone="auto" state="active" aria-label="Analyzing" />
                     : <AgentMark mark="pulse" size={32} tone="auto" state="active" color="var(--color-orange-content-tertiary)" aria-label="Needs attention" />)
@@ -471,7 +569,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
                 : <AgentMark mark="pulse" size={32} tone="auto" state={t.status === 'unresolved' ? 'idle' : 'static'} color={t.status === 'unresolved' ? 'var(--color-orange-content-tertiary)' : ultron.viewedIds.includes(t.id) ? 'var(--color-slate-content-tertiary)' : 'var(--color-green-content-tertiary)'} aria-label="Done" />,
               isActive: homeView === 'ultron' && !onLive && !activePage && homeSection === childSection && ultron.selectedId === t.id,
               onClick: () => {
-                if (t.id === 'shift_drop_maria') setEventSpotlight(false);
+                if (t.id === 'shift_drop_maria') dismissEventSpotlight();
                 setHomeView('ultron');
                 setOnWelcome(false);
                 setOnLive(false);
@@ -480,6 +578,9 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
               },
               spotlightPrompt: eventSpotlight && t.id === 'shift_drop_maria'
                 ? 'Ultron caught the last-minute callout. Open it to see the response.'
+                : undefined,
+              spotlightDismiss: t.id === 'shift_drop_maria'
+                ? dismissEventSpotlight
                 : undefined,
               // Once the operator saves this case's play as a reusable workflow, the
               // row carries a trailing automation glyph so the saved state is legible
@@ -564,19 +665,30 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
         onSelectPersona: setSelectedPersonaId,
       }}
     >
+      {welcomeMounted && (
+        <WelcomeThreadKeepAlive
+          $visible={homeView === 'ultron' && onWelcome}
+          aria-hidden={homeView !== 'ultron' || !onWelcome}
+        >
+          <WelcomeThread
+            active={homeView === 'ultron' && onWelcome}
+            answers={introAnswers}
+            onContinued={() => setWelcomeContinued(true)}
+            onPhoneSubmitted={() => {
+              ultron.surfaceDemoThread('shift_drop_maria');
+              startEventLoading();
+              scheduleEventSpotlight();
+            }}
+          />
+        </WelcomeThreadKeepAlive>
+      )}
+
       {homeView === 'memory' ? (
         <MemoryPage />
       ) : homeView === 'account' ? (
         <AccountDatabasePage collectionId={accountCollection} />
       ) : onWelcome ? (
-        <WelcomeThread
-          answers={introAnswers}
-          onContinued={() => setWelcomeContinued(true)}
-          onPhoneSubmitted={() => {
-            ultron.surfaceDemoThread('shift_drop_maria');
-            setEventSpotlight(true);
-          }}
-        />
+        null
       ) : activePage ? (
         <NewPage
           key={activePage}
@@ -613,20 +725,20 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
 
     {/* Locked-module explainer — why the rest of the rail is greyed out. */}
     <Dialog open={waitlistOpen} onClose={() => setWaitlistOpen(false)} size="sm" aria-labelledby="waitlist-title">
-      <DialogHeader onClose={() => setWaitlistOpen(false)}>
+      <WaitlistHeader onClose={() => setWaitlistOpen(false)}>
         <span id="waitlist-title">This app isn't unlocked yet</span>
-      </DialogHeader>
-      <DialogContent>
+      </WaitlistHeader>
+      <WaitlistContent>
         <WaitlistBody>
           Demand for Ultron is extreme, so apps unlock in stages. Finish onboarding,
           and once you're approved past the waitlist, everything opens up.
         </WaitlistBody>
-      </DialogContent>
-      <DialogFooter>
+      </WaitlistContent>
+      <WaitlistFooter>
         <Button variant="primary" onClick={() => setWaitlistOpen(false)}>
           Got it
         </Button>
-      </DialogFooter>
+      </WaitlistFooter>
     </Dialog>
     </>
   );
