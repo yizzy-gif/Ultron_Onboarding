@@ -623,7 +623,6 @@ function SocialProof() {
       </Quote>
 
       <LogoFooter>
-        <ProofLabel>Trusted by frontline operators</ProofLabel>
         <LogoMarquee aria-label="Operators using Teambridge">
           {/* Two identical tracks sit end to end; the pair translates left by
               exactly one track's width, so the loop is seamless. The duplicate
@@ -1858,15 +1857,6 @@ const LogoFooter = styled.div`
   flex-direction: column;
   gap: var(--space-5);
   padding-top: var(--space-3);
-`;
-
-const ProofLabel = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
 `;
 
 /* Slides one full track-width left, then snaps back — seamless because a second
