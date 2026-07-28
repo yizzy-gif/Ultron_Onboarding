@@ -2221,6 +2221,13 @@ const Pill = styled(Button)`
   &[data-variant='tertiary'] {
     border-color: var(--color-content-primary);
   }
+
+  /* Touch targets on a phone: the sm pill's ~32px is fine under a cursor but
+     short for a thumb, and leaving these at 32 beside the full-width save pill
+     would read as two different rows. */
+  @media (max-width: 600px) {
+    min-height: 44px;
+  }
 `;
 
 const OtherPill = styled(Button)`
@@ -2238,6 +2245,11 @@ const OtherPill = styled(Button)`
     background: var(--color-bg-primary) !important;
     color: var(--color-content-primary) !important;
     border-color: var(--color-border-selected);
+  }
+
+  /* Same touch height as the Yes/No choices it sits beside. */
+  @media (max-width: 600px) {
+    min-height: 44px;
   }
 `;
 
@@ -2262,6 +2274,17 @@ const SaveWorkflowPill = styled(Button)<{ $trailing?: boolean }>`
     background: var(--color-bg-primary);
     color: var(--color-content-primary);
     border-color: var(--color-border-selected);
+  }
+
+  /* On a phone the label is too wide to share the line with the choices, so the
+     row wraps and the auto left margin above strands this pill against the right
+     edge, detached from everything it belongs to. Take the whole row instead —
+     the wrap is a given at this width, so own it: left edge lined up with Yes/No
+     and a full-width target that clears the 44px touch minimum. */
+  @media (max-width: 600px) {
+    ${p => p.$trailing && 'margin-left: 0;'}
+    flex: 0 0 100%;
+    min-height: 44px;
   }
 `;
 

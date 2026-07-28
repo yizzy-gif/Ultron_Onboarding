@@ -59,13 +59,46 @@ function SketchArrowLeft() {
   );
 }
 
-function SpotlightedRow({
+/** Mobile sheets do not have room to place the coaching copy beside the row,
+ *  so their sketched arrow drops from a centered note into the highlighted
+ *  event instead. */
+function SketchArrowDown() {
+  return (
+    <SpotlightArrow width="44" height="40" viewBox="0 0 44 40" fill="none" aria-hidden="true">
+      <path
+        d="M8.5 3.5c-.6 10.7 5.8 21.3 20.9 27"
+        pathLength={1}
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M22.7 30.8c2.7.8 5 .8 6.7-.3"
+        pathLength={1}
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M30.4 23.6c.4 2.7.1 5-.9 6.9"
+        pathLength={1}
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+    </SpotlightArrow>
+  );
+}
+
+export function SpotlightedRow({
   prompt,
   onDismiss,
+  placement = 'right',
   children,
 }: {
   prompt: string;
   onDismiss?: () => void;
+  placement?: 'right' | 'above';
   children: React.ReactNode;
 }) {
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -81,7 +114,12 @@ function SpotlightedRow({
     if (!anchor) return;
 
     const placePrompt = () => {
-      const rect = anchor.getBoundingClientRect();
+      // Measure the real row rendered inside the placeholder, not the menu
+      // column around it. Mobile rows own their selected-state margin, width,
+      // and 44px touch height, so this rectangle is the exact surface the
+      // elevated copy must cover.
+      const target = anchor.firstElementChild as HTMLElement | null;
+      const rect = (target ?? anchor).getBoundingClientRect();
       setPosition({
         left: rect.left,
         top: rect.top,
@@ -104,7 +142,9 @@ function SpotlightedRow({
 
   return (
     <>
-      <SpotlightPlaceholder ref={anchorRef} aria-hidden="true" />
+      <SpotlightPlaceholder ref={anchorRef} aria-hidden="true">
+        {children}
+      </SpotlightPlaceholder>
       {position && createPortal(
         <>
           <SpotlightScrim
@@ -113,6 +153,7 @@ function SpotlightedRow({
             onClick={onDismiss}
           />
           <SpotlightRow
+            $mobile={placement === 'above'}
             style={{
               left: position.left,
               top: position.top,
@@ -123,15 +164,31 @@ function SpotlightedRow({
             {children}
           </SpotlightRow>
           <SpotlightPrompt
+            $placement={placement}
             role="status"
             aria-live="polite"
-            style={{
-              left: position.left + position.width + 20,
-              top: position.top + position.height / 2,
-            }}
+            style={placement === 'above'
+              ? {
+                  left: position.left,
+                  top: position.top - 12,
+                  width: position.width,
+                }
+              : {
+                  left: position.left + position.width + 20,
+                  top: position.top + position.height / 2,
+                }}
           >
-            <SketchArrowLeft />
-            <SpotlightNote>{prompt}</SpotlightNote>
+            {placement === 'above' ? (
+              <>
+                <SpotlightNote>{prompt}</SpotlightNote>
+                <SketchArrowDown />
+              </>
+            ) : (
+              <>
+                <SketchArrowLeft />
+                <SpotlightNote>{prompt}</SpotlightNote>
+              </>
+            )}
           </SpotlightPrompt>
         </>,
         document.body,

@@ -35,6 +35,12 @@ export interface AppShellProps
     secondaryLabel?: string;
     onMobileNavigate: (moduleId: string) => void;
     onSelectPersona: (personaId: string) => void;
+    /** Opens the module's home view from the secondary sheet's logotype. */
+    onHome?: () => void;
+    /** Opens a new (empty) Ultron page from the secondary sheet's title row. */
+    onNewPage?: () => void;
+    /** Opens the Ultron navigation sheet when a guided event is spotlighted. */
+    openSecondaryNav?: boolean;
   };
 }
 
@@ -55,8 +61,12 @@ export function AppShell(props: AppShellProps) {
         menuEntries={props.menuEntries ?? []}
         user={props.user}
         onUserClick={props.onUserClick}
+        onSettingsClick={props.onSettingsClick}
         onMobileNavigate={nav.onMobileNavigate}
         onSelectPersona={nav.onSelectPersona}
+        onHome={nav.onHome}
+        onNewPage={nav.onNewPage}
+        openSecondaryNav={nav.openSecondaryNav}
       >
         {props.children}
       </MobileShell>

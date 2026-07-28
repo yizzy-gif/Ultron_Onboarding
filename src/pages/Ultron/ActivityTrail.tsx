@@ -1007,6 +1007,27 @@ const CollapseToggle = styled.button`
   }
 `;
 
+/* The recap affordance's resting tone — quiet enough to stay out of the live
+   trail's way, but still readable.
+
+   --color-content-disabled recedes from the page's text colour, which means it
+   steps LIGHTER on white (slate-300) but DARKER on the dark surface (slate-600).
+   On dark that lands close enough to the background to be a strain, so the tone
+   lifts one stop there. All three of Alloy's dark-mode routes are covered: the
+   OS query, and the app's explicit .light/.dark override on <html>, which has to
+   beat the query in BOTH directions (forcing light while the OS is dark has to
+   come back down again). */
+const recapTone = css`
+  color: var(--color-content-disabled);
+
+  @media (prefers-color-scheme: dark) {
+    color: var(--color-content-tertiary);
+  }
+
+  :root.light & { color: var(--color-content-disabled); }
+  :root.dark  & { color: var(--color-content-tertiary); }
+`;
+
 /* A chevron-selector-vertical marker sitting in the icon column — the expand/
    collapse affordance for the folded steps, standing in for the checkmarks it hides. */
 const CollapseMark = styled.span`
@@ -1016,9 +1037,7 @@ const CollapseMark = styled.span`
   flex-shrink: 0;
   width: var(--space-8);
   height: var(--space-8);
-  /* The collapse toggle always reads in the quiet disabled tone — it's a recap
-     affordance, not a step, so it stays out of the way of the live trail. */
-  color: var(--color-content-disabled);
+  ${recapTone}
 `;
 
 const CollapseLabel = styled.span`
@@ -1027,8 +1046,7 @@ const CollapseLabel = styled.span`
   text-align: left;
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
-  /* Always the quiet disabled tone — the recap line stays out of the way. */
-  color: var(--color-content-disabled);
+  ${recapTone}
   line-height: var(--line-height-snug);
   /* Keep the folded-steps recap to a single line — long summaries truncate. */
   white-space: nowrap;
@@ -1036,6 +1054,8 @@ const CollapseLabel = styled.span`
   text-overflow: ellipsis;
   transition: color var(--duration-base) var(--ease-out);
 
+  /* Declared after recapTone so it outranks the theme rules on a specificity
+     tie — hover always goes to full contrast, in either theme. */
   ${CollapseToggle}:hover & { color: var(--color-content-primary); }
 
   @media (prefers-reduced-motion: reduce) { transition: none; }

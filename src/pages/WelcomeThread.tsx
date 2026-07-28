@@ -12,7 +12,8 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentType, FormEvent } from 'react';
+import type { ComponentType, FormEvent, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
 import {
   Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, Dialog, XCloseIcon,
@@ -29,6 +30,7 @@ import { liquidGlass } from './Onboarding/glass';
 import { MouseGlow } from '../components/MouseGlow';
 import {
   MERIDIAN_ROSTER, planWeekProblems, generateWeekShifts, scheduleShapesFor,
+  schedulePreviewFor, calloutDayName,
 } from './Onboarding/sampleRoster';
 import type { WeekProblem, WeekDay } from './Onboarding/sampleRoster';
 
@@ -91,8 +93,17 @@ const REPLY_DELAY_MS = 1100;
 // ── Landing choreography timing ────────────────────────────────────────────
 /** Typing-indicator beat shown before each inbound message lands. */
 const THINK_MS = 440;
-/** Per-character cadence of the typewriter pass on a text beat. */
+/** Cadence of the typewriter pass on a text beat. Timers clamp at ~4ms and each
+ *  tick costs a render, so the chunk size — not the interval — is what actually
+ *  sets the speed; two characters a tick reads noticeably quicker than one
+ *  without turning into a dump. */
 const TYPE_CHAR_MS = 4;
+const TYPE_CHARS_PER_TICK = 2;
+/** How long a freshly revealed character takes to fade up, and how many
+ *  characters that leaves in flight behind the caret. Anything older than one
+ *  fade has finished, so only this many need elements of their own. */
+const TYPE_FADE_MS = 150;
+const TYPE_FADE_CHARS = Math.ceil(TYPE_FADE_MS / TYPE_CHAR_MS) * TYPE_CHARS_PER_TICK;
 /** Breath between one delivered beat and the next. */
 const BEAT_GAP_MS = 320;
 /** How long the recap card takes to land before the turn continues. */
@@ -146,12 +157,6 @@ const ROSTER_FLOW_PEOPLE = [
   { name: 'Priya Raman', photo: 'https://i.pravatar.cc/96?u=priya.raman' },
   { name: 'Sofia Delgado', photo: 'https://i.pravatar.cc/96?u=sofia.delgado' },
 ] as const;
-/** Shift counts in the uploader's looping miniature week preview. */
-const SCHEDULE_PREVIEW_DAYS = [2, 3, 2, 3, 2, 1, 2] as const;
-/** The scripted shape of a built week — plausible for any shift operation. */
-const WEEK_DAYS = 7;
-const WEEK_SHIFTS = 24;
-
 // The three rows the import held back for review — each a real-world mess an
 // ops admin recognises. They're kept, not dropped: the import lands the other
 // 81 and leaves these flagged, so the user is never blocked on a cleanup.
@@ -336,7 +341,7 @@ function rosterSampleActivity(signal: string): ActivityMilestone[] {
 }
 
 /** A schedule landed as a document — read the pattern out of it and build the week. */
-function weekFromFileActivity(fileName: string, problemCount: number): ActivityMilestone[] {
+function weekFromFileActivity(fileName: string, problemCount: number, shiftCount: number, dayCount: number): ActivityMilestone[] {
   return [
     {
       icon: 'clock',
@@ -358,13 +363,13 @@ function weekFromFileActivity(fileName: string, problemCount: number): ActivityM
         ],
       }],
     },
-    buildStep(),
+    buildStep(shiftCount, dayCount),
     coverageStep(problemCount),
   ];
 }
 
 /** The operator described their week instead of uploading one. */
-function weekFromShapeActivity(shape: string, problemCount: number): ActivityMilestone[] {
+function weekFromShapeActivity(shape: string, problemCount: number, shiftCount: number, dayCount: number): ActivityMilestone[] {
   return [
     {
       icon: 'clock',
@@ -386,18 +391,18 @@ function weekFromShapeActivity(shape: string, problemCount: number): ActivityMil
         ],
       }],
     },
-    buildStep(),
+    buildStep(shiftCount, dayCount),
     coverageStep(problemCount),
   ];
 }
 
 /** The two steps both week paths share once the pattern is settled. */
-function buildStep(): ActivityMilestone {
+function buildStep(shiftCount: number, dayCount: number): ActivityMilestone {
   return {
     icon: 'edit',
-    headline: `Built ${WEEK_SHIFTS} shifts`,
+    headline: `Built ${shiftCount} shifts`,
     blocks: [{
-      text: `Laid out across ${WEEK_DAYS} days, assigned from your roster where the fit `
+      text: `Laid out across ${dayCount} days, assigned from your roster where the fit `
         + 'was obvious and left open where it was not, rather than guessing at coverage.',
     }],
   };
@@ -534,6 +539,61 @@ function avatarPhoto(index: number): string {
   return `https://i.pravatar.cc/64?img=${((index * 7) % 70) + 1}`;
 }
 
+/** The typewriter's output for the beat being typed: the settled run of text
+ *  plus the fading head. Characters land transparent and fade up, so the reveal
+ *  reads as ink soaking in behind the caret rather than letters snapping on.
+ *  Only the head gets elements of its own — characters older than one fade have
+ *  finished animating and ride along in the plain prefix, which keeps the tick
+ *  cheap on a long beat. Keys are absolute indices, so a character that is still
+ *  fading keeps its element (and its progress) as the head moves past it. */
+function TypedRun({ text }: { text: string }) {
+  const settled = Math.max(0, text.length - TYPE_FADE_CHARS);
+  return (
+    <>
+      {text.slice(0, settled)}
+      {Array.from(text.slice(settled), (char, i) => (
+        <FadingChar key={settled + i}>{char}</FadingChar>
+      ))}
+    </>
+  );
+}
+
+/** Keeps completed upload states in the conversation, but portals the current
+ *  phone intake to `body` so `position: fixed` is relative to the viewport.
+ *  The surrounding message reveal uses transforms, which would otherwise turn
+ *  an inline fixed child into a card pinned halfway up the screen. */
+function MobileUploaderSurface({
+  active,
+  open,
+  closeLabel,
+  onClose,
+  children,
+}: {
+  active: boolean;
+  open: boolean;
+  closeLabel: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const surface = (
+    <MobileUploaderDock $open={open}>
+      {/* The close affordance belongs to the sheet, not the card: once the
+          intake has settled back into the thread there's nothing left to
+          dismiss. */}
+      {active && open && (
+        <MobileUploaderClose type="button" aria-label={closeLabel} onClick={onClose}>
+          <XCloseIcon size={18} />
+        </MobileUploaderClose>
+      )}
+      {children}
+    </MobileUploaderDock>
+  );
+
+  return active && open && typeof document !== 'undefined'
+    ? createPortal(surface, document.body)
+    : surface;
+}
+
 /** Stable empty-answers fallback. Referenced as the `answers` default so an
  *  omitted prop keeps the same object identity across renders — a fresh `{}`
  *  each render would churn the memoized beats and restart the landing timers. */
@@ -581,6 +641,10 @@ export function WelcomeThread({
   // The built week (problems + calendar), generated once when the schedule
   // lands and held stable across re-renders.
   const [weekData, setWeekData] = useState<{ problems: WeekProblem[]; week: WeekDay[] } | null>(null);
+  // Which shape the shown week was built to, so the try-another pills under the
+  // card can mark the current one. Null when the schedule arrived as a document
+  // (no described shape) — then no pill is selected until one is tried.
+  const [weekShape, setWeekShape] = useState<string | null>(null);
   // Sales reach-out — the number the admin leaves for the grant unlock.
   // DEMO ONLY: held in memory, never sent anywhere.
   const [phone, setPhone] = useState('');
@@ -615,6 +679,32 @@ export function WelcomeThread({
     () => typeof window !== 'undefined'
       && !!window.matchMedia?.('(max-width: 600px)').matches,
   );
+  // On phones, the currently requested intake owns the bottom of the screen
+  // until it's retired — either because the operator closed it, or because what
+  // it was asking for arrived. Each stage gets one fresh presentation: retiring
+  // Roster restores the composer, then Schedule opens independently when that
+  // later ask lands.
+  const [dismissedMobileUploader, setDismissedMobileUploader] = useState({
+    roster: false,
+    schedule: false,
+  });
+  /* The sheet exists to collect one thing; once it has it, it has no further
+     ask to make. Retiring it here means the working state that follows (reading
+     the file in, generating the crew, building the week) plays inline in the
+     thread alongside Ultron's narration, rather than under a drawer the
+     operator has to dismiss to watch. */
+  const retireMobileUploader = (which: 'roster' | 'schedule') =>
+    setDismissedMobileUploader(value => ({ ...value, [which]: true }));
+  const currentUploaderDismissed = stage === 'roster'
+    ? dismissedMobileUploader.roster
+    : stage === 'schedule'
+      ? dismissedMobileUploader.schedule
+      : true;
+  const mobileUploaderOpen =
+    mobileManualAdvance
+    && phase === 'ready'
+    && stage !== 'done'
+    && !currentUploaderDismissed;
 
   // Every conversation timer (working holds, turn gaps) — cleared on unmount.
   const timers = useRef<number[]>([]);
@@ -631,6 +721,7 @@ export function WelcomeThread({
     [answers],
   );
   const shapeChips = useMemo(() => scheduleShapesFor(signal), [signal]);
+  const schedulePreview = useMemo(() => schedulePreviewFor(signal), [signal]);
 
   // Ultron's opening turn, split into the beats it delivers on landing: the
   // greeting, then the roster ask — the first document the in-chat setup
@@ -756,12 +847,12 @@ export function WelcomeThread({
           });
           return;
         }
-        // Type the message in a character at a time.
+        // Type the message in, a couple of characters at a time.
         setTyped('');
         const full = beat.text;
         let n = 0;
         charTimer = window.setInterval(() => {
-          n += 1;
+          n = Math.min(full.length, n + TYPE_CHARS_PER_TICK);
           setTyped(full.slice(0, n));
           if (n >= full.length) {
             if (charTimer) window.clearInterval(charTimer);
@@ -903,6 +994,7 @@ export function WelcomeThread({
   const runRosterImport = (fileName: string, cardFile?: IntakeFile) => {
     setRosterSample(false);
     setRosterCommitted(true);
+    retireMobileUploader('roster');
     if (cardFile) animateRosterUpload(cardFile);
     deliverTurn(
       [
@@ -927,6 +1019,7 @@ export function WelcomeThread({
   const runRosterSample = () => {
     setRosterSample(true);
     setRosterCommitted(true);
+    retireMobileUploader('roster');
     deliverTurn(
       [
         {
@@ -952,17 +1045,35 @@ export function WelcomeThread({
   // real event by replying with their phone number.
   // `cardFile` follows the same rule as the roster's (see runRosterImport): only
   // a file the schedule drop zone took itself drives that card's upload state.
+  /** Rebuild the shown week to a different sample shape, in place. This is a
+   *  try-it-out control on the delivered card, not a new turn — Ultron doesn't
+   *  re-narrate, the calendar just switches to the selected pattern. */
+  const applyWeekShape = (shape: string) => {
+    const week = generateWeekShifts(signal, shape);
+    setWeekData({ problems: planWeekProblems(signal, calloutDayName(week)), week });
+    setWeekShape(shape);
+  };
+
   const runWeekBuild = (source: { fileName?: string; cardFile?: IntakeFile; shape?: string }) => {
+    retireMobileUploader('schedule');
     if (source.cardFile) animateScheduleUpload(source.cardFile);
-    const problems = planWeekProblems(signal);
-    setWeekData({ problems, week: generateWeekShifts(signal) });
+    // The described shape drives the layout — a 9-to-5 week runs weekdays only,
+    // a weekend-heavy one stacks Fri→Sun, a rotation runs all seven evenly — so
+    // each chip produces a visibly different calendar rather than one fixture.
+    const week = generateWeekShifts(signal, source.shape);
+    const problems = planWeekProblems(signal, calloutDayName(week));
+    setWeekData({ problems, week });
+    setWeekShape(source.shape ?? null);
+    // Counts read off the built week, since they now vary by shape.
+    const shiftCount = week.reduce((n, day) => n + day.shifts.length, 0);
+    const dayCount = week.filter(day => day.shifts.length > 0).length;
     const lead = source.fileName
       ? `Read ${source.fileName} — turned it into next week's shifts. A few columns I ` +
         "didn't recognize, kept so nothing's lost."
       : `Built you a realistic week — ${source.shape!.toLowerCase()}. Here's what's in it.`;
     const activity = source.fileName
-      ? weekFromFileActivity(source.fileName, problems.length)
-      : weekFromShapeActivity(source.shape!.toLowerCase(), problems.length);
+      ? weekFromFileActivity(source.fileName, problems.length, shiftCount, dayCount)
+      : weekFromShapeActivity(source.shape!.toLowerCase(), problems.length, shiftCount, dayCount);
     deliverTurn(
       [
         { role: 'ultron', activity, text: lead },
@@ -1091,7 +1202,9 @@ export function WelcomeThread({
   const cardPills = stage !== 'done' && pills.length > 0 ? (
     <CardPills aria-label="Suggestions">
       {pills.map(({ icon: Icon, label, onTap }) => (
-        <SuggestionPill key={label} type="button" onClick={onTap}>
+        // $browseSized: these dock directly under the drop zone's Browse button,
+        // so they take its dimensions rather than the compact pill's.
+        <SuggestionPill key={label} type="button" $browseSized onClick={onTap}>
           {Icon && <Icon size={14} />}
           {label}
         </SuggestionPill>
@@ -1129,12 +1242,15 @@ export function WelcomeThread({
           <PageHeaderIcon $condensed={headerCondensed} role="img" aria-label="Ultron">
             {/* Keep both canvases at a native render size and cross-fade them.
                 Scaling the detailed 140px canvas through fractional sizes made
-                its particles shimmer while the header was moving. */}
+                its particles shimmer while the header was moving. The hero holds
+                the full 3D sphere; the condensed bar takes the 2D (flat-on) form
+                of the same mark, which is what reads at 36px — the same call the
+                secondary nav's rows make. */}
             <PageHeaderMarkLayer $show={!headerCondensed} aria-hidden="true">
               <AgentMark mark="magnetic" size={140} tone="auto" state="active" />
             </PageHeaderMarkLayer>
             <PageHeaderMarkLayer $show={headerCondensed} $compact aria-hidden="true">
-              <AgentMark mark="magnetic" size={36} tone="auto" state="active" />
+              <AgentMark mark="magnetic2d" size={36} tone="auto" state="active" />
             </PageHeaderMarkLayer>
           </PageHeaderIcon>
           <PageHeaderText $condensed={headerCondensed}>
@@ -1175,79 +1291,86 @@ export function WelcomeThread({
                       return (
                         <Fragment key={`beat-${i}`}>
                           <BeatReveal>
-                            {!rosterCommitted ? (
-                              <RosterUploaderStage>
-                                {waiting && !rosterUpload && (
-                                  <RosterAvatarViewport aria-hidden="true">
-                                    <RosterAvatarTrack>
-                                      {[...ROSTER_FLOW_PEOPLE, ...ROSTER_FLOW_PEOPLE].map((person, index) => (
-                                        <RosterFlowAvatar key={`${person.name}-${index}`}>
-                                          <img src={person.photo} alt="" />
-                                        </RosterFlowAvatar>
-                                      ))}
-                                    </RosterAvatarTrack>
-                                  </RosterAvatarViewport>
-                                )}
-                                <IntakeUploader
-                                  data-roster-flow={waiting && !rosterUpload ? '' : undefined}
-                                  variant="area"
-                                  browseButtonVariant="primary"
-                                  accept=".csv,.xlsx,.xls,.pdf,image/*"
-                                  title="Drop your roster here, or browse your files"
-                                  description="Spreadsheet, PDF, or a photo of a printed one"
-                                  state={rosterUpload?.state ?? 'empty'}
-                                  progress={rosterUpload?.progress ?? 0}
-                                  file={rosterUpload?.file ?? null}
-                                  disabled={replying !== null && !rosterUpload}
-                                  footerSlot={waiting && phase === 'ready' ? cardPills : undefined}
-                                  onFileSelect={file => pickRosterFiles([file])}
-                                  onClear={() => {}}
-                                />
-                              </RosterUploaderStage>
-                            ) : stage === 'roster' ? (
-                              rosterUpload ? (
-                                <IntakeUploader
-                                  variant="area"
-                                  accept=".csv,.xlsx,.xls,.pdf,image/*"
-                                  title="Drop your roster here, or browse your files"
-                                  description="Spreadsheet, PDF, or a photo of a printed one"
-                                  state={rosterUpload.state}
-                                  progress={rosterUpload.progress}
-                                  file={rosterUpload.file}
-                                  onFileSelect={() => {}}
-                                  onClear={() => {}}
-                                />
+                            <MobileUploaderSurface
+                              active={stage === 'roster'}
+                              open={mobileUploaderOpen && stage === 'roster'}
+                              closeLabel="Close roster uploader"
+                              onClose={() => retireMobileUploader('roster')}
+                            >
+                              {!rosterCommitted ? (
+                                <RosterUploaderStage>
+                                  {waiting && !rosterUpload && (
+                                    <RosterAvatarViewport aria-hidden="true">
+                                      <RosterAvatarTrack>
+                                        {[...ROSTER_FLOW_PEOPLE, ...ROSTER_FLOW_PEOPLE].map((person, index) => (
+                                          <RosterFlowAvatar key={`${person.name}-${index}`}>
+                                            <img src={person.photo} alt="" />
+                                          </RosterFlowAvatar>
+                                        ))}
+                                      </RosterAvatarTrack>
+                                    </RosterAvatarViewport>
+                                  )}
+                                  <IntakeUploader
+                                    data-roster-flow={waiting && !rosterUpload ? '' : undefined}
+                                    variant="area"
+                                    browseButtonVariant="primary"
+                                    accept=".csv,.xlsx,.xls,.pdf,image/*"
+                                    title="Drop your roster here, or browse your files"
+                                    description="Spreadsheet, PDF, or a photo of a printed one"
+                                    state={rosterUpload?.state ?? 'empty'}
+                                    progress={rosterUpload?.progress ?? 0}
+                                    file={rosterUpload?.file ?? null}
+                                    disabled={replying !== null && !rosterUpload}
+                                    footerSlot={waiting && phase === 'ready' ? cardPills : undefined}
+                                    onFileSelect={file => pickRosterFiles([file])}
+                                    onClear={() => {}}
+                                  />
+                                </RosterUploaderStage>
+                              ) : stage === 'roster' ? (
+                                rosterUpload ? (
+                                  <IntakeUploader
+                                    variant="area"
+                                    accept=".csv,.xlsx,.xls,.pdf,image/*"
+                                    title="Drop your roster here, or browse your files"
+                                    description="Spreadsheet, PDF, or a photo of a printed one"
+                                    state={rosterUpload.state}
+                                    progress={rosterUpload.progress}
+                                    file={rosterUpload.file}
+                                    onFileSelect={() => {}}
+                                    onClear={() => {}}
+                                  />
+                                ) : (
+                                  <SummaryItemCard>
+                                    <RowIcon aria-hidden="true"><Users03Icon size={16} /></RowIcon>
+                                    <RowText>
+                                      <RowLabel>Roster</RowLabel>
+                                      {/* Ultron's working label, falling back to the
+                                          quiet in-between-parts state — which reads
+                                          off how the roster arrived, since this row
+                                          now also carries composer attachments and
+                                          pasted tables, not just the sample crew. */}
+                                      <RowDetail>
+                                        {replying || (rosterSample ? 'Generating sample teammates…' : 'Reading your roster…')}
+                                      </RowDetail>
+                                    </RowText>
+                                    <RowStatus aria-hidden="true">
+                                      <RowSpinner />
+                                    </RowStatus>
+                                  </SummaryItemCard>
+                                )
                               ) : (
-                                <SummaryItemCard>
-                                  <RowIcon aria-hidden="true"><Users03Icon size={16} /></RowIcon>
+                                <SummaryItemCard $done>
+                                  <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
                                   <RowText>
                                     <RowLabel>Roster</RowLabel>
-                                    {/* Ultron's working label, falling back to the
-                                        quiet in-between-parts state — which reads
-                                        off how the roster arrived, since this row
-                                        now also carries composer attachments and
-                                        pasted tables, not just the sample crew. */}
-                                    <RowDetail>
-                                      {replying || (rosterSample ? 'Generating sample teammates…' : 'Reading your roster…')}
-                                    </RowDetail>
+                                    <RowDetail>Spreadsheet, PDF, or a photo of a printed one</RowDetail>
                                   </RowText>
                                   <RowStatus aria-hidden="true">
-                                    <RowSpinner />
+                                    <CheckCircleIcon size={18} />
                                   </RowStatus>
                                 </SummaryItemCard>
-                              )
-                            ) : (
-                              <SummaryItemCard $done>
-                                <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
-                                <RowText>
-                                  <RowLabel>Roster</RowLabel>
-                                  <RowDetail>Spreadsheet, PDF, or a photo of a printed one</RowDetail>
-                                </RowText>
-                                <RowStatus aria-hidden="true">
-                                  <CheckCircleIcon size={18} />
-                                </RowStatus>
-                              </SummaryItemCard>
-                            )}
+                              )}
+                            </MobileUploaderSurface>
                           </BeatReveal>
                         </Fragment>
                       );
@@ -1255,8 +1378,7 @@ export function WelcomeThread({
                     const isActive = i === activeIdx;
                     return (
                       <Bubble key={`beat-${i}`} data-from="ultron">
-                        {isActive ? typed : beat.text}
-                        {isActive && <Caret aria-hidden="true" />}
+                        {isActive ? <TypedRun text={typed} /> : beat.text}
                       </Bubble>
                     );
                   })}
@@ -1296,83 +1418,115 @@ export function WelcomeThread({
                              builds; described a shape, a spinner row carries
                              the working beat. It settles to the compact
                              checked row once the week lands. */
-                          stage === 'schedule' ? (
-                            scheduleUpload ? (
-                              <IntakeUploader
-                                variant="area"
-                                accept=".csv,.xlsx,.xls,.pdf,image/*"
-                                title="Drop your schedule here, or browse your files"
-                                description="Spreadsheet, PDF, or a photo — any format works"
-                                state={scheduleUpload.state}
-                                progress={scheduleUpload.progress}
-                                file={scheduleUpload.file}
-                                onFileSelect={() => {}}
-                                onClear={() => {}}
-                              />
-                            ) : replying !== null ? (
-                              <ScheduleGeneratingReveal>
-                                <SummaryItemCard>
-                                  <RowIcon aria-hidden="true"><ClockIcon size={16} /></RowIcon>
-                                  <RowText>
-                                    <RowLabel>Schedule</RowLabel>
-                                    <RowDetail>{replying || 'Building your week…'}</RowDetail>
-                                  </RowText>
-                                  <RowStatus aria-hidden="true">
-                                    <RowSpinner />
-                                  </RowStatus>
-                                </SummaryItemCard>
-                              </ScheduleGeneratingReveal>
-                            ) : (
-                              <ScheduleUploaderStage>
-                                <SchedulePreview aria-hidden="true">
-                                  {SCHEDULE_PREVIEW_DAYS.map((shiftCount, dayIndex) => {
-                                    const offset = SCHEDULE_PREVIEW_DAYS
-                                      .slice(0, dayIndex)
-                                      .reduce((total, count) => total + count, 0);
-                                    return (
-                                      <SchedulePreviewDay key={dayIndex}>
-                                        <SchedulePreviewDayHead />
-                                        {Array.from({ length: shiftCount }, (_, shiftIndex) => (
-                                          <SchedulePreviewShift
-                                            key={shiftIndex}
-                                            $sequence={offset + shiftIndex}
-                                            $accent={(dayIndex + shiftIndex) % 5 === 0}
-                                          />
-                                        ))}
-                                      </SchedulePreviewDay>
-                                    );
-                                  })}
-                                </SchedulePreview>
+                          <MobileUploaderSurface
+                            active={stage === 'schedule'}
+                            open={mobileUploaderOpen && stage === 'schedule'}
+                            closeLabel="Close schedule uploader"
+                            onClose={() => retireMobileUploader('schedule')}
+                          >
+                            {stage === 'schedule' ? (
+                              scheduleUpload ? (
                                 <IntakeUploader
-                                  data-schedule-flow=""
                                   variant="area"
-                                  browseButtonVariant="primary"
                                   accept=".csv,.xlsx,.xls,.pdf,image/*"
                                   title="Drop your schedule here, or browse your files"
                                   description="Spreadsheet, PDF, or a photo — any format works"
-                                  state="empty"
-                                  progress={0}
-                                  file={null}
-                                  footerSlot={cardPills}
-                                  onFileSelect={file => pickScheduleFiles([file])}
+                                  state={scheduleUpload.state}
+                                  progress={scheduleUpload.progress}
+                                  file={scheduleUpload.file}
+                                  onFileSelect={() => {}}
                                   onClear={() => {}}
                                 />
-                              </ScheduleUploaderStage>
-                            )
-                          ) : (
-                            <SummaryItemCard $done>
-                              <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
-                              <RowText>
-                                <RowLabel>Schedule</RowLabel>
-                                <RowDetail>Spreadsheet, PDF, or a photo — any format works</RowDetail>
-                              </RowText>
-                              <RowStatus aria-hidden="true">
-                                <CheckCircleIcon size={18} />
-                              </RowStatus>
-                            </SummaryItemCard>
-                          )
+                              ) : replying !== null ? (
+                                <ScheduleGeneratingReveal>
+                                  <SummaryItemCard>
+                                    <RowIcon aria-hidden="true"><ClockIcon size={16} /></RowIcon>
+                                    <RowText>
+                                      <RowLabel>Schedule</RowLabel>
+                                      <RowDetail>{replying || 'Building your week…'}</RowDetail>
+                                    </RowText>
+                                    <RowStatus aria-hidden="true">
+                                      <RowSpinner />
+                                    </RowStatus>
+                                  </SummaryItemCard>
+                                </ScheduleGeneratingReveal>
+                              ) : (
+                                <ScheduleUploaderStage>
+                                  <SchedulePreview
+                                    role="img"
+                                    aria-label={`${schedulePreview.label}: ${schedulePreview.shape}`}
+                                  >
+                                    <SchedulePreviewGrid>
+                                      {schedulePreview.week.map((day, dayIndex) => {
+                                        const offset = schedulePreview.week
+                                          .slice(0, dayIndex)
+                                          .reduce((total, item) => total + item.shifts.length, 0);
+                                        return (
+                                          <SchedulePreviewDay key={day.label}>
+                                            <SchedulePreviewDayHead>{day.label.slice(0, 1)}</SchedulePreviewDayHead>
+                                            {day.shifts.length ? day.shifts.map((shift, shiftIndex) => (
+                                              <SchedulePreviewShift
+                                                key={`${shift.time}-${shiftIndex}`}
+                                                $sequence={offset + shiftIndex}
+                                                $flag={shift.flag}
+                                              />
+                                            )) : (
+                                              <SchedulePreviewEmpty />
+                                            )}
+                                          </SchedulePreviewDay>
+                                        );
+                                      })}
+                                    </SchedulePreviewGrid>
+                                  </SchedulePreview>
+                                  <IntakeUploader
+                                    data-schedule-flow=""
+                                    variant="area"
+                                    browseButtonVariant="primary"
+                                    accept=".csv,.xlsx,.xls,.pdf,image/*"
+                                    title="Drop your schedule here, or browse your files"
+                                    description="Spreadsheet, PDF, or a photo — any format works"
+                                    state="empty"
+                                    progress={0}
+                                    file={null}
+                                    footerSlot={cardPills}
+                                    onFileSelect={file => pickScheduleFiles([file])}
+                                    onClear={() => {}}
+                                  />
+                                </ScheduleUploaderStage>
+                              )
+                            ) : (
+                              <SummaryItemCard $done>
+                                <RowIcon aria-hidden="true"><UploadCloud01Icon size={16} /></RowIcon>
+                                <RowText>
+                                  <RowLabel>Schedule</RowLabel>
+                                  <RowDetail>Spreadsheet, PDF, or a photo — any format works</RowDetail>
+                                </RowText>
+                                <RowStatus aria-hidden="true">
+                                  <CheckCircleIcon size={18} />
+                                </RowStatus>
+                              </SummaryItemCard>
+                            )}
+                          </MobileUploaderSurface>
                         ) : weekData ? (
-                          <WeekResultCard problems={weekData.problems} week={weekData.week} />
+                          <>
+                            <WeekResultCard problems={weekData.problems} week={weekData.week} />
+                            {/* Try the other patterns against the same roster —
+                                each rebuilds the card above in place. */}
+                            <WeekShapeRow aria-label="Try another schedule">
+                              {shapeChips.map(shape => (
+                                <SuggestionPill
+                                  key={shape}
+                                  type="button"
+                                  $active={shape === weekShape}
+                                  aria-pressed={shape === weekShape}
+                                  onClick={() => applyWeekShape(shape)}
+                                >
+                                  <ClockIcon size={14} />
+                                  {shape}
+                                </SuggestionPill>
+                              ))}
+                            </WeekShapeRow>
+                          </>
                         ) : null}
                       </BeatReveal>
                     </Stack>
@@ -1423,7 +1577,6 @@ export function WelcomeThread({
                     {replying && (
                       <WorkingLabel role="status" aria-live="polite">{replying}</WorkingLabel>
                     )}
-                    <MobileTapHint aria-hidden="true">Tap to continue</MobileTapHint>
                   </TypingCluster>
                 </LoadingAdvanceButton>
               </Row>
@@ -1434,7 +1587,7 @@ export function WelcomeThread({
 
       {/* Composer + one-tap pills hold back until the opening turn has fully
           delivered, then arrive together. */}
-      {phase === 'ready' && (
+      {phase === 'ready' && !mobileUploaderOpen && (
       <ComposerWrap>
         {/* Ultron's presence mark above the composer — the resting magnetic form,
             and ONLY that: it marks stand-by. While a reply is in flight the working
@@ -1751,6 +1904,10 @@ function WeekResultCard({ problems, week }: { problems: WeekProblem[]; week: Wee
   const shiftOffsets = week.map((_, dayIndex) =>
     week.slice(0, dayIndex).reduce((total, day) => total + day.shifts.length, 0),
   );
+  // Counted off the week rather than fixed: the shape the operator described
+  // decides how many days run and how many shifts land on them.
+  const dayCount = week.filter(day => day.shifts.length > 0).length;
+  const shiftCount = week.reduce((total, day) => total + day.shifts.length, 0);
 
   return (
     <ResultCard aria-label="Your week">
@@ -1759,9 +1916,9 @@ function WeekResultCard({ problems, week }: { problems: WeekProblem[]; week: Wee
           aria-label/title carry the "N things waiting" count). */}
       <WeekHeadRow>
         <WeekStat>
-          <WeekStatItem><WeekStatNum>{WEEK_DAYS}</WeekStatNum> days</WeekStatItem>
+          <WeekStatItem><WeekStatNum>{dayCount}</WeekStatNum> days</WeekStatItem>
           <WeekStatDot aria-hidden="true">·</WeekStatDot>
-          <WeekStatItem><WeekStatNum>{WEEK_SHIFTS}</WeekStatNum> shifts</WeekStatItem>
+          <WeekStatItem><WeekStatNum>{shiftCount}</WeekStatNum> shifts</WeekStatItem>
         </WeekStat>
         <WaitingToggle
           type="button"
@@ -1832,7 +1989,21 @@ const Root = styled.div`
      event page's Page does) so the composer snaps to the very foot. */
   height: calc(100% + var(--space-8));
   margin-bottom: calc(-1 * var(--space-8));
+  /* Grow as well as measure. On the mobile shell this page's ancestors take
+     their height from flex rather than from a definite value, so the percentage
+     above falls back to content height and the backdrop would stop at the last
+     message instead of covering the viewport. Growing fills the column whatever
+     the parent's height came from; on desktop the percentage already resolves,
+     the free space is zero, and this changes nothing. */
+  flex: 1 1 auto;
   min-height: 0;
+
+  /* The mobile shell's content column has no bottom padding to cancel, so the
+     bleed above would just hang 32px past the viewport as stray scroll. */
+  @media (max-width: 767px) {
+    height: 100%;
+    margin-bottom: 0;
+  }
   overflow: hidden;
   background: var(--color-bg-primary);
 `;
@@ -1937,7 +2108,11 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
   justify-content: center;
   flex-shrink: 0;
   position: absolute;
-  top: ${p => p.$condensed ? '20px' : '24px'};
+  /* Condensed: centred on the text lockup rather than on the bar, since the
+     lockup itself sits slightly below the bar's middle. The block runs from the
+     title's top (15) through the subtitle's bottom (15 + 14×1.5 + 14×1.5 = 57),
+     so its centre is 36 and a 36px mark starts at 18. */
+  top: ${p => p.$condensed ? '18px' : '24px'};
   left: ${p => p.$condensed ? 'var(--space-6)' : '50%'};
   width: ${p => p.$condensed ? '36px' : '140px'};
   height: ${p => p.$condensed ? '36px' : '140px'};
@@ -1965,10 +2140,18 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
   }
 
   @media (max-width: 600px) {
-    top: ${p => p.$condensed ? '10px' : '16px'};
+    /* Same centring at the small scale: a 7 → 41 block (14×1.5 title over a
+       12×1.2 subtitle) against a 32px mark. */
+    top: ${p => p.$condensed ? '8px' : '16px'};
     left: ${p => p.$condensed ? 'var(--space-4)' : '50%'};
     width: ${p => p.$condensed ? '32px' : '140px'};
     height: ${p => p.$condensed ? '32px' : '140px'};
+  }
+
+  /* Short viewports drop the condensed subtitle (see PageHeaderSubtitle), which
+     leaves the title alone as the lockup — a 7 → 28 block, centre 17.5. */
+  @media (max-width: 600px) and (max-height: 700px) {
+    top: ${p => p.$condensed ? '1.5px' : '16px'};
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -2002,8 +2185,7 @@ const PageHeaderText = styled.div<{ $condensed: boolean }>`
   display: contents;
 `;
 
-/* Alloy label / medium: 14px · medium · relaxed · wide tracking — the event
-   header's CardTitle. */
+/* The page identity uses the original responsive title scale, in solid black. */
 const PageHeaderTitle = styled.span<{ $condensed: boolean }>`
   position: absolute;
   top: ${p => p.$condensed ? '15px' : '180px'};
@@ -2012,17 +2194,16 @@ const PageHeaderTitle = styled.span<{ $condensed: boolean }>`
   max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
   font-family: var(--font-sans);
   font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'clamp(24px, 3vw, 30px)'};
-  font-weight: ${p => p.$condensed ? 'var(--font-weight-medium)' : 'var(--font-weight-bold)'};
   line-height: ${p => p.$condensed ? 'var(--line-height-relaxed)' : 'var(--line-height-tight)'};
+  font-weight: var(--font-weight-semibold);
   letter-spacing: ${p => p.$condensed ? 'var(--tracking-wide)' : 'var(--tracking-tight)'};
-  color: var(--color-content-primary);
+  color: #000;
   white-space: nowrap;
   transition:
     top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
     left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
     transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
     font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    font-weight ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
     line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
     letter-spacing ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
@@ -2147,6 +2328,87 @@ const RosterUploaderStage = styled.div`
 
 const ScheduleUploaderStage = styled(RosterUploaderStage)``;
 
+/* On desktop the intake keeps its conversational, inline placement. On phones
+   only the active intake becomes a bottom sheet; after that stage completes,
+   its compact done state returns to the thread as ordinary history. */
+const mobileUploaderIn = keyframes`
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+const MobileUploaderDock = styled.div<{ $open: boolean }>`
+  position: relative;
+  width: 100%;
+
+  @media (max-width: 600px) {
+    /* Dismissing the sheet doesn't dismiss the intake — the card just stops
+       being a sheet and settles back into the thread, where it stays reachable
+       as the ordinary inline uploader (its desktop placement). Only one copy
+       exists either way: while open, the surface is portaled to body instead of
+       rendering here. */
+    display: block;
+
+    ${p => p.$open && css`
+      position: fixed;
+      z-index: 30;
+      /* Inset a uniform 12px rather than sitting flush: the sheet reads as a
+         card lifted off the page, so it carries a border and a radius on all
+         four sides. The bottom offset takes the larger of that margin and the
+         home-indicator inset, which also means the inner padding no longer has
+         to clear the safe area itself. */
+      left: var(--space-3);
+      right: var(--space-3);
+      bottom: max(var(--space-3), env(safe-area-inset-bottom));
+      width: auto;
+      max-height: min(82dvh, 680px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: var(--space-10) var(--space-3) var(--space-3);
+      background: var(--color-bg-primary);
+      border: 1px solid var(--color-border-opaque);
+      border-radius: var(--radius-2xl);
+      box-shadow: 0 -16px 48px rgb(0 0 0 / 24%);
+      animation: ${mobileUploaderIn} 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    `}
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
+const MobileUploaderClose = styled.button`
+  display: none;
+
+  @media (max-width: 600px) {
+    position: absolute;
+    z-index: 4;
+    top: var(--space-2);
+    right: var(--space-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--space-8);
+    height: var(--space-8);
+    padding: 0;
+    color: var(--color-content-secondary);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border-opaque);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--color-content-primary);
+      background: var(--color-bg-tertiary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-border-focus);
+      outline-offset: 2px;
+    }
+  }
+`;
+
 /* Four teammates stay in frame while the repeated track advances one profile
    at a time. The mask makes each face gently arrive from the left and dissolve
    at the right instead of clipping against the viewport. */
@@ -2224,25 +2486,28 @@ const RosterFlowAvatar = styled.span`
 `;
 
 const schedulePreviewShiftIn = keyframes`
-  0%, 8%   { opacity: 0; transform: translateY(-5px) scale(0.84); }
-  18%, 72% { opacity: 1; transform: translateY(0) scale(1); }
-  84%, 100% { opacity: 0; transform: translateY(3px) scale(0.94); }
+  0%, 5%    { opacity: 0.28; transform: translateY(-3px) scale(0.92); }
+  15%, 88%  { opacity: 1; transform: translateY(0) scale(1); }
+  97%, 100% { opacity: 0.28; transform: translateY(1px) scale(0.97); }
 `;
 
-/* A tiny seven-day schedule takes the upload glyph's place. Its shift blocks
-   populate in the same top-to-bottom, left-to-right order as the generated
-   week, then clear and loop while the uploader is waiting. */
+/* A compact full-week coverage schedule takes the upload glyph's place. Three
+   bands fill every day so the intake animation reads as a complete week rather
+   than a partially empty result calendar. The actual generated week still
+   follows the operator's selected schedule shape. */
 const SchedulePreview = styled.div`
   position: absolute;
   z-index: 2;
-  top: var(--space-6);
+  top: var(--space-4);
   left: 50%;
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  width: 184px;
-  height: 62px;
-  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 236px;
+  /* No min-height: the card hugs the week. The grid holds the floor (its own
+     min-height reserves the day columns while the shift bars are still drawing
+     themselves in), so nothing collapses mid-animation. */
+  padding: 7px 10px 8px;
   overflow: hidden;
   transform: translateX(-50%);
   border: 1px solid var(--color-border-opaque);
@@ -2252,47 +2517,69 @@ const SchedulePreview = styled.div`
   pointer-events: none;
 
   @media (max-width: 600px) {
-    top: var(--space-4);
-    width: 168px;
-    height: 56px;
-    padding: 6px;
+    top: var(--space-2);
+    width: 218px;
+    padding: 6px 8px 7px;
   }
+`;
+
+const SchedulePreviewGrid = styled.span`
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
 `;
 
 const SchedulePreviewDay = styled.span`
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 `;
 
 const SchedulePreviewDayHead = styled.span`
   display: block;
-  width: 100%;
-  height: 3px;
-  margin-bottom: 1px;
-  border-radius: var(--radius-full);
-  background: var(--color-border-opaque);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--color-border-opaque);
+  font-family: var(--font-sans);
+  font-size: 8px;
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  text-align: center;
+  color: var(--color-content-tertiary);
 `;
 
-const SchedulePreviewShift = styled.span<{ $sequence: number; $accent: boolean }>`
+const SchedulePreviewShift = styled.span<{ $sequence: number; $flag?: 'open' | 'watch' }>`
   display: block;
   width: 100%;
-  height: 9px;
-  border-radius: 3px;
-  background: ${p => p.$accent
-    ? 'var(--color-warning-bg)'
-    : 'var(--color-bg-tertiary)'};
-  border: 1px solid ${p => p.$accent
-    ? 'var(--color-warning-border)'
-    : 'var(--color-border-transparent)'};
+  height: 6px;
+  border-radius: 2px;
+  background: ${p => p.$flag === 'open'
+    ? 'var(--color-error-bg)'
+    : p.$flag === 'watch'
+      ? 'var(--color-warning-bg)'
+      : 'var(--color-bg-tertiary)'};
+  border: 1px ${p => p.$flag === 'open' ? 'dashed' : 'solid'} ${p =>
+    p.$flag === 'open'
+      ? 'var(--color-error-content)'
+      : p.$flag === 'watch'
+        ? 'var(--color-warning-border)'
+        : 'var(--color-border-transparent)'};
   transform-origin: top center;
-  animation: ${schedulePreviewShiftIn} 4.8s var(--ease-out) infinite both;
-  animation-delay: calc(${p => p.$sequence} * 90ms);
+  animation: ${schedulePreviewShiftIn} 5.6s var(--ease-out) infinite both;
+  animation-delay: calc(${p => p.$sequence} * 70ms);
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
   }
+`;
+
+const SchedulePreviewEmpty = styled.span`
+  display: block;
+  width: 100%;
+  height: 1px;
+  margin-top: 5px;
+  background: var(--color-border-opaque);
+  opacity: 0.55;
 `;
 
 /* One persistent intake surface across empty → uploading → complete. Alloy's
@@ -2321,8 +2608,8 @@ const IntakeUploader = styled(FileUploader)`
   }
 
   &&[data-schedule-flow][data-state='empty'] {
-    min-height: 224px;
-    padding-top: 112px;
+    min-height: 204px;
+    padding-top: 82px;
     gap: var(--space-4);
   }
 
@@ -2395,8 +2682,8 @@ const IntakeUploader = styled(FileUploader)`
     }
 
     &&[data-schedule-flow][data-state='empty'] {
-      min-height: 188px;
-      padding: 84px var(--space-4) var(--space-4);
+      min-height: 176px;
+      padding: 70px var(--space-4) var(--space-4);
       gap: var(--space-2);
     }
 
@@ -2433,20 +2720,19 @@ const DotsRow = styled.div`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-/* The typewriter caret trailing the text as it types in. */
-const caretBlink = keyframes`
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0; }
+/* One character of the typewriter's head, fading up as the reveal leaves it
+   behind (see TypedRun) — the soft edge is the only cue that text is still
+   arriving, which is why there's no caret. No display of its own: these have to
+   stay inline text so words still wrap mid-fade, and the Bubble's `pre-line`
+   reaches them so a space or newline inside the head lays out as it will once
+   settled. */
+const charFadeIn = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
 `;
 
-const Caret = styled.span`
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: -0.15em;
-  background: var(--color-content-tertiary);
-  animation: ${caretBlink} 1s step-end infinite;
+const FadingChar = styled.span`
+  animation: ${charFadeIn} ${TYPE_FADE_MS}ms linear both;
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
@@ -2525,7 +2811,7 @@ const Bubble = styled.div`
   }
 
   @media (max-width: 600px) {
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
     line-height: 1.45;
 
     &[data-from='operator'] {
@@ -2796,11 +3082,16 @@ const PersonWho = styled.div`
   margin-right: auto;
 `;
 
+/* One line, truncating — a long name wrapping to two lines pushed the row's
+   meta line down and broke the list's rhythm. Matches PersonMeta below. */
 const PersonName = styled.span`
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-content-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const PersonMeta = styled.span`
@@ -3050,10 +3341,13 @@ const CalScroll = styled.div`
   overflow: hidden;
 `;
 
+/* The column gap matches CalDay's row gap, so the blocks sit on an even grid in
+   both directions — at 4px against the rows' 8px the calendar read as columns
+   crowded together rather than as a field of shifts. */
 const CalGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: var(--space-1);
+  gap: var(--space-2);
   width: 100%;
 `;
 
@@ -3620,11 +3914,6 @@ const TypingCluster = styled.div`
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
-
-  @media (max-width: 600px) {
-    width: 100%;
-    gap: var(--space-2);
-  }
 `;
 
 /* The automatic reading beat becomes an optional manual stepper on mobile.
@@ -3640,39 +3929,24 @@ const LoadingAdvanceButton = styled.button`
   text-align: left;
   pointer-events: none;
 
+  /* Mobile still advances the turn on tap, but wears no chrome for it: the
+     mark + working label read exactly as they do on desktop. Only the hit
+     target comes back, sized to the row rather than drawn as a card. */
   @media (max-width: 600px) {
-    width: 100%;
     min-height: 44px;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-border-opaque);
-    background: var(--color-bg-secondary);
+    align-items: center;
     cursor: pointer;
     pointer-events: auto;
     -webkit-tap-highlight-color: transparent;
 
     &:active {
-      background: var(--color-bg-tertiary);
-      transform: scale(0.995);
+      opacity: 0.6;
     }
 
     &:focus-visible {
       outline: 2px solid var(--color-border-focus);
       outline-offset: 2px;
     }
-  }
-`;
-
-const MobileTapHint = styled.span`
-  display: none;
-
-  @media (max-width: 600px) {
-    display: inline;
-    margin-left: auto;
-    flex-shrink: 0;
-    font-family: var(--font-sans);
-    font-size: 11px;
-    font-weight: var(--font-weight-medium);
-    color: var(--color-content-tertiary);
   }
 `;
 
@@ -3779,6 +4053,15 @@ const MarkFormLayer = styled.span<{ $show?: boolean }>`
   transition: opacity var(--duration-base) var(--ease-out);
 `;
 
+/* Try-another-shape pills under the delivered week card. Left-aligned with the
+   card's own edge, wrapping rather than scrolling — there are only ever three. */
+const WeekShapeRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+`;
+
 /* The stage's one-tap pills, docked inside the drop zone under its browse
    button (FileUploader's footerSlot) — centered to match the zone's stack. */
 const CardPills = styled.div`
@@ -3792,20 +4075,23 @@ const CardPills = styled.div`
    bordered surface, not the intro flow's liquid glass): icon + label, lifting
    to the secondary fill on hover. Same shape as the intro's SuggestionPill —
    both FLAGGED as one `SuggestionPill` candidate for promotion to Alloy. */
-const SuggestionPill = styled.button`
+/* `$browseSized` matches Alloy's Browse-File action in the drop zone — 32px tall,
+   16px sides, --text-xs — and holds those at every width, since that button does
+   not shrink on narrow screens the way the compact pill does. */
+const SuggestionPill = styled.button<{ $active?: boolean; $browseSized?: boolean }>`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--space-8);
-  padding: 0 var(--space-3);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border-opaque);
+  padding: 0 ${p => (p.$browseSized ? 'var(--space-4)' : 'var(--space-3)')};
+  background: ${p => (p.$active ? 'var(--color-bg-secondary)' : 'var(--color-bg-primary)')};
+  border: 1px solid ${p => (p.$active ? 'var(--color-border-focus)' : 'var(--color-border-opaque)')};
   border-radius: var(--radius-full);
   cursor: pointer;
   font-family: var(--font-sans);
-  font-size: var(--text-sm);
+  font-size: ${p => (p.$browseSized ? 'var(--text-xs)' : 'var(--text-sm)')};
   font-weight: var(--font-weight-medium);
-  color: var(--color-content-secondary);
+  color: ${p => (p.$active ? 'var(--color-content-primary)' : 'var(--color-content-secondary)')};
   transition: color var(--duration-fast) var(--ease-default),
               background var(--duration-fast) var(--ease-default),
               border-color var(--duration-fast) var(--ease-default);
@@ -3831,8 +4117,10 @@ const SuggestionPill = styled.button`
   }
 
   @media (max-width: 600px) {
-    min-height: 28px;
-    padding: 0 var(--space-2);
+    /* The compact pill tightens on narrow screens; a browse-sized one holds its
+       dimensions, because the Browse button it sits under doesn't shrink. */
+    min-height: ${p => (p.$browseSized ? 'var(--space-8)' : '28px')};
+    padding: 0 ${p => (p.$browseSized ? 'var(--space-4)' : 'var(--space-2)')};
     gap: var(--space-1);
     flex: 0 0 auto;
     font-size: var(--text-xs);
@@ -3902,15 +4190,22 @@ const Composer = styled.form<{ $phoneMode: boolean }>`
   --composer-btn-icon-send: var(--space-4);
 
   @media (max-width: 600px) {
-    gap: var(--space-1);
-    padding: var(--space-1);
-    border-radius: var(--radius-lg);
+    --composer-btn-size: var(--space-10);
+    --composer-btn-icon-attach: var(--space-5);
+    --composer-btn-icon-send: var(--space-5);
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border-radius: var(--radius-xl);
   }
 `;
 
+/* Centred, not bottom-aligned: the field is a fixed single line (rows=1, no
+   auto-grow — long messages scroll inside it), so there is no tall-field case
+   for flex-end to protect. Against the 40px action slots it just sat the text
+   4px low. */
 const InputRow = styled.div`
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--space-2);
 `;
 
@@ -3957,11 +4252,15 @@ const ChipRemove = styled.button`
 
 /* One message's stack — the text bubble with any sent files as their own row
    beneath it, hugging the message's side of the thread. */
+/* Spans the thread column edge to edge, so Ultron's prose wraps on the same
+   measure as the composer and the result cards instead of breaking early at an
+   80% cap. The operator's bubble still hugs its own content — it's sized by
+   align-items on the cross axis, not by this width. */
 const MsgGroup = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  max-width: 80%;
+  width: 100%;
 
   &[data-from='operator'] { align-items: flex-end; }
   &[data-from='ultron'] { align-items: flex-start; }
@@ -4001,8 +4300,8 @@ const Field = styled.textarea<{ $phoneMode: boolean }>`
   }
 
   @media (max-width: 600px) {
-    font-size: var(--text-sm);
-    line-height: var(--line-height-snug);
+    font-size: var(--text-md);
+    line-height: var(--line-height-relaxed);
   }
 `;
 

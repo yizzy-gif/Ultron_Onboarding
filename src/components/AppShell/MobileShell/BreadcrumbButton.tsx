@@ -15,7 +15,10 @@ const TriggerButton = styled.button<{ $active?: boolean }>`
   gap: 2px;
   flex: 1 1 0;
   min-width: 0;
-  padding: 0 var(--space-1, 4px);
+  /* Even insets — the caret sits in from the trailing edge by the same amount
+     the label sits in from the leading one. The row's own 4px gap already sets
+     the label off the hamburger, so the leading inset doesn't have to. */
+  padding: 0 var(--space-3, 12px);
   font-family: var(--font-sans, Geist, sans-serif);
   font-size: 14px;
   font-weight: 500;
@@ -23,7 +26,8 @@ const TriggerButton = styled.button<{ $active?: boolean }>`
   color: var(--color-content-primary, #151515);
   border-radius: var(--radius-md, 8px);
   cursor: pointer;
-  height: 32px;
+  /* Matches the hamburger's 36px square, so the two sit on one line in the row. */
+  height: 36px;
   box-sizing: border-box;
 
   background: ${p => (p.$active ? 'var(--color-bg-tertiary, #eceef1)' : 'transparent')};

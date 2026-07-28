@@ -2,30 +2,22 @@
    Ultron — identity card.
    Sits at the top of the Ultron secondary-nav body. Shows the Ultron identity
    (the animated Circle mark used on the Live landing) beside the Ultron name and
-   a trailing "+" action — a compact presence card, no cycling status line.
+   a trailing compose action — a compact presence card, no cycling status line.
    ───────────────────────────────────────────────────────────────────────────── */
 
 import styled from 'styled-components';
-import { PlusIcon } from 'alloy-design-system';
-import { AgentMark } from './AgentMark';
+import { Edit02Icon } from 'alloy-design-system';
+import { UltronWordmark } from './UltronWordmark';
 
-/** Rendered px of the Circle mark in the identity card — small enough to ride the
- *  nav row while still reading as Ultron's living presence (same mark shown at
- *  hero scale on the Live landing). */
-const MARK_SIZE = 32;
-
-/** Identity row for the Ultron secondary nav: the animated Circle mark, the name,
- *  and a trailing "+" action that opens a new (empty) Ultron page. The card itself
- *  is a button (returns to Live), so the "+" is a focusable role="button" span
- *  rather than a nested <button>, and it stops propagation so it doesn't also
- *  trigger the card's Live navigation. */
+/** Identity row for the Ultron secondary nav: the wordmark — with Ultron's own
+ *  Circle mark standing in for its O — and a trailing pencil that opens a new
+ *  (empty) Ultron page. The card itself is a button (returns to Live), so the
+ *  pencil is a focusable role="button" span rather than a nested <button>, and
+ *  it stops propagation so it doesn't also trigger the card's Live navigation. */
 export function UltronIdentityCard({ onNew }: { onNew?: () => void }) {
   return (
     <Card>
-      <Mark aria-hidden="true">
-        <AgentMark mark="circle" size={MARK_SIZE} tone="auto" state="active" aria-label="Ultron" />
-      </Mark>
-      <Name>Ultron</Name>
+      <Name />
       <AddButton
         role="button"
         tabIndex={0}
@@ -39,7 +31,7 @@ export function UltronIdentityCard({ onNew }: { onNew?: () => void }) {
           }
         }}
       >
-        <PlusIcon size={16} />
+        <Edit02Icon size={16} />
       </AddButton>
     </Card>
   );
@@ -47,35 +39,28 @@ export function UltronIdentityCard({ onNew }: { onNew?: () => void }) {
 
 // ── Styled ───────────────────────────────────────────────────────────────────
 
+/* With the mark now inside the word, the card is the logotype plus its trailing
+   action — no leading icon slot, so the wordmark starts at the card's own edge. */
 const Card = styled.div`
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
   font-family: var(--font-sans);
 `;
 
-/* Holds the animated Circle mark at a fixed size so the name + badge keep a
-   stable left edge as the mark breathes. */
-const Mark = styled.span`
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: ${MARK_SIZE}px;
-  height: ${MARK_SIZE}px;
-`;
-
-const Name = styled.span`
+/* The logotype, sized and coloured for this card and flexed to push the compose
+   action to the far edge. */
+const Name = styled(UltronWordmark)`
   min-width: 0;
   flex: 1;
   font-size: var(--text-lg);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
   color: var(--color-content-primary);
 `;
 
-/* Trailing "+" action. A role="button" span (the card wrapping it is already a
-   button, so a nested <button> would be invalid) — still keyboard-focusable. */
+/* Trailing compose (pencil) action. A role="button" span (the card wrapping it
+   is already a button, so a nested <button> would be invalid) — still
+   keyboard-focusable. */
 const AddButton = styled.span`
   display: inline-flex;
   align-items: center;
@@ -84,7 +69,10 @@ const AddButton = styled.span`
   width: var(--space-6);
   height: var(--space-6);
   border-radius: var(--radius-md);
-  color: var(--color-content-secondary);
+  /* Rests a step lighter than supporting text — it's a quiet affordance on the
+     identity card, not a peer of the wordmark. Hover still takes it to primary,
+     so dropping the resting tone widens that step rather than flattening it. */
+  color: var(--color-content-tertiary);
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-default),
               color var(--duration-fast) var(--ease-default);

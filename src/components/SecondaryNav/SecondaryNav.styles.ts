@@ -12,7 +12,6 @@ export const SecondaryNavRoot = styled.nav<{ $isVisible: boolean; $width: number
   height: 100%;
   flex-shrink: 0;
   background: var(--color-bg-primary, white);
-  border-right: 1px solid var(--color-border-opaque, #e8eaee);
   overflow: hidden;
   /* Skip the width transition during an active drag so the panel tracks
      the cursor exactly; keep it for visibility toggles. */
@@ -312,11 +311,12 @@ export const SpotlightScrim = styled.button`
  *  rendered at document level, safely above every app-shell stacking context. */
 export const SpotlightPlaceholder = styled.div`
   width: 100%;
-  min-height: 32px;
+  visibility: hidden;
+  pointer-events: none;
 `;
 
 /** Fixed, portal-rendered event row that sits definitively above the scrim. */
-export const SpotlightRow = styled.div`
+export const SpotlightRow = styled.div<{ $mobile?: boolean }>`
   position: fixed;
   z-index: 1001;
   border-radius: 8px;
@@ -325,6 +325,17 @@ export const SpotlightRow = styled.div`
     0 0 0 2px rgb(255 255 255 / 92%),
     0 0 24px rgb(255 255 255 / 28%);
   animation: ${spotlightGlowLoop} 2.4s ease-in-out infinite;
+
+  /* The measured mobile rectangle already includes the row's selected-state
+     inset. Remove the copied button's own outer margin inside the portal so its
+     icon, label, radius, width, and height land exactly over the original. */
+  ${p => p.$mobile && css`
+    & > button {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+  `}
 
   /* Two evenly spreading rings keep the surfaced event gently radiating until
      the user opens it. Shadow spread moves every edge by the same distance, so
@@ -355,18 +366,20 @@ export const SpotlightRow = styled.div`
 
 /** Portal-rendered guidance follows the measured row even when the secondary
  *  navigation has been resized. */
-export const SpotlightPrompt = styled.div`
+export const SpotlightPrompt = styled.div<{ $placement?: 'right' | 'above' }>`
   position: fixed;
   z-index: 1002;
   display: flex;
+  flex-direction: ${p => (p.$placement === 'above' ? 'column' : 'row')};
   align-items: center;
-  gap: var(--space-2, 8px);
+  gap: ${p => (p.$placement === 'above' ? 'var(--space-1, 4px)' : 'var(--space-2, 8px)')};
   width: max-content;
   max-width: min(360px, calc(100vw - 32px));
   /* The sketched arrow leads in from the left and the note sits beside it, so
      the two align on the arrow's shaft rather than on their boxes. */
   align-items: center;
-  transform: translateY(-50%);
+  transform: ${p => (p.$placement === 'above' ? 'translateY(-100%)' : 'translateY(-50%)')};
+  text-align: ${p => (p.$placement === 'above' ? 'center' : 'left')};
   pointer-events: none;
   /* Sits on the dimmed scrim in both themes, so the white stays literal — a
      theme-flipping token would go dark-on-dark. */

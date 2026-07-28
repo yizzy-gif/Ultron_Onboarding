@@ -40,6 +40,13 @@ interface AgentMarkProps {
    *  `var(--token)`). Resolved to RGB for the canvas. Use to tint a mark to a
    *  semantic token — e.g. a settled case in `var(--color-content-disabled)`. */
   color?: string;
+  /** Optional color sweep for the `magnetic` mark's surface cells. Values may
+   *  be any CSS colors, including custom-property references. Adjacent colors
+   *  blend into one continuous wrap around the globe. */
+  dotPalette?: readonly string[];
+  /** Optional radial color sweep for the core and its halo. Uses the same CSS
+   *  color formats as `dotPalette`; omitted marks retain the neutral core. */
+  corePalette?: readonly string[];
   /** Soft halo / drop-shadow behind the core (default true). Set false for dense
    *  nav rows where the glow muddies the mark against the row background. */
   coreHalo?: boolean;
@@ -97,22 +104,38 @@ function cssToRGB(ctx: CanvasRenderingContext2D, el: HTMLElement, color: string)
   return nums && nums.length >= 3 ? `${+nums[0]},${+nums[1]},${+nums[2]}` : '26,30,38';
 }
 
-// Watch the OS color-scheme preference so `auto` marks repaint when the theme
-// flips. The actual light/dark decision is made at draw time by sampling the
-// resolved surface token (which also honours manual .light/.dark overrides);
-// this just supplies a re-render trigger.
-function usePrefersDark(): boolean {
-  const [dark, setDark] = useState(() => {
-    try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; }
-  });
+// Repaint trigger for `auto` marks when the page theme flips. The light/dark
+// DECISION is made at draw time by sampling the resolved surface token, so this
+// only has to answer "has the theme changed?" — the returned number is opaque
+// and exists purely to re-run the paint effect.
+//
+// Two independent things change the theme and BOTH have to be watched:
+//   • the OS preference — the prefers-color-scheme media query;
+//   • the app's own override (see hooks/useTheme), which toggles a .light/.dark
+//     class on <html> and never touches the media query.
+// Watching only the query meant a manual toggle left the mark painted for the
+// previous theme — dark cells stranded on a dark surface — until some unrelated
+// prop change happened to re-run the effect.
+function useThemeEpoch(): number {
+  const [epoch, setEpoch] = useState(0);
   useEffect(() => {
-    let mq: MediaQueryList;
-    try { mq = window.matchMedia('(prefers-color-scheme: dark)'); } catch { return; }
-    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
+    const bump = () => setEpoch(n => n + 1);
+    let mq: MediaQueryList | undefined;
+    try { mq = window.matchMedia('(prefers-color-scheme: dark)'); } catch { /* no matchMedia */ }
+    mq?.addEventListener?.('change', bump);
+    // <html>'s class carries the manual override; data-theme covers hosts that
+    // signal the same choice as an attribute.
+    const observer = new MutationObserver(bump);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    });
+    return () => {
+      mq?.removeEventListener?.('change', bump);
+      observer.disconnect();
+    };
   }, []);
-  return dark;
+  return epoch;
 }
 
 // Relative luminance (0 dark → 1 light) of an "r,g,b" channel string.
@@ -130,6 +153,10 @@ function pal(tone: AgentMarkTone, accent: string): Pal {
 
 interface Ctx {
   ctx: CanvasRenderingContext2D; w: number; h: number; dpr: number; size: number; state: AgentMarkState; coreHalo: boolean; alert?: number; streamCount?: number;
+  /** Resolved "r,g,b" stops for the magnetic globe's optional cell sweep. */
+  dotPalette?: string[];
+  /** Resolved "r,g,b" stops for an optional multicolor core. */
+  corePalette?: string[];
   /** `magnetic` progressive build — how many cells are revealed (undefined = all). */
   cellCount?: number;
   /** Per-cell birth stamps (wall-clock seconds), owned by the component and
@@ -155,6 +182,15 @@ function mixRGB(a: string, b: string, t: number): string {
   return pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(',');
 }
 
+function paletteRGB(stops: string[] | undefined, t: number, fallback: string): string {
+  if (!stops?.length) return fallback;
+  if (stops.length === 1) return stops[0];
+  const scaled = clamp(t, 0, 1) * (stops.length - 1);
+  const a = Math.floor(scaled);
+  const b = Math.min(stops.length - 1, a + 1);
+  return mixRGB(stops[a], stops[b], scaled - a);
+}
+
 function drawCore(e: Ctx, T: number, P: Pal) {
   const { ctx, w, h } = e, cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.39;
   const coreR = R * 0.2 * (0.9 + 0.14 * Math.sin(T * 1.5));
@@ -175,15 +211,15 @@ function drawCore(e: Ctx, T: number, P: Pal) {
       // dark-surface glow halo (alert never fires here, so fade it with 1-alert)
       ctx.globalAlpha = 1 - alert;
       const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 3);
-      cg.addColorStop(0, 'rgba(' + P.core + ',0.55)');
-      cg.addColorStop(1, 'rgba(' + P.accent + ',0)');
+      cg.addColorStop(0, 'rgba(' + paletteRGB(e.corePalette, 0.42, P.core) + ',0.55)');
+      cg.addColorStop(1, 'rgba(' + paletteRGB(e.corePalette, 0.86, P.accent) + ',0)');
       ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, coreR * 3, 0, 6.2832); ctx.fill();
     } else if (!P.glow) {
       const hr = coreR * lerp(3.2, 3);
       const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, hr);
-      cg.addColorStop(0, 'rgba(' + mixRGB(P.core, ALERT_CORE[1], alert) + ',' + lerp(0.34, 0.85 * pulse) + ')');
-      cg.addColorStop(0.5, 'rgba(' + mixRGB(P.core, ALERT_CORE[2], alert) + ',' + lerp(0.13, 0.42 * pulse) + ')');
-      cg.addColorStop(1, 'rgba(' + mixRGB(P.core, ALERT_CORE[3], alert) + ',0)');
+      cg.addColorStop(0, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 0.35, P.core), ALERT_CORE[1], alert) + ',' + lerp(0.34, 0.85 * pulse) + ')');
+      cg.addColorStop(0.5, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 0.68, P.core), ALERT_CORE[2], alert) + ',' + lerp(0.13, 0.42 * pulse) + ')');
+      cg.addColorStop(1, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 1, P.core), ALERT_CORE[3], alert) + ',0)');
       ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, hr, 0, 6.2832); ctx.fill();
     }
     ctx.restore();
@@ -199,10 +235,10 @@ function drawCore(e: Ctx, T: number, P: Pal) {
   ctx.save();
   ctx.filter = 'blur(' + Math.max(0.4, coreR * lerp(0.22, 0.3)).toFixed(2) + 'px)';
   const cg = ctx.createRadialGradient(cx - off, cy - off, 0, cx, cy, cr);
-  cg.addColorStop(0, 'rgba(' + mixRGB(P.core, ALERT_CORE[0], alert) + ',' + lerp(monoA, 1) + ')');
-  cg.addColorStop(0.5, 'rgba(' + mixRGB(P.core, ALERT_CORE[1], alert) + ',' + lerp(monoA, 1) + ')');
-  cg.addColorStop(0.82, 'rgba(' + mixRGB(P.core, ALERT_CORE[2], alert) + ',' + lerp(monoA, 0.97) + ')');
-  cg.addColorStop(1, 'rgba(' + mixRGB(P.core, ALERT_CORE[3], alert) + ',' + lerp(monoA, 0.72) + ')');
+  cg.addColorStop(0, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 0.08, P.core), ALERT_CORE[0], alert) + ',' + lerp(monoA, 1) + ')');
+  cg.addColorStop(0.5, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 0.42, P.core), ALERT_CORE[1], alert) + ',' + lerp(monoA, 1) + ')');
+  cg.addColorStop(0.82, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 0.72, P.core), ALERT_CORE[2], alert) + ',' + lerp(monoA, 0.97) + ')');
+  cg.addColorStop(1, 'rgba(' + mixRGB(paletteRGB(e.corePalette, 1, P.core), ALERT_CORE[3], alert) + ',' + lerp(monoA, 0.72) + ')');
   ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, cr, 0, 6.2832); ctx.fill();
   ctx.restore();
 }
@@ -574,7 +610,7 @@ function drawMagnetic(e: Ctx, T: number, P: Pal) {
 
   ctx.save();
   ctx.globalCompositeOperation = P.glow ? 'lighter' : 'source-over';
-  const dots: { x: number; y: number; d: number; inf: number; g: number }[] = [];
+  const dots: { x: number; y: number; d: number; inf: number; g: number; color: string }[] = [];
   for (let k = 0; k < N; k++) {
     // Emergence 0→1: unborn cells skip; mid-flight cells ride out of the core.
     let g = 1;
@@ -596,7 +632,18 @@ function drawMagnetic(e: Ctx, T: number, P: Pal) {
     const X = px * cyaw + pz * syaw, Zr = -px * syaw + pz * cyaw;
     const Y2 = py * ct - Zr * stt, Z2 = py * stt + Zr * ct;
     const d = (Z2 + 1) / 2, persp = 0.82 + 0.18 * d;
-    dots.push({ x: cx + X * rr * persp, y: cy + Y2 * rr * persp, d, inf, g });
+    // Keep the color field attached to the globe rather than the screen: hues
+    // rotate with their cells, and neighbours blend instead of reading as
+    // individually randomized confetti.
+    let cellColor = P.dot;
+    if (e.dotPalette && e.dotPalette.length) {
+      const sweep = ((phi / 6.2832) + (yy + 1) * 0.07 + 1) % 1;
+      const scaled = sweep * e.dotPalette.length;
+      const a = Math.floor(scaled) % e.dotPalette.length;
+      const b = (a + 1) % e.dotPalette.length;
+      cellColor = mixRGB(e.dotPalette[a], e.dotPalette[b], scaled - Math.floor(scaled));
+    }
+    dots.push({ x: cx + X * rr * persp, y: cy + Y2 * rr * persp, d, inf, g, color: cellColor });
   }
   dots.sort((p, q) => p.d - q.d);
   for (const dt of dots) {
@@ -607,7 +654,7 @@ function drawMagnetic(e: Ctx, T: number, P: Pal) {
     // sphere (full circle facing the viewer, a sliver at the limb) once settled.
     const f = 1 - (1 - Math.abs(2 * dt.d - 1)) * dt.g;
     const ang = Math.atan2(dt.y - cy, dt.x - cx);
-    ctx.fillStyle = 'rgba(' + P.dot + ',' + al + ')';
+    ctx.fillStyle = 'rgba(' + dt.color + ',' + al + ')';
     ctx.beginPath();
     ctx.ellipse(dt.x, dt.y, Math.max(0.35, r * f), r, ang, 0, 6.2832);
     ctx.fill();
@@ -813,12 +860,13 @@ const DRAW: Record<AgentMarkKind, (e: Ctx, T: number, P: Pal) => void> = {
 
 export function AgentMark({
   mark = 'orbit', size = 16, tone = 'auto', state = 'active',
-  motionSpeed = 1, accent = '#96B9FF', color, coreHalo = true, coreGradient = false, streamCount, cellCount, className, 'aria-label': ariaLabel,
+  motionSpeed = 1, accent = '#96B9FF', color, dotPalette, corePalette, coreHalo = true, coreGradient = false, streamCount, cellCount, className, 'aria-label': ariaLabel,
 }: AgentMarkProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
-  // Repaint trigger when the OS theme flips (the light/dark choice itself is
-  // resolved below by sampling the surface the mark actually sits on).
-  const prefersDark = usePrefersDark();
+  // Repaint trigger when the page theme flips, by OS preference or by the app's
+  // own override (the light/dark choice itself is resolved below by sampling the
+  // surface the mark actually sits on).
+  const themeEpoch = useThemeEpoch();
   // Eased alert amount (0 → mono, 1 → colored). The paint loop glides it toward
   // its target each frame, so toggling `coreGradient` fades the colors in/out.
   const alertRef = useRef(0);
@@ -862,6 +910,8 @@ export function AgentMark({
     // cells with glow off (see pal()), so the mark draws crisp on the transparent
     // canvas — no render-on-black + luminance-key pass.
     const P = pal(effectiveTone, hexRGB(accent));
+    e.dotPalette = color ? undefined : dotPalette?.map(stop => cssToRGB(ctx, el, stop));
+    e.corePalette = color ? undefined : corePalette?.map(stop => cssToRGB(ctx, el, stop));
     // Optional explicit tint — recolors the cells/core (e.g. a settled case in
     // content-disabled) while keeping the tone's glow behaviour.
     if (color) { const rgb = cssToRGB(ctx, el, color); P.dot = rgb; P.core = rgb; }
@@ -914,7 +964,7 @@ export function AgentMark({
     const loop = (now: number) => { paint((now / 1000) * sp); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [mark, size, tone, state, motionSpeed, accent, color, coreHalo, coreGradient, streamCount, cellCount, prefersDark]);
+  }, [mark, size, tone, state, motionSpeed, accent, color, dotPalette, corePalette, coreHalo, coreGradient, streamCount, cellCount, themeEpoch]);
 
   return (
     <canvas

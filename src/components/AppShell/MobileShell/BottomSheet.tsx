@@ -41,9 +41,20 @@ const Handle = styled.div`
   background: var(--color-border-opaque, #cbd0d7);
 `;
 
+/* Title plus its optional trailing action. The row carries the insets the title
+   used to own, so the action lands on the sheet's right edge inset rather than
+   hanging off the heading's own box. */
+const TitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: var(--space-2, 8px) var(--space-5, 20px) var(--space-3, 12px);
+`;
+
 const Title = styled.h2`
   margin: 0;
-  padding: var(--space-2, 8px) var(--space-5, 20px) var(--space-3, 12px);
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-sans, Geist, sans-serif);
   font-size: 14px;
   font-weight: 600;
@@ -60,19 +71,29 @@ const Body = styled.div`
 `;
 
 interface BottomSheetProps {
-  title?: string;
+  /** ReactNode rather than string so a caller can set a lockup (the Ultron
+   *  logotype) in the title slot. Pass `ariaLabel` alongside when it isn't
+   *  plain text — the dialog's name can't come from a node. */
+  title?: ReactNode;
   children: ReactNode;
   /** aria-label when title is not set */
   ariaLabel?: string;
+  /** Optional trailing control on the title row (e.g. "new page"). */
+  titleAction?: ReactNode;
 }
 
-export function BottomSheet({ title, children, ariaLabel }: BottomSheetProps) {
+export function BottomSheet({ title, children, ariaLabel, titleAction }: BottomSheetProps) {
   return (
-    <SheetRoot role="dialog" aria-modal="true" aria-label={ariaLabel ?? title}>
+    <SheetRoot role="dialog" aria-modal="true" aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}>
       <HandleRow>
         <Handle aria-hidden="true" />
       </HandleRow>
-      {title && <Title>{title}</Title>}
+      {title && (
+        <TitleRow>
+          <Title>{title}</Title>
+          {titleAction}
+        </TitleRow>
+      )}
       <Body>{children}</Body>
     </SheetRoot>
   );

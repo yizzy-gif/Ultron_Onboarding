@@ -19,12 +19,25 @@ export const MainArea = styled.div`
   padding-left: 48px;
 `;
 
+/* The content pane, set as an inset panel rather than a flush region: a 12px
+   margin lifts it off the window edges and off the secondary nav (which no
+   longer draws a divider), and the matching radius rounds it. `overflow: hidden`
+   was already here and now also clips the pane's contents — backdrops included —
+   to those corners.
+
+   `height: 100%` is deliberately gone: as a flex item this stretches to its
+   container anyway, and combining a fixed full height with vertical margins
+   would have pushed the pane 24px past the viewport. */
 export const ContentArea = styled.div`
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  height: 100%;
+  min-height: 0;
+  /* No left margin — the pane sits flush against the secondary nav, and only
+     lifts off the top, right and bottom window edges. */
+  margin: var(--space-3, 12px) var(--space-3, 12px) var(--space-3, 12px) 0;
+  border-radius: var(--radius-lg, 12px);
   overflow: hidden;
 `;
 
