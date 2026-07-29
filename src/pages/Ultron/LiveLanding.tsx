@@ -18,6 +18,10 @@ import {
   ClipboardCheckIcon, BarChart02Icon, MessageCircle02Icon, File04Icon, Bell01Icon,
 } from 'alloy-design-system';
 import { AgentMark } from './AgentMark';
+import { IntroBackdrop } from '../Onboarding/IntroBackdrop';
+import { liquidGlass } from '../Onboarding/glass';
+import { MouseGlow } from '../../components/MouseGlow';
+import { wordmark } from './wordmark';
 import { INCOMING_EVENTS } from './fixtures';
 import type { IncomingEvent } from './fixtures';
 
@@ -263,6 +267,14 @@ export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLand
 
   return (
     <Stage>
+      {/* The same ambient scene the welcome pane carries — the particle backdrop
+          under a drifting glow field — but with the glow in the page's own
+          secondary surface at half strength rather than the holographic palette,
+          so the landing reads calm rather than colourful. Both layers are
+          decorative and sit beneath the content. */}
+      <IntroBackdrop links={0} tone="neutral" cornerTone={riskActive ? 'risk' : 'default'} />
+      <MouseGlow tone="neutral" />
+      <BottomLeftGradient $riskActive={riskActive} aria-hidden="true" />
       <Hero>
         <Mark>
           <AgentMark mark="circle" size={MARK_SIZE} tone="auto" state="active" coreGradient={riskActive} aria-label="Ultron" />
@@ -358,6 +370,10 @@ export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLand
    horizontally; content starts from the top (orbit moved up from the old
    vertical center to make room for the feed). */
 const Stage = styled.div`
+  /* Positioned + isolated so the decorative backdrop and glow layers (both
+     absolute, inset 0) sit inside this scene, beneath the content above them. */
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -368,6 +384,54 @@ const Stage = styled.div`
   padding: var(--space-10) var(--space-6) 0;
   text-align: center;
   font-family: var(--font-sans);
+`;
+
+/* A subtle corner wash mirroring the backdrop's top-right gradient from the
+   opposite corner. It fills the scene rather than drawing a separate blurred
+   orb, and cross-fades to the orange semantic scale while a risk is active. */
+const BottomLeftGradient = styled.div<{ $riskActive: boolean }>`
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transition: opacity 560ms var(--ease-out, ease-out);
+  }
+
+  /* Exact mirror of IntroBackdrop's quiet top-right secondary-surface wash. */
+  &::before {
+    background: radial-gradient(
+      120% 90% at 0% 100%,
+      var(--color-bg-secondary) 0%,
+      transparent 55%
+    );
+    opacity: ${p => (p.$riskActive ? 0 : 1)};
+  }
+
+  /* Risk state — tint the existing secondary-surface light toward orange while
+     preserving the default gradient's geometry and strength. This reads as the
+     slate wash changing colour, not as a second, stronger glow appearing. */
+  &::after {
+    background: radial-gradient(
+      120% 90% at 0% 100%,
+      color-mix(
+        in srgb,
+        var(--color-bg-secondary) 72%,
+        var(--color-orange-content-tertiary) 28%
+      ) 0%,
+      transparent 55%
+    );
+    opacity: ${p => (p.$riskActive ? 1 : 0)};
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before,
+    &::after { transition: none; }
+  }
 `;
 
 /* Landing entrance — the orbit and the list fade in while sliding up into
@@ -425,11 +489,11 @@ const Mark = styled.div`
   }
 `;
 
+/* The same wordmark lockup the nav identity card carries, at hero size. */
 const Name = styled.h1`
   margin: 0;
   font-size: var(--text-2xl);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
+  ${wordmark}
   color: var(--color-content-primary);
 `;
 
@@ -580,16 +644,21 @@ const EventCard = styled.div`
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-secondary);
+  /* Glass rather than a flat fill, so the backdrop and glow behind the feed
+     refract through each row. */
+  ${liquidGlass}
   border-radius: var(--radius-lg);
   /* The feed is an ambient, passive read-out — the rows recede at a quiet resting
-     opacity and don't respond to the cursor (no hover brighten, no interaction). */
+     opacity and don't respond to the cursor (no hover brighten, no interaction).
+     Unchanged by the glass: the treatment swaps the fill, not the presence. */
   opacity: 0.5;
 
   /* Risk signals carry a faint orange wash once resolved so they read a touch
-     hotter than routine ones (the loader + routine states stay neutral). */
+     hotter than routine ones (the loader + routine states stay neutral). Mixed
+     toward transparent rather than set opaque, or it would seal off the blur
+     the rest of the card is built on. */
   &[data-outcome='risk'] {
-    background: var(--color-orange-bg-tertiary, var(--color-bg-secondary));
+    background: color-mix(in srgb, var(--color-orange-bg-tertiary) 60%, transparent);
   }
 `;
 
@@ -616,7 +685,17 @@ const EventIcon = styled.span`
   color: var(--color-slate-content-tertiary);
 
   [data-outcome='risk'] & {
-    background: var(--Alloy-orange-150);
+    /* A step up from the card's own orange wash, so the chip still reads as a
+       chip against it. Derived from the semantic pair rather than named as a
+       raw --Alloy-orange-150: raw palette values are fixed, so that one stayed
+       a light beige on the dark surface. Mixing the theme's orange ink into the
+       theme's orange surface moves the right way in both — it darkens the light
+       wash and lightens the dark one. */
+    background: color-mix(
+      in srgb,
+      var(--color-orange-content-tertiary) 18%,
+      var(--color-orange-bg-tertiary)
+    );
     color: var(--color-orange-content-tertiary);
   }
 `;

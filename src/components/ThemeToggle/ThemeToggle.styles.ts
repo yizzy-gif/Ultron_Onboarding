@@ -1,13 +1,27 @@
 import styled from 'styled-components';
+import { MOBILE_MEDIA_QUERY } from '../../hooks/useMediaQuery';
+
+/* The mobile header's own height: a 48px row under the status-bar inset, plus
+   its hairline. The toggle clears all of it rather than hiding behind it. */
+const MOBILE_HEADER_PX = 'calc(env(safe-area-inset-top, 0px) + 49px)';
 
 /* Fixed to the viewport top-right, above page content but below modals/toasts
    so overlays can still cover it. A neutral surface disc that reads on any
    background in either theme. */
 export const ToggleButton = styled.button`
   position: fixed;
-  top: var(--space-3);
-  right: var(--space-3);
+  /* 20px in from the top-right — clears the content pane's own 12px inset by a
+     further 8px, so the disc sits inside the pane rather than on its corner. */
+  top: var(--space-5);
+  right: var(--space-5);
   z-index: var(--z-sticky);
+
+  /* Phones put a fixed header in that corner, so the disc drops below it —
+     same 12px gap the header keeps from the viewport edges. */
+  @media ${MOBILE_MEDIA_QUERY} {
+    top: calc(${MOBILE_HEADER_PX} + var(--space-3));
+    right: var(--space-3);
+  }
 
   display: inline-flex;
   align-items: center;

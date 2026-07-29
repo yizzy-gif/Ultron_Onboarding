@@ -1080,27 +1080,33 @@ function LearnedReadout({ learned, host, completed, done }: {
             >
               {sectionLoading ? (
                 <>
-                  <ReadoutLabel as="div">
-                    <Skeleton $w="16px" $h="16px" $round />
-                    <Skeleton $w="112px" $h="0.95em" />
-                  </ReadoutLabel>
-                  <ReadoutTags>
-                    <Skeleton $w="76px" $h="20px" $round />
-                    <Skeleton $w="92px" $h="20px" $round />
-                    <Skeleton $w="64px" $h="20px" $round />
-                  </ReadoutTags>
+                  <GroupMark aria-hidden="true">
+                    <Skeleton $w="20px" $h="20px" $round />
+                  </GroupMark>
+                  <ReadoutContent>
+                    <ReadoutLabel as="div">
+                      <Skeleton $w="112px" $h="0.95em" />
+                    </ReadoutLabel>
+                    <ReadoutTags>
+                      <Skeleton $w="76px" $h="20px" $round />
+                      <Skeleton $w="92px" $h="20px" $round />
+                      <Skeleton $w="64px" $h="20px" $round />
+                    </ReadoutTags>
+                  </ReadoutContent>
                 </>
               ) : (
                 <>
-                  <ReadoutLabel>
-                    <GroupIcon size={16} />
-                    {group.label}
-                  </ReadoutLabel>
-                  <ReadoutTags>
-                    {group.tags.map(tag => (
-                      <Tag key={tag} size="sm" variant="subtle" color={groupColor}>{tag}</Tag>
-                    ))}
-                  </ReadoutTags>
+                  <GroupMark aria-hidden="true">
+                    <GroupIcon size={20} />
+                  </GroupMark>
+                  <ReadoutContent>
+                    <ReadoutLabel>{group.label}</ReadoutLabel>
+                    <ReadoutTags>
+                      {group.tags.map(tag => (
+                        <Tag key={tag} size="sm" variant="subtle" color={groupColor}>{tag}</Tag>
+                      ))}
+                    </ReadoutTags>
+                  </ReadoutContent>
                 </>
               )}
             </ReadoutSection>
@@ -2351,24 +2357,21 @@ const Skeleton = styled.span<{ $w?: string; $h?: string; $round?: boolean }>`
   width: ${p => p.$w ?? '100%'};
   height: ${p => p.$h ?? '0.9em'};
   border-radius: ${p => (p.$round ? 'var(--radius-full)' : 'var(--radius-sm)')};
-  /* Wide, soft highlight so the sweep reads as a smooth sheen rather than a
-     hard band; paired with skeletonSweep it moves at a constant speed and loops
-     seamlessly (no blink). Bands are content-color mixes (not opaque bg fills)
-     so the shimmer stays clearly visible on the translucent glass in BOTH
-     themes — bg-tertiary all but vanished in light mode. */
+  /* Keep the reading state present without letting it compete with the progress
+     bar: a low-contrast, unhurried sheen across the translucent card surface. */
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 0%,
-    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 30%,
-    color-mix(in srgb, var(--color-content-primary) 28%, transparent) 50%,
-    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 70%,
-    color-mix(in srgb, var(--color-content-primary) 10%, transparent) 100%
+    color-mix(in srgb, var(--color-content-primary) 7%, transparent) 0%,
+    color-mix(in srgb, var(--color-content-primary) 7%, transparent) 30%,
+    color-mix(in srgb, var(--color-content-primary) 16%, transparent) 50%,
+    color-mix(in srgb, var(--color-content-primary) 7%, transparent) 70%,
+    color-mix(in srgb, var(--color-content-primary) 7%, transparent) 100%
   );
   background-size: 200% 100%;
-  animation: ${skeletonSweep} 1.6s linear infinite;
+  animation: ${skeletonSweep} 2.2s linear infinite;
 
   @media (prefers-reduced-motion: reduce) {
-    background: color-mix(in srgb, var(--color-content-primary) 10%, transparent);
+    background: color-mix(in srgb, var(--color-content-primary) 7%, transparent);
     animation: none;
   }
 `;
@@ -2424,14 +2427,46 @@ const LeadSection = styled.div`
   ${readoutPop}
 `;
 
-/* One narrative group inside the merged card, divided from the section above. */
+/* One narrative group inside the merged card, divided from the section above:
+   a compact leading mark followed by a vertical label + tags content stack. */
 const ReadoutSection = styled.div`
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  align-items: flex-start;
+  gap: var(--space-3);
   border-top: 1px solid var(--color-border-opaque);
   padding-top: var(--space-4);
   ${readoutPop}
+`;
+
+const GroupMark = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* Same slot as the company's LeadMark above — the two read as one family of
+     badge down the read-out, rather than the group rows carrying a smaller
+     variant of it. The glyph scales with the box (16 → 20) to hold the lead
+     mark's ratio; the tone stays one step quieter, which is what separates
+     these rows from the lead. */
+  width: var(--space-10);
+  height: var(--space-10);
+  border-radius: var(--radius-md);
+  /* Half-opaque white rather than a solid token: the read-out sits on
+     translucent glass, so letting the card through keeps the mark a lift in the
+     surface instead of a patch laid over it. */
+  background: rgb(255 255 255 / 0.5);
+  color: var(--color-content-secondary);
+
+  svg { flex-shrink: 0; }
+`;
+
+const ReadoutContent = styled.div`
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
 `;
 
 const LeadTop = styled.div`
@@ -2523,26 +2558,22 @@ const ReadoutCard = styled.div`
   ${readoutPop}
 `;
 
-/* The group's bolded label ("Business") — scannable without reading. Carries
-   the same icon slot as the "Configured for you" head. */
+/* The group's bolded label ("Business") starts the content stack after the
+   leading mark. */
 const ReadoutLabel = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--color-content-primary);
-
-  svg { flex-shrink: 0; color: var(--color-content-tertiary); }
 `;
 
-/* The signals behind a group's prose, as a quiet chip row under the paragraph. */
+/* The signals behind a group, wrapping directly beneath its label. */
 const ReadoutTags = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-1);
 `;
 
 /* "Configured for you" header — icon + label, same weight as the group labels. */
@@ -2558,7 +2589,9 @@ const ConfiguredHead = styled.span`
   svg { flex-shrink: 0; color: var(--color-content-tertiary); }
 `;
 
-/* The checklist of what Ultron set up — one check-led line per item. */
+/* The checklist of what Ultron set up — one check-led line per item. No indent
+   of its own: the check takes the gear's column and the prose lands on the same
+   rail as the head's label, which is what squares the list with the title. */
 const ConfiguredList = styled.ul`
   margin: 0;
   padding: 0;

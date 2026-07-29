@@ -60,4 +60,18 @@ export const Blob = styled.div`
     --glow-lit: 58%;
     --glow-rim-lit: 63%;
   }
+
+  /* Neutral tone — the field rendered in the page's own secondary surface at
+     half strength instead of the holographic palette, for scenes that want the
+     motion without the colour. Keyed off an attribute on the layer rather than
+     a prop on every blob, and it overrides the whole gradient, so the rAF loop's
+     wandering hue variables simply go unread. */
+  [data-glow-tone='neutral'] & {
+    background: radial-gradient(
+      circle at var(--glow-cx, 35%) var(--glow-cy, 35%),
+      color-mix(in srgb, var(--color-bg-secondary) 50%, transparent),
+      color-mix(in srgb, var(--color-bg-secondary) 50%, transparent) 62%,
+      color-mix(in srgb, var(--color-bg-secondary) 25%, transparent) 88%
+    );
+  }
 `;

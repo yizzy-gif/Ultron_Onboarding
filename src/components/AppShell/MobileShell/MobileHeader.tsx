@@ -9,6 +9,7 @@
 import { forwardRef, type MouseEventHandler } from 'react';
 import styled from 'styled-components';
 import { BreadcrumbButton } from './BreadcrumbButton';
+import { UltronWordmark } from '../../../pages/Ultron/UltronWordmark';
 
 const HeaderRoot = styled.header<{ $hidden: boolean }>`
   position: sticky;
@@ -25,7 +26,9 @@ const Row = styled.div`
   height: 48px;
   display: flex;
   align-items: center;
-  gap: var(--space-2, 8px);
+  /* 4px between controls + the selector's 4px leading inset = an 8px
+     visual gap from the hamburger control to its label. */
+  gap: var(--space-1, 4px);
   padding: 0 var(--space-3, 12px);
 `;
 
@@ -53,6 +56,17 @@ const Crumbs = styled.div`
   flex: 1 1 auto;
   min-width: 0;
   gap: 2px;
+`;
+
+/* The module crumb sets the product's own name, so it takes the display lockup
+   rather than the crumb row's UI sans — the mobile chrome has no room for the
+   secondary nav's identity card, so this crumb is where Ultron's wordmark lands.
+   It renders the shared <UltronWordmark>, the same logotype that card carries
+   (mark substituted for the O), sized to match. The tracking's trailing gap
+   needs no compensation: the crumb button spans the row, so the caret is placed
+   by the flex layout, not by where the word ends. */
+const Wordmark = styled(UltronWordmark)`
+  font-size: var(--text-lg, 1.125rem);
 `;
 
 const Separator = styled.span`
@@ -111,7 +125,7 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
 
         <Crumbs>
           <BreadcrumbButton
-            label={secondaryLabel ?? primaryLabel}
+            label={secondaryLabel ?? (primaryLabel === 'Ultron' ? <Wordmark /> : primaryLabel)}
             isOpen={openOverlay === 'secondary'}
             onClick={onSecondaryClick}
             ariaLabel="Choose a section"

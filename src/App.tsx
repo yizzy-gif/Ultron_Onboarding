@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import styled, { keyframes } from 'styled-components';
+import styled, { createGlobalStyle, keyframes } from 'styled-components';
 import { AppShell } from './components/AppShell';
 import type { PrimaryNavItem, SecondaryNavMenuEntry, SecondaryNavPageEntry } from './types/nav';
 import {
@@ -35,7 +35,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 const PRIMARY_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
   { id: 'ultron',   label: 'Ultron',  icon: <AgentMark mark="circle" size={32} tone="auto" state="idle" aria-label="Ultron" /> },
   { id: 'home',     label: 'Home',    icon: <HomeIcon /> },
-  { id: 'engaged',  label: 'Engaged', icon: <MessageCircleIcon />, hasUnread: true },
+  { id: 'engaged',  label: 'Engage',  icon: <MessageCircleIcon />, hasUnread: true },
   { id: 'inbox',    label: 'Inbox',   icon: <InboxIcon />, hasUnread: true },
   { id: 'invoice',  label: 'Invoice', icon: <ReceiptCheckIcon /> },
   { id: 'ai-home',  label: 'AI Home', icon: <AIStarIcon /> },
@@ -50,7 +50,7 @@ const BOTTOM_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
   { id: 'form',       label: 'Form',            icon: <FormIcon /> },
   { id: 'tasks',      label: 'Tasks',           icon: <TasksIcon /> },
   { id: 'policy',     label: 'Policy',          icon: <PolicyIcon />, activeIcon: <img src={policyActiveUrl} width={16} height={16} style={{ display: 'block' }} alt="" /> },
-  { id: 'automation', label: 'Automation',      icon: <AutomationIcon />, activeIcon: <img src={automationActiveUrl} width={16} height={16} style={{ display: 'block' }} alt="" /> },
+  { id: 'automation', label: 'Workflow',        icon: <AutomationIcon />, activeIcon: <img src={automationActiveUrl} width={16} height={16} style={{ display: 'block' }} alt="" /> },
   { id: 'payroll',    label: 'Payroll',         icon: <PayrollIcon /> },
   { id: 'esign',      label: 'E-Sign Studio',   icon: <ESignIcon /> },
 ];
@@ -69,9 +69,12 @@ const UltronNavCard = styled.button<{ $active: boolean }>`
   width: 100%;
   margin-bottom: var(--space-2);
   /* Same padding in both states so the card keeps the same height whether or
-     not Live is the selected page — only the background marks the active state.
-     12px sides align the text with the group rows below. */
-  padding: var(--space-2) var(--space-3);
+     not Live is the selected page — only the background marks the active state. */
+  padding: var(--space-2);
+  /* The card no longer leads with an icon — the mark moved inside the wordmark
+     (see UltronIdentityCard) — so the left inset is set for the logotype itself
+     rather than to line a mark up with the rows' icon column. */
+  padding-left: var(--space-3);
   border: none;
   border-radius: var(--radius-md, 8px);
   background: ${p => (p.$active ? 'var(--color-bg-secondary, rgba(70, 108, 255, 0.06))' : 'transparent')};
@@ -182,6 +185,36 @@ const WaitlistFooter = styled(DialogFooter)`
   && {
     border-top: none;
     padding-top: 0;
+  }
+
+  @media (max-width: 767px) {
+    && {
+      padding: var(--space-3) var(--space-4) var(--space-4);
+    }
+
+    & > button {
+      width: 100%;
+      min-height: 44px;
+    }
+  }
+`;
+
+/* Alloy's small dialog is already fluid, but on phones this alert behaves like
+   a compact bottom modal: larger touch targets, safe-area spacing, and a
+   full-width action instead of a desktop-sized button floating on the right. */
+const WaitlistMobileStyles = createGlobalStyle`
+  @media (max-width: 767px) {
+    body > div[role='dialog'][aria-labelledby='waitlist-title'] {
+      align-items: flex-end;
+      padding: var(--space-3);
+      padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+    }
+
+    body > div[role='dialog'][aria-labelledby='waitlist-title'] > div {
+      max-width: none;
+      max-height: min(80vh, 520px);
+      border-radius: var(--radius-xl) var(--radius-xl) var(--radius-lg) var(--radius-lg);
+    }
   }
 `;
 
@@ -326,15 +359,14 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // Arriving through onboarding mounts Welcome immediately. A refreshed app
   // mounts it on first open, then retains it for every subsequent return.
   const [welcomeMounted, setWelcomeMounted] = useState(Boolean(introAnswers));
-  // After the live-test phone number lands, guide the operator directly to the
-  // Maria callout that Ultron just surfaced in New.
+  // After the post-schedule test-run invitation lands, guide the operator
+  // directly to the Maria callout that Ultron surfaces in New.
   const [eventSpotlight, setEventSpotlight] = useState(false);
   const eventSpotlightTimer = useRef<number | null>(null);
   // The surfaced event arrives with Ultron's loading orbit, then settles to
   // the orange pulse used for a New event standing by for review.
   const [eventMarkLoading, setEventMarkLoading] = useState(false);
   const eventStandbyTimer = useRef<number | null>(null);
-
   useEffect(() => () => {
     if (eventSpotlightTimer.current !== null) {
       window.clearTimeout(eventSpotlightTimer.current);
@@ -352,10 +384,12 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     setEventSpotlight(false);
   };
 
-  const scheduleEventSpotlight = () => {
+  const scheduleTestRunReveal = () => {
     dismissEventSpotlight();
     eventSpotlightTimer.current = window.setTimeout(() => {
       eventSpotlightTimer.current = null;
+      ultron.surfaceDemoThread('shift_drop_maria');
+      startEventLoading();
       setEventSpotlight(true);
     }, EVENT_SPOTLIGHT_DELAY_MS);
   };
@@ -370,6 +404,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
       setEventMarkLoading(false);
     }, EVENT_STANDBY_DELAY_MS);
   };
+
   // Live landing — Ultron's resting presence (large Circle mark, no case open).
   // Ultron's normal home: the user rests here, opening any case in the sidebar
   // leaves it, and clicking the identity returns to it. Starts inactive while the
@@ -390,6 +425,14 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     setOnLive(false);
     setActivePage(null);
     setOnWelcome(true);
+  };
+  // Ultron's home: the Live landing with nothing selected on top of it. The
+  // desktop identity card and the mobile sheet's logotype both land here.
+  const openLive = () => {
+    setHomeView('ultron');
+    setOnWelcome(false);
+    setOnLive(true);
+    setActivePage(null);
   };
   const createPage = () => {
     const id = `page-${pageSeq.current++}`;
@@ -478,7 +521,12 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   const welcomeNavChild = {
     id: 'welcome',
     label: welcomeCompany ? `${welcomeCompany} account setup` : 'Account setup',
-    icon: <DocumentIcon />,
+    // Ultron's own mark rather than a document glyph: this row is the setup
+    // conversation with Ultron, not a file the operator made. The magnetic form
+    // is its resting one — the same presence the composer rests on — so the row
+    // reads as Ultron sitting in the list beside the cases it detected. The 2D
+    // (flat-on) variant reads cleaner than the 3D sphere at nav scale.
+    icon: <AgentMark mark="magnetic2d" size={32} tone="auto" state="idle" aria-label="Ultron" />,
     isActive: onWelcome,
     onClick: openWelcome,
   };
@@ -614,6 +662,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   return (
     <>
     <ThemeToggle />
+    <WaitlistMobileStyles />
     <AppShell
       // PrimaryNav
       items={withActive(PRIMARY_ITEMS)}
@@ -635,7 +684,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
         ? (
             <UltronNavCard
               $active={onLive && !activePage}
-              onClick={() => { setHomeView('ultron'); setOnWelcome(false); setOnLive(true); setActivePage(null); }}
+              onClick={openLive}
               aria-label="Live — Ultron presence"
               aria-current={onLive && !activePage ? 'page' : undefined}
             >
@@ -663,6 +712,13 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
         secondaryLabel: undefined,
         onMobileNavigate: (id) => { if (id === 'ultron') setActiveId('ultron'); },
         onSelectPersona: setSelectedPersonaId,
+        // Same actions as the desktop identity card: the logotype opens Live,
+        // the pencil starts a new page.
+        onHome: openLive,
+        onNewPage: createPage,
+        // The live-test handoff opens this sheet automatically on phones, where
+        // the persistent desktop sidebar is replaced by mobile navigation.
+        openSecondaryNav: eventSpotlight,
       }}
     >
       {welcomeMounted && (
@@ -674,11 +730,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
             active={homeView === 'ultron' && onWelcome}
             answers={introAnswers}
             onContinued={() => setWelcomeContinued(true)}
-            onPhoneSubmitted={() => {
-              ultron.surfaceDemoThread('shift_drop_maria');
-              startEventLoading();
-              scheduleEventSpotlight();
-            }}
+            onPhoneSubmitted={scheduleTestRunReveal}
           />
         </WelcomeThreadKeepAlive>
       )}

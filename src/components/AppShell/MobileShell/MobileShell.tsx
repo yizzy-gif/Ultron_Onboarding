@@ -5,7 +5,7 @@
 // the primary sheet can also restore each module's last-visited
 // sub-section.
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import styled from 'styled-components';
 import { useScrollDirection } from '../../../hooks/useScrollDirection';
 import { MobileHeader } from './MobileHeader';
@@ -44,18 +44,30 @@ export interface MobileShellProps {
   // User
   user: UserProfile;
   onUserClick?: () => void;
+  onSettingsClick?: () => void;
 
   // Actions
   onMobileNavigate: (moduleId: string) => void;
   onSelectPersona: (id: string) => void;
+  /** Opens a new (empty) Ultron page — surfaced on the secondary sheet's title. */
+  onHome?: () => void;
+  onNewPage?: () => void;
+  /** Opens the current module's navigation sheet for a guided event handoff. */
+  openSecondaryNav?: boolean;
 
   children: ReactNode;
 }
 
+/* Exactly the viewport, not "at least" it. Every page this shell hosts owns its
+   full height and scrolls its own body (the welcome thread, the case page, the
+   Live landing all do), so a min-height let the shell — and with it each page's
+   backdrop — stretch to whatever the page's content measured. `dvh` so the
+   mobile browser's collapsing toolbars don't leave a strip uncovered. */
 const Shell = styled.div`
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   background: var(--color-bg-primary, #ffffff);
 `;
 
@@ -66,9 +78,13 @@ const Content = styled.main`
      with percentage heights (e.g. the welcome thread's Root), which don't
      resolve against a flex item without a definite height — so pass the height
      down through flex instead. Short pages fill the viewport (no white gap
-     under their backdrop); tall ones still grow and scroll. */
+     under their backdrop). */
   display: flex;
   flex-direction: column;
+  /* And no taller: without this the automatic minimum size pins this column to
+     its content, so a long thread would push the page past the viewport instead
+     of scrolling inside itself. */
+  min-height: 0;
 
   & > * {
     flex: 1 1 auto;
@@ -86,8 +102,12 @@ export function MobileShell(props: MobileShellProps) {
     menuEntries,
     user,
     onUserClick,
+    onSettingsClick,
     onMobileNavigate,
     onSelectPersona,
+    onHome,
+    onNewPage,
+    openSecondaryNav,
     children,
   } = props;
 
@@ -104,6 +124,10 @@ export function MobileShell(props: MobileShellProps) {
 
   const close = () => setOverlay(null);
   const open = (o: typeof overlay) => setOverlay(o);
+
+  useEffect(() => {
+    if (openSecondaryNav) setOverlay('secondary');
+  }, [openSecondaryNav]);
 
   // Reused by every dismiss path (scrim, ESC, selection)
   const scrimActive = overlay !== null;
@@ -134,6 +158,8 @@ export function MobileShell(props: MobileShellProps) {
           moduleLabel={primaryLabel}
           entries={menuEntries}
           onSelect={close}
+          onHome={onHome}
+          onNewPage={onNewPage}
         />
       )}
 
@@ -152,9 +178,9 @@ export function MobileShell(props: MobileShellProps) {
         <ModuleDrawer
           activeId={activeId}
           groups={moduleGroups}
-          currentMenuEntries={menuEntries}
           user={user}
           onUserClick={onUserClick}
+          onSettingsClick={onSettingsClick}
           onSelectModule={moduleId => onMobileNavigate(moduleId)}
           onDismiss={close}
         />
@@ -162,4 +188,3 @@ export function MobileShell(props: MobileShellProps) {
     </Shell>
   );
 }
-

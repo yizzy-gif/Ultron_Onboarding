@@ -109,7 +109,7 @@ export interface UltronStore {
    *  landing. Idempotent per signal; the user stays on Live while it lands. */
   detectRisk: (event: IncomingEvent) => void;
   /** Surface one authored demo event on demand. Used by the welcome flow so
-   *  Maria Ellis's shift drop genuinely arrives only after the phone handoff. */
+   *  Maria Ellis's shift drop arrives as the post-schedule test run. */
   surfaceDemoThread: (threadId: string) => void;
   /** DEMO ONLY — advance an analyzing case to Needs approval (reveals the prompt). */
   decide: (threadId: string) => void;
@@ -149,8 +149,7 @@ export interface UltronStore {
 
 export function useUltronStore(): UltronStore {
   // Maria's shift drop is the welcome flow's first live event. Hold it back
-  // until the operator shares a phone number instead of showing it before
-  // Ultron has offered the live demonstration.
+  // until Ultron offers the post-schedule live demonstration.
   const initialThreads = useMemo(
     () => ultronThreads.filter(thread => thread.id !== 'shift_drop_maria'),
     [],

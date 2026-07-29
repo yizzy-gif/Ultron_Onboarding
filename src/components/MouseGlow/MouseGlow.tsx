@@ -140,7 +140,7 @@ interface GlowNode {
   o: number;
 }
 
-export function MouseGlow() {
+export function MouseGlow({ tone = 'color' }: { tone?: 'color' | 'neutral' } = {}) {
   const layerRef = useRef<HTMLDivElement>(null);
   const orbRef = useRef<HTMLDivElement>(null);
   const edgeRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -360,7 +360,7 @@ export function MouseGlow() {
   }, []);
 
   return (
-    <GlowLayer ref={layerRef} aria-hidden="true">
+    <GlowLayer ref={layerRef} aria-hidden="true" data-glow-tone={tone === 'neutral' ? 'neutral' : undefined}>
       {/* Bridges sit lowest — necks of light the pools above them stretch over. */}
       {PAIRS.map((_, k) => (
         <Blob

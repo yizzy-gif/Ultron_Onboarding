@@ -13,12 +13,18 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useRef } from 'react';
-import styled from 'styled-components';
+import styled, { css } from 'styled-components';
 
 interface IntroBackdropProps {
   /** Ambient particle-field strength (0 resting → 1 full). Glided toward
    *  each frame, so step changes ease rather than snap. */
   links?: number;
+  /** Wash palette. `aurora` (default) is the onboarding flow's colour field;
+   *  `neutral` renders the same gradient geometry in the page's own secondary
+   *  surface, for scenes that want the depth without the colour. */
+  tone?: 'aurora' | 'neutral';
+  /** Optional semantic tint for the top-right corner wash. */
+  cornerTone?: 'default' | 'risk';
 }
 
 /** Field density. */
@@ -58,7 +64,7 @@ const luminance = (rgb: string): number => {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 };
 
-export function IntroBackdrop({ links = 0 }: IntroBackdropProps) {
+export function IntroBackdrop({ links = 0, tone = 'aurora', cornerTone = 'default' }: IntroBackdropProps) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const presenceRef = useRef(0);
   const presenceTargetRef = useRef(links);
@@ -175,7 +181,7 @@ export function IntroBackdrop({ links = 0 }: IntroBackdropProps) {
   }, []);
 
   return (
-    <Layer aria-hidden="true">
+    <Layer aria-hidden="true" $neutral={tone === 'neutral'} $riskActive={cornerTone === 'risk'}>
       <canvas ref={ref} />
     </Layer>
   );
@@ -193,7 +199,7 @@ export function IntroBackdrop({ links = 0 }: IntroBackdropProps) {
    for them; theme fit comes from the strength/palette knobs below, which the
    dark overrides retune (deeper stops, gentler mix) so the aurora reads as
    emitted glow on dark surfaces instead of a grey film. */
-const Layer = styled.div`
+const Layer = styled.div<{ $neutral?: boolean; $riskActive?: boolean }>`
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -214,8 +220,40 @@ const Layer = styled.div`
     radial-gradient(42% 44% at 36% 60%, color-mix(in srgb, var(--aurora-blue) var(--aurora-core), transparent), transparent 74%),
     radial-gradient(36% 40% at 26% 42%, color-mix(in srgb, var(--aurora-violet) var(--aurora-rim), transparent), transparent 72%),
     radial-gradient(30% 34% at 70% 32%, color-mix(in srgb, var(--aurora-pink) var(--aurora-rim), transparent), transparent 70%),
-    radial-gradient(26% 28% at 68% 62%, color-mix(in srgb, var(--aurora-peach) var(--aurora-rim), transparent), transparent 70%),
-    radial-gradient(120% 90% at 100% 0%, var(--color-bg-secondary) 0%, transparent 55%);
+    radial-gradient(26% 28% at 68% 62%, color-mix(in srgb, var(--aurora-peach) var(--aurora-rim), transparent), transparent 70%);
+
+  /* The top-right corner wash uses two identical-strength layers so the
+     neutral-to-risk palette change can cross-fade without brightening. */
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    transition: opacity 560ms var(--ease-out, ease-out);
+  }
+
+  &::before {
+    background: radial-gradient(
+      120% 90% at 100% 0%,
+      var(--color-bg-secondary) 0%,
+      transparent 55%
+    );
+    opacity: ${p => (p.$riskActive ? 0 : 1)};
+  }
+
+  &::after {
+    background: radial-gradient(
+      120% 90% at 100% 0%,
+      color-mix(
+        in srgb,
+        var(--color-bg-secondary) 72%,
+        var(--color-orange-content-tertiary) 28%
+      ) 0%,
+      transparent 55%
+    );
+    opacity: ${p => (p.$riskActive ? 1 : 0)};
+  }
 
   @media (prefers-color-scheme: dark) {
     html:not(.light) & {
@@ -240,9 +278,31 @@ const Layer = styled.div`
     --aurora-rim: 9%;
   }
 
+  /* Neutral wash — every aurora stop collapsed onto the page's own secondary
+     surface at half strength (the rim keeps the palette's ~2:1 falloff). Same
+     gradient geometry, no hue. Declared after the theme blocks above so it wins
+     in both light and dark, where those re-tint the aurora. */
+  ${p => p.$neutral && css`
+    --aurora-mint: var(--color-bg-secondary);
+    --aurora-sky: var(--color-bg-secondary);
+    --aurora-blue: var(--color-bg-secondary);
+    --aurora-violet: var(--color-bg-secondary);
+    --aurora-pink: var(--color-bg-secondary);
+    --aurora-peach: var(--color-bg-secondary);
+    --aurora-core: 50%;
+    --aurora-rim: 25%;
+  `}
+
   & > canvas {
+    position: relative;
+    z-index: 1;
     width: 100%;
     height: 100%;
     display: block;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::before,
+    &::after { transition: none; }
   }
 `;
