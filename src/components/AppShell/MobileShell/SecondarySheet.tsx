@@ -132,14 +132,24 @@ const SheetWordmark = styled(UltronWordmark)`
   font-size: 14px;
 `;
 
-/* The logotype's hit target. Shrink-wraps the lockup and keeps the title row's
-   own alignment, so tapping the name jumps home without the heading gaining any
-   button chrome — the negative inset lets the hover/press tint breathe around
-   the glyphs without pushing them off the title's left edge. */
+/* The comfortable minimum for a thumb. Both title-row actions are held to it —
+   they had been sized to their glyphs (a 14px lockup, a 16px pencil), which is a
+   cursor's tolerance, not a finger's. */
+const TOUCH_TARGET = '44px';
+
+/* The logotype's hit target. Shrink-wraps the lockup horizontally and keeps the
+   title row's own alignment, so tapping the name jumps home without the heading
+   gaining any button chrome — the negative inset lets the hover/press tint
+   breathe around the glyphs without pushing them off the title's left edge.
+   Vertically it takes the full touch minimum; the row grows to suit. */
 const HomeButton = styled.button`
   all: unset;
   display: inline-flex;
   align-items: center;
+  /* all: unset resets box-sizing to content-box, which would add the padding
+     below on top of the minimum instead of inside it. */
+  box-sizing: border-box;
+  min-height: ${TOUCH_TARGET};
   margin: 0 calc(var(--space-2, 8px) * -1);
   padding: var(--space-1, 4px) var(--space-2, 8px);
   border-radius: var(--radius-md, 8px);
@@ -165,8 +175,12 @@ const NewPageButton = styled.button`
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: var(--space-8, 32px);
-  height: var(--space-8, 32px);
+  width: ${TOUCH_TARGET};
+  height: ${TOUCH_TARGET};
+  /* Half the growth clawed back off the trailing edge, so the pencil stays on
+     the same optical inset it sat on at 32px while the target around it grows
+     outward into the row's padding. */
+  margin-right: calc((${TOUCH_TARGET} - var(--space-8, 32px)) / -2);
   border-radius: var(--radius-md, 8px);
   color: var(--color-content-tertiary, #87919f);
   cursor: pointer;

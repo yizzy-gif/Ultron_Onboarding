@@ -752,6 +752,17 @@ const SessionBody = styled.div<{ $compact?: boolean }>`
   padding-bottom: ${p => (p.$compact ? 'var(--space-1)' : 'var(--space-3)')};
 `;
 
+/* The width of a step row's leading icon column.
+ *
+ * Sized to the 16px glyph itself, not padded around it: the column used to be
+ * 32px with the marker centred in it, which held the marker 8px in from the
+ * row's left edge — visibly adrift of the cards the trail runs between, since
+ * those start on the margin itself. Everything keyed to the column derives from
+ * this one value: the connector's x (centred on the glyph) and the sub-content
+ * indents that hang under the headline. The badge keeps a 32px HEIGHT, which is
+ * the row pitch — only the horizontal pad is gone. */
+const ICON_COL = 'var(--space-4)';
+
 /* Wraps each step (positioning context for its connector). Carries the inter-row
    gap as a bottom margin. A connected group (the work group, which draws the vertical
    line) spaces generously so the line bridges cleanly: space-3 headline-only, space-5
@@ -787,8 +798,8 @@ const connectorDraw = keyframes`
    · upcoming — a faint dashed track (not yet reached). */
 const SessionConnector = styled.span<{ $state?: 'done' | 'working' | 'upcoming'; $tight?: boolean; $superseded?: boolean }>`
   position: absolute;
-  /* Centered on the 32px icon column. */
-  left: calc(var(--space-8) / 2);
+  /* Centered on the icon column — i.e. on the glyph itself. */
+  left: calc(${ICON_COL} / 2);
   top: calc(var(--space-8) + var(--space-1));
   /* Extend down across the inter-row gap — matched to this connected row's gap (tight
      vs generous) — stopping a touch short of the next step's icon so it reads as
@@ -877,7 +888,7 @@ const UsageWrap = styled.div`
    the inline icon column so it lines up under the step headlines. */
 const ExtraSlot = styled.div<{ $indent?: boolean }>`
   padding-top: var(--space-2);
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
+  padding-left: ${p => (p.$indent ? `calc(${ICON_COL} + var(--space-2))` : '0')};
 `;
 
 
@@ -961,7 +972,9 @@ const IconBadge = styled.span<{ $hidden?: boolean; $loading?: boolean; $placehol
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: var(--space-8);
+  /* Width hugs the glyph so the marker lands on the row's left edge; height
+     stays the 32px row pitch, which is what sets the trail's vertical rhythm. */
+  width: ${ICON_COL};
   height: var(--space-8);
   color: var(--color-success-content);
   visibility: ${p => (p.$hidden ? 'hidden' : 'visible')};
@@ -1035,7 +1048,11 @@ const CollapseMark = styled.span`
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: var(--space-8);
+  /* The same column as every other leading marker in the trail (see ICON_COL),
+     so the chevron sits on the row's left edge whether the group is folded to
+     this one line or heading the steps below it — and either way shares the
+     left margin of the cards the trail runs between. */
+  width: ${ICON_COL};
   height: var(--space-8);
   ${recapTone}
 `;
@@ -1256,7 +1273,7 @@ const SublineToggle = styled.button`
    title (clears the inline icon column like Blocks) when the icon rides inline;
    in the connected trail the row is already offset so no indent is needed. */
 const ProgressWrap = styled.div<{ $indent?: boolean }>`
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
+  padding-left: ${p => (p.$indent ? `calc(${ICON_COL} + var(--space-2))` : '0')};
 `;
 
 /* Holds the status line and the trailing matched-user avatar group on one row —
@@ -1393,8 +1410,8 @@ const Blocks = styled.div<{ $indent?: boolean }>`
      next step (the tighter headline-only gap leaves little room otherwise). */
   padding-bottom: var(--space-2);
   /* Card layout: hang the sub-context under the title by clearing the inline
-     icon column (icon width --space-8 + header gap --space-2). */
-  padding-left: ${p => (p.$indent ? 'calc(var(--space-8) + var(--space-2))' : '0')};
+     icon column (ICON_COL + the header's --space-2 gap). */
+  padding-left: ${p => (p.$indent ? `calc(${ICON_COL} + var(--space-2))` : '0')};
   animation: ${blocksIn} var(--duration-base) var(--ease-out);
 
   @media (prefers-reduced-motion: reduce) { animation: none; }

@@ -23,7 +23,6 @@ import {
 } from './pages/Ultron';
 import { WelcomeThread, companyName, type WelcomeAnswers } from './pages/WelcomeThread';
 import { useHashSync } from './nav/hashSync';
-import { useIsMobile } from './hooks/useMediaQuery';
 import type { MobileModuleGroup } from './components/AppShell/MobileShell';
 import { ThemeToggle } from './components/ThemeToggle';
 
@@ -58,6 +57,8 @@ const BOTTOM_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
 
 const EVENT_SPOTLIGHT_DELAY_MS = 3000;
 const EVENT_STANDBY_DELAY_MS = 4000;
+/** Let the resolved outcome land before the real-work invitation covers it. */
+const REAL_WORK_PROMPT_DELAY_MS = 650;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -334,7 +335,6 @@ interface AppProps {
 }
 
 export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}) {
-  const isMobile = useIsMobile();
   // The rail is kept for fidelity but Ultron is the only wired module, so
   // `activeId` never leaves 'ultron'. The other nav-state fields are retained
   // only to satisfy the hash-sync + mobile-shell contracts.
@@ -361,14 +361,19 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // Arriving through onboarding mounts Welcome immediately. A refreshed app
   // mounts it on first open, then retains it for every subsequent return.
   const [welcomeMounted, setWelcomeMounted] = useState(Boolean(introAnswers));
-  // After the live-test phone number lands, guide the operator directly to the
-  // Maria callout that Ultron just surfaced in New.
+  // After the post-schedule test-run invitation lands, guide the operator
+  // directly to the Maria callout that Ultron surfaces in New.
   const [eventSpotlight, setEventSpotlight] = useState(false);
   const eventSpotlightTimer = useRef<number | null>(null);
   // The surfaced event arrives with Ultron's loading orbit, then settles to
   // the orange pulse used for a New event standing by for review.
   const [eventMarkLoading, setEventMarkLoading] = useState(false);
   const eventStandbyTimer = useRef<number | null>(null);
+  // A monotonically increasing signal keeps the access dialog owned by the
+  // persistent Welcome thread while allowing the event page to open it.
+  const [realWorkPromptSignal, setRealWorkPromptSignal] = useState(0);
+  const realWorkPromptShown = useRef(false);
+  const realWorkPromptTimer = useRef<number | null>(null);
 
   useEffect(() => () => {
     if (eventSpotlightTimer.current !== null) {
@@ -376,6 +381,9 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     }
     if (eventStandbyTimer.current !== null) {
       window.clearTimeout(eventStandbyTimer.current);
+    }
+    if (realWorkPromptTimer.current !== null) {
+      window.clearTimeout(realWorkPromptTimer.current);
     }
   }, []);
 
@@ -387,20 +395,14 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     setEventSpotlight(false);
   };
 
-  const scheduleEventSpotlight = (delayMs = EVENT_SPOTLIGHT_DELAY_MS) => {
+  const scheduleTestRunReveal = () => {
     dismissEventSpotlight();
-    // On mobile the navigation sheet is hidden until this state flips, so the
-    // handoff must be immediate: a desktop-length pause looks like the submit
-    // did nothing. Desktop keeps its authored beat before spotlighting the
-    // already-visible sidebar.
-    if (delayMs <= 0) {
-      setEventSpotlight(true);
-      return;
-    }
     eventSpotlightTimer.current = window.setTimeout(() => {
       eventSpotlightTimer.current = null;
+      ultron.surfaceDemoThread('shift_drop_maria');
+      startEventLoading();
       setEventSpotlight(true);
-    }, delayMs);
+    }, EVENT_SPOTLIGHT_DELAY_MS);
   };
 
   const startEventLoading = () => {
@@ -412,6 +414,19 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
       eventStandbyTimer.current = null;
       setEventMarkLoading(false);
     }, EVENT_STANDBY_DELAY_MS);
+  };
+
+  const completeUltronRun = (threadId: string) => {
+    ultron.completeRun(threadId);
+    // Maria is the authored Welcome test run and has no follow-up stage. The
+    // callback fires only after its final execution beat, so this is the true
+    // end of the event flow—not merely the approval click that starts it.
+    if (threadId !== 'shift_drop_maria' || realWorkPromptShown.current) return;
+    realWorkPromptShown.current = true;
+    realWorkPromptTimer.current = window.setTimeout(() => {
+      realWorkPromptTimer.current = null;
+      setRealWorkPromptSignal(signal => signal + 1);
+    }, REAL_WORK_PROMPT_DELAY_MS);
   };
   // Live landing — Ultron's resting presence (large Circle mark, no case open).
   // Ultron's normal home: the user rests here, opening any case in the sidebar
@@ -738,11 +753,8 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
             active={homeView === 'ultron' && onWelcome}
             answers={introAnswers}
             onContinued={() => setWelcomeContinued(true)}
-            onPhoneSubmitted={() => {
-              ultron.surfaceDemoThread('shift_drop_maria');
-              startEventLoading();
-              scheduleEventSpotlight(isMobile ? 0 : EVENT_SPOTLIGHT_DELAY_MS);
-            }}
+            onTestRunReady={scheduleTestRunReveal}
+            realWorkPromptSignal={realWorkPromptSignal}
           />
         </WelcomeThreadKeepAlive>
       )}
@@ -771,7 +783,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
           selectedId={ultron.selectedId}
           onDecide={ultron.decide}
           onAction={ultron.commit}
-          onCompleteRun={ultron.completeRun}
+          onCompleteRun={completeUltronRun}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
           pendingWorkflowIds={ultron.pendingWorkflowIds}

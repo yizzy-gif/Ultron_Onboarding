@@ -28,6 +28,7 @@ import { IntroBackdrop } from './Onboarding/IntroBackdrop';
 import { TeambridgeMark } from './Onboarding/TeambridgeMark';
 import { liquidGlass } from './Onboarding/glass';
 import { MouseGlow } from '../components/MouseGlow';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import {
   MERIDIAN_ROSTER, planWeekProblems, generateWeekShifts, scheduleShapesFor,
   schedulePreviewFor, calloutDayName,
@@ -83,8 +84,8 @@ type OpeningBeat = { kind: 'text'; text: string } | { kind: 'rosterCta' };
 type IntroPhase = 'delivering' | 'ready';
 
 /** Where the in-chat setup stands: Ultron is waiting on the roster, then the
- *  schedule, then the setup is done and asks for a phone handoff before the
- *  thread becomes a normal conversation. */
+ *  schedule, then the setup is done and the thread becomes a normal
+ *  conversation while the test-run event is surfaced automatically. */
 type SetupStage = 'roster' | 'schedule' | 'done';
 type AccessModalMode = 'grant' | 'waitlist';
 
@@ -140,6 +141,9 @@ const HEADER_EXPAND_AT_PX = 8;
  *  space with margin at both breakpoints, so there is always scroll left to
  *  carry the operator back to the top. */
 const HEADER_CONDENSE_MIN_OVERFLOW_PX = HEADER_HERO_PX;
+/** Slack for "already at the end" — sub-pixel scroll positions and fractional
+ *  layout heights mean the bottom rarely lands on an exact integer. */
+const SCROLL_END_EPSILON_PX = 8;
 
 // ── The scripted import results ──────────────────────────────────────────────
 // The spec's numbers verbatim (mirroring the old onboarding steps); the demo
@@ -183,15 +187,8 @@ const SCHEDULE_ASK =
   "I'll turn it into shifts. Or just tell me the shape of your week and I'll " +
   'build a realistic one.';
 
-const PHONE_ASK =
-  "Time for a test run, so you can see how I work? Let's simulate a last minute call out.\n\n" +
-  'If you provide your cell number we can make sure everything is hooked up and ' +
-  'test things live together.';
-
-const PHONE_CONFIRMATION =
-  'Perfect — I’ll text you there. And here’s Ultron live: Maria Ellis just dropped ' +
-  'her 2:00 PM shift at Riverside Clinic. I opened it under New and found 8 ' +
-  'qualified RNs who can cover it.';
+const TEST_RUN_ASK =
+  "Time for a test run, so you can see how I work? Let's simulate a last minute call out.";
 
 // ── Ultron's activity groups ─────────────────────────────────────────────────
 // Every inbound turn is introduced by the activity group Ultron worked through
@@ -434,45 +431,6 @@ function nudgeActivity(wanted: 'roster' | 'schedule'): ActivityMilestone[] {
   ];
 }
 
-/** The phone handoff — the number lands and the live test run is armed. */
-function phoneCapturedActivity(): ActivityMilestone[] {
-  return [
-    {
-      icon: 'clock',
-      headline: 'Checked your number',
-      blocks: [{ text: 'Read it as a reachable mobile and stored just the digits.' }],
-    },
-    {
-      icon: 'edit',
-      headline: 'Wired it up',
-      blocks: [{
-        text: 'Texts from me now reach you there — the same channel I use to chase '
-          + 'fills and confirmations.',
-      }],
-    },
-    {
-      icon: 'send',
-      headline: 'Armed a live event',
-      blocks: [{
-        text: 'Picked a real-shaped call-out from your new week so you can watch me work '
-          + 'it end to end instead of reading about it.',
-      }],
-    },
-  ];
-}
-
-/** The number didn't read as a phone number. */
-function phoneRetryActivity(): ActivityMilestone[] {
-  return [
-    { icon: 'clock', headline: 'Read your message' },
-    {
-      icon: 'alert',
-      headline: 'Found no number',
-      blocks: [{ text: 'Held off on saving anything rather than storing a number I would fail to reach you on.' }],
-    },
-  ];
-}
-
 /** Setup is done — the thread is a normal conversation and every reply still
  *  shows the thinking behind it. */
 function chatReplyActivity(): ActivityMilestone[] {
@@ -567,29 +525,75 @@ function MobileUploaderSurface({
   open,
   closeLabel,
   onClose,
+  onScrollToEnd,
+  showScrollCue = false,
+  onInsetChange,
   children,
 }: {
   active: boolean;
   open: boolean;
   closeLabel: string;
   onClose: () => void;
+  /** Drives the thread down to its true end — see the cue below. */
+  onScrollToEnd?: () => void;
+  /** Whether that cue has anywhere to go: false once the thread is already
+   *  parked at its end, where the button would be a no-op. */
+  showScrollCue?: boolean;
+  /** Reports how tall this sheet stands (0 when it isn't one), so the thread
+   *  can pad its foot clear of it. */
+  onInsetChange?: (px: number) => void;
   children: ReactNode;
 }) {
+  const sheeted = active && open;
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  // The sheet's height is content-driven (the intake grows and shrinks through
+  // its states), so it's measured rather than assumed. Reports 0 on the way out
+  // so the thread drops the padding the moment the sheet stops being one.
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!sheeted || !el || !onInsetChange) return;
+    const report = () => onInsetChange(el.getBoundingClientRect().height);
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      onInsetChange(0);
+    };
+  }, [sheeted, onInsetChange]);
+
   const surface = (
-    <MobileUploaderDock $open={open}>
-      {/* The close affordance belongs to the sheet, not the card: once the
-          intake has settled back into the thread there's nothing left to
-          dismiss. */}
-      {active && open && (
-        <MobileUploaderClose type="button" aria-label={closeLabel} onClick={onClose}>
-          <XCloseIcon size={18} />
-        </MobileUploaderClose>
+    <MobileUploaderShell ref={shellRef} $open={open}>
+      {/* The sheet stands over the foot of the thread, so the last turns can't
+          be reached by scrolling alone — the thread ends before them. It pads
+          itself by the height measured above; this drives the scroll down into
+          that padding, which lands the end of the conversation just clear of
+          the card's top edge. */}
+      {sheeted && showScrollCue && onScrollToEnd && (
+        <MobileUploaderScrollCue
+          type="button"
+          aria-label="Scroll to the end of the conversation"
+          onClick={onScrollToEnd}
+        >
+          <ChevronDownIcon size={18} />
+        </MobileUploaderScrollCue>
       )}
-      {children}
-    </MobileUploaderDock>
+      <MobileUploaderDock $open={open}>
+        {/* The close affordance belongs to the sheet, not the card: once the
+            intake has settled back into the thread there's nothing left to
+            dismiss. */}
+        {sheeted && (
+          <MobileUploaderClose type="button" aria-label={closeLabel} onClick={onClose}>
+            <XCloseIcon size={18} />
+          </MobileUploaderClose>
+        )}
+        {children}
+      </MobileUploaderDock>
+    </MobileUploaderShell>
   );
 
-  return active && open && typeof document !== 'undefined'
+  return sheeted && typeof document !== 'undefined'
     ? createPortal(surface, document.body)
     : surface;
 }
@@ -609,17 +613,24 @@ interface WelcomeThreadProps {
    *  static recap and became a working conversation (the app moves its nav
    *  entry from New to Working on this signal). */
   onContinued?: () => void;
-  /** Fired once a valid phone reply lands after schedule setup. The app uses
-   *  this moment to surface the Maria Ellis shift-drop event under New. */
-  onPhoneSubmitted?: (phone: string) => void;
+  /** Fired once the post-schedule test-run invitation lands. The app uses this
+   *  moment to reveal the Maria Ellis shift-drop event after a short beat. */
+  onTestRunReady?: () => void;
+  /** Incremented after the authored event finishes. The Welcome thread stays
+   *  mounted while the user works the event, so it owns the portaled phone
+   *  dialog without resetting the setup conversation. */
+  realWorkPromptSignal?: number;
 }
 
 export function WelcomeThread({
   active = true,
   answers = NO_ANSWERS,
   onContinued,
-  onPhoneSubmitted,
+  onTestRunReady,
+  realWorkPromptSignal = 0,
 }: WelcomeThreadProps) {
+  // Phones drop this page's two decorative layers entirely (see the render).
+  const isMobile = useIsMobile();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
   // Files staged for the next message — chips above the input until sent.
@@ -648,14 +659,11 @@ export function WelcomeThread({
   // Sales reach-out — the number the admin leaves for the grant unlock.
   // DEMO ONLY: held in memory, never sent anywhere.
   const [phone, setPhone] = useState('');
-  // The in-chat conversion is complete once the operator replies to the
-  // post-schedule ask with a plausible mobile number.
-  const [phoneCaptured, setPhoneCaptured] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [waitlistJoined, setWaitlistJoined] = useState(false);
   const [accessModalMode, setAccessModalMode] = useState<AccessModalMode>('grant');
-  // The grant ask lives in a blocking modal: opens once the in-chat setup has
-  // fully completed, closes via the X / backdrop / Escape, and closes itself
+  // The grant ask lives in a blocking modal: opens once the authored test event
+  // has fully completed, closes via the X / backdrop / Escape, and closes itself
   // shortly after a successful unlock.
   const [grantOpen, setGrantOpen] = useState(false);
   // The welcome identity starts as a prominent hero lockup. It only settles
@@ -711,7 +719,28 @@ export function WelcomeThread({
   const turnTimer = useRef<number | null>(null);
   const turnAdvance = useRef<(() => void) | null>(null);
   const grantTimer = useRef<number | null>(null);
+  const handledRealWorkPrompt = useRef(realWorkPromptSignal);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // How far the open mobile intake sheet reaches up the viewport. The thread
+  // pads its foot by this, so its last turns can be scrolled out from under the
+  // sheet instead of ending behind it. 0 whenever no sheet is standing.
+  const [mobileSheetInset, setMobileSheetInset] = useState(0);
+  // Past the very end of the content — including the padding above, which is
+  // the point. endRef.scrollIntoView would stop at the last message and leave
+  // that padding (and the message) below the fold, still behind the sheet.
+  const scrollThreadToEnd = () => {
+    const el = scrollRef.current;
+    el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+  // Whether the thread is already parked at its end. The scroll cue has nothing
+  // to offer there — which is its resting state, since the thread auto-follows
+  // — so it only appears once the operator has scrolled back up into history.
+  // Starts true so it never flashes on open.
+  const [threadAtEnd, setThreadAtEnd] = useState(true);
+  const syncThreadAtEnd = (el: HTMLElement) => {
+    setThreadAtEnd(el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_END_EPSILON_PX);
+  };
 
   // The signal the sample data derives from — what they typed for their
   // workforce, falling back to the company name from their website — so a
@@ -749,6 +778,7 @@ export function WelcomeThread({
   useEffect(() => () => {
     timers.current.forEach(id => window.clearTimeout(id));
     if (turnTimer.current) window.clearTimeout(turnTimer.current);
+    if (grantTimer.current) window.clearTimeout(grantTimer.current);
   }, []);
 
   // ── Header morph ───────────────────────────────────────────────────────────
@@ -877,6 +907,19 @@ export function WelcomeThread({
     };
   }, [openingBeats, prefersReduced]);
 
+  // The completed Welcome event is the production trigger for this prompt.
+  // The signal can arrive while this keep-alive page is visually hidden; Alloy
+  // portals the Dialog to body, so it still appears over the resolved event.
+  useEffect(() => {
+    if (realWorkPromptSignal <= handledRealWorkPrompt.current) return;
+    handledRealWorkPrompt.current = realWorkPromptSignal;
+    if (grantTimer.current) window.clearTimeout(grantTimer.current);
+    setPhone('');
+    setUnlocked(false);
+    setWaitlistJoined(false);
+    setGrantOpen(true);
+  }, [realWorkPromptSignal]);
+
   // Demo shortcut: M opens whichever access-modal variant was selected last.
   // Ignore editable controls so typing a phone number or message never triggers it.
   useEffect(() => {
@@ -886,13 +929,13 @@ export function WelcomeThread({
         || target?.tagName === 'INPUT'
         || target?.tagName === 'TEXTAREA'
         || target?.tagName === 'SELECT';
-      if (editing || event.metaKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== 'm') return;
+      if (!active || editing || event.metaKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== 'm') return;
       event.preventDefault();
       setGrantOpen(true);
     };
     document.addEventListener('keydown', openFromKeyboard);
     return () => document.removeEventListener('keydown', openFromKeyboard);
-  }, []);
+  }, [active]);
 
   const unlock = () => {
     setUnlocked(true);
@@ -907,11 +950,19 @@ export function WelcomeThread({
     grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
   };
   useEffect(() => {
-    if (active) endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [active, messages, replying, phase, revealed, activeIdx, typed, showDots]);
+    if (!active) return;
+    // With a sheet standing, follow the scroll to the true end rather than to
+    // the last message: the thread is padded by the sheet's height, and
+    // scrollIntoView would stop at the message and leave that padding below the
+    // fold — parking each new turn behind the card as it arrives, and undoing
+    // the scroll cue on the very next keystroke of the typewriter.
+    if (mobileSheetInset > 0) scrollThreadToEnd();
+    else endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [active, messages, replying, phase, revealed, activeIdx, typed, showDots, mobileSheetInset]);
 
-  // Portaled dialogs live outside the hidden keep-alive surface, so explicitly
-  // close the grant modal when the operator leaves Welcome.
+  // A normal navigation away from Welcome closes a manually opened dialog. The
+  // event-completion signal arrives later, while `active` is already false, and
+  // deliberately reopens the portal over the resolved event.
   useEffect(() => {
     if (!active) setGrantOpen(false);
   }, [active]);
@@ -1042,7 +1093,8 @@ export function WelcomeThread({
 
   // The schedule landed (a file / pasted table) or was described (a shape) →
   // build the week, show it, then invite the operator to watch Ultron handle a
-  // real event by replying with their phone number.
+  // live event. Once that invitation lands, the app reveals the event
+  // automatically after a short beat.
   // `cardFile` follows the same rule as the roster's (see runRosterImport): only
   // a file the schedule drop zone took itself drives that card's upload state.
   /** Rebuild the shown week to a different sample shape, in place. This is a
@@ -1078,12 +1130,15 @@ export function WelcomeThread({
       [
         { role: 'ultron', activity, text: lead },
         { role: 'ultron', text: '', card: 'week' },
-        { role: 'ultron', text: PHONE_ASK },
+        { role: 'ultron', text: TEST_RUN_ASK },
       ],
       {
         workingLabel: source.fileName ? 'Turning it into shifts…' : 'Building your week…',
         workingMs: WORKING_MS,
-        then: () => setStage('done'),
+        then: () => {
+          setStage('done');
+          onTestRunReady?.();
+        },
       },
     );
   };
@@ -1113,27 +1168,7 @@ export function WelcomeThread({
       return;
     }
 
-    // The first post-setup reply is the requested mobile number. Accept common
-    // formatting such as "(415) 555-0199" or "+1 415 555 0199"; only the digits
-    // are handed to the app's in-memory event trigger.
-    if (!phoneCaptured) {
-      const digits = text.replace(/\D/g, '');
-      if (digits.length >= 7 && digits.length <= 15) {
-        setPhoneCaptured(true);
-        setPhone(digits);
-        onPhoneSubmitted?.(digits);
-        deliverTurn([{ role: 'ultron', activity: phoneCapturedActivity(), text: PHONE_CONFIRMATION }]);
-      } else {
-        deliverTurn([{
-          role: 'ultron',
-          activity: phoneRetryActivity(),
-          text: 'Send me the best mobile number to reach you — any normal format is fine.',
-        }]);
-      }
-      return;
-    }
-
-    // Phone captured — the welcome thread now behaves like a normal conversation.
+    // Setup complete — the welcome thread now behaves like a normal conversation.
     const replyCount = messages.filter(m => m.role === 'ultron').length;
     deliverTurn([{ role: 'ultron', activity: chatReplyActivity(), text: mockUltronReply(text, replyCount) }]);
   };
@@ -1217,19 +1252,29 @@ export function WelcomeThread({
       ? 'Attach your roster, or ask Ultron anything…'
       : stage === 'schedule'
       ? 'Attach your schedule, or describe your week…'
-      : phoneCaptured
-      ? 'Tell Ultron what to take on next…'
-      : 'Enter your cell number…';
-  const awaitingPhone = stage === 'done' && !phoneCaptured;
+      : 'Tell Ultron what to take on next…';
   const isWaitlistModal = accessModalMode === 'waitlist';
   const accessConfirmed = isWaitlistModal ? waitlistJoined : unlocked;
+  const phoneReady = phone.length >= 10;
 
   return (
     <Root>
       {/* Continue onboarding's ambient visual language into this one-time
-          handoff only. Both layers are decorative and stay beneath the thread. */}
-      <IntroBackdrop links={1} />
-      <MouseGlow />
+          handoff only. Both layers are decorative and stay beneath the thread.
+
+          Desktop only. The aurora wash and the cursor glow are both authored
+          for a wide canvas with room around the thread: on a phone the thread
+          takes the full width, so the colour sits directly behind the messages
+          as a tint rather than reading as light in the space beside them — and
+          the glow has no cursor to follow in the first place. The page keeps
+          its plain surface there. Mounting is gated rather than hidden in CSS
+          so neither layer runs its rAF loop on a phone. */}
+      {!isMobile && (
+        <>
+          <IntroBackdrop links={1} />
+          <MouseGlow />
+        </>
+      )}
 
       {/* Page header — the event page's header lockup (title over a muted
           one-line subtitle), with the case avatar swapped for the page's
@@ -1261,8 +1306,14 @@ export function WelcomeThread({
           </PageHeaderText>
         </PageHeaderInner>
       </PageHeader>
-      <Scroll onScroll={event => resolveHeaderForScroll(event.currentTarget)}>
-        <Thread>
+      <Scroll
+        ref={scrollRef}
+        onScroll={event => {
+          resolveHeaderForScroll(event.currentTarget);
+          syncThreadAtEnd(event.currentTarget);
+        }}
+      >
+        <Thread $bottomInset={mobileSheetInset}>
             {/* Opening turn — Ultron greets, then asks for the roster.
                 Delivered one beat at a time: text beats type in, the roster
                 drop zone fades in as its own beat. */}
@@ -1292,10 +1343,18 @@ export function WelcomeThread({
                         <Fragment key={`beat-${i}`}>
                           <BeatReveal>
                             <MobileUploaderSurface
-                              active={stage === 'roster'}
+                              // `active` here also gates the portal, so it has to
+                              // include the page's own visibility: the sheet escapes
+                              // to body and the keep-alive wrapper that hides this
+                              // thread can't reach it, so a stage-only test left the
+                              // sheet standing over whatever page was opened next.
+                              active={active && stage === 'roster'}
                               open={mobileUploaderOpen && stage === 'roster'}
                               closeLabel="Close roster uploader"
                               onClose={() => retireMobileUploader('roster')}
+                              onScrollToEnd={scrollThreadToEnd}
+                              showScrollCue={!threadAtEnd}
+                              onInsetChange={setMobileSheetInset}
                             >
                               {!rosterCommitted ? (
                                 <RosterUploaderStage>
@@ -1419,10 +1478,14 @@ export function WelcomeThread({
                              the working beat. It settles to the compact
                              checked row once the week lands. */
                           <MobileUploaderSurface
-                            active={stage === 'schedule'}
+                            // Page visibility gates the portal — see the roster twin.
+                            active={active && stage === 'schedule'}
                             open={mobileUploaderOpen && stage === 'schedule'}
                             closeLabel="Close schedule uploader"
                             onClose={() => retireMobileUploader('schedule')}
+                            onScrollToEnd={scrollThreadToEnd}
+                            showScrollCue={!threadAtEnd}
+                            onInsetChange={setMobileSheetInset}
                           >
                             {stage === 'schedule' ? (
                               scheduleUpload ? (
@@ -1601,10 +1664,7 @@ export function WelcomeThread({
             </MarkFormLayer>
           </MarkMorphBox>
         </FootMarkRow>
-        <Composer
-          $phoneMode={awaitingPhone}
-          onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}
-        >
+        <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
           {attachments.length > 0 && (
             <PendingFiles aria-label="Files to send">
               {attachments.map(name => (
@@ -1623,23 +1683,17 @@ export function WelcomeThread({
             </PendingFiles>
           )}
           <InputRow>
-            {!awaitingPhone && (
-              <ActionSlot>
-                <ComposerAttachment state="idle" onSelect={addFiles} />
-              </ActionSlot>
-            )}
+            <ActionSlot>
+              <ComposerAttachment state="idle" onSelect={addFiles} />
+            </ActionSlot>
             <Field
-              $phoneMode={awaitingPhone}
               rows={1}
               value={draft}
               placeholder={placeholder}
-              aria-label={awaitingPhone ? 'Cell phone number' : 'Message Ultron'}
-              inputMode={awaitingPhone ? 'tel' : 'text'}
-              autoComplete={awaitingPhone ? 'tel' : 'off'}
-              onChange={e => {
-                const value = e.target.value;
-                setDraft(awaitingPhone ? value.replace(/[^\d+().\-\s]/g, '') : value);
-              }}
+              aria-label="Message Ultron"
+              inputMode="text"
+              autoComplete="off"
+              onChange={e => setDraft(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
               }}
@@ -1692,12 +1746,12 @@ export function WelcomeThread({
           )}
 
           <GrantTitle $prominent={isWaitlistModal}>
-            {isWaitlistModal ? 'Be first when access opens.' : 'Turn Ultron loose.'}
+            {isWaitlistModal ? 'Be first when access opens.' : 'Ready to see the real work?'}
           </GrantTitle>
           <GrantBody>
             {isWaitlistModal
               ? 'Ultron is opening access in waves. Leave your number and we’ll text the moment your workspace is unblocked.'
-              : 'Ultron proposes the work. You call the shots. Your first 100,000 credits are covered.'}
+              : 'Bring Ultron into your operation. Leave your mobile number and we’ll get the real workspace ready—your first 100,000 credits are covered.'}
           </GrantBody>
 
           <GrantPerks aria-label={isWaitlistModal ? 'Waitlist benefits' : 'Grant benefits'}>
@@ -1721,13 +1775,13 @@ export function WelcomeThread({
               <CheckCircleIcon size={20} />
               {isWaitlistModal
                 ? 'You’re on the list — we’ll text as soon as your access opens.'
-                : 'You’re set — I’ll text before I act. Your $1,000 grant is live.'}
+                : 'You’re set — we’ll text you when your real workspace is ready. Your $1,000 grant is live.'}
             </GrantConfirmed>
           ) : (
             <GrantForm
               onSubmit={(e: FormEvent) => {
                 e.preventDefault();
-                if (phone.trim()) {
+                if (phoneReady) {
                   if (isWaitlistModal) joinWaitlist();
                   else unlock();
                 }
@@ -1736,7 +1790,7 @@ export function WelcomeThread({
                 <GrantFormLabel htmlFor="welcome-grant-phone">
                   {isWaitlistModal
                     ? 'Where should we send your access text?'
-                    : 'Where should Ultron send proposals?'}
+                    : 'Where should we text your invite?'}
                 </GrantFormLabel>
                 <GrantFormRow>
                   <GrantField
@@ -1744,6 +1798,7 @@ export function WelcomeThread({
                     type="tel"
                     inputMode="numeric"
                     pattern="[0-9]*"
+                    minLength={10}
                     maxLength={15}
                     value={phone}
                     placeholder="Your phone number"
@@ -1751,7 +1806,7 @@ export function WelcomeThread({
                     autoComplete="tel"
                     onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
                   />
-                <GrantButton type="submit" variant="tertiary" size="lg" disabled={!phone.trim()}>
+                <GrantButton type="submit" variant="tertiary" size="lg" disabled={!phoneReady}>
                   {isWaitlistModal ? 'Join waitlist' : 'Unlock $1,000'}
                 </GrantButton>
               </GrantFormRow>
@@ -2336,6 +2391,89 @@ const mobileUploaderIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
+/* When the intake is a sheet this is the fixed box that owns the viewport
+   placement, and the dock below becomes just its card. The split exists for the
+   scroll cue: the card clips its own overflow (it scrolls), so anything sitting
+   above its top edge has to be a sibling rather than a child.
+
+   `display: contents` in every other case — desktop, and a dismissed intake
+   back inline in the thread — so the wrapper adds no box and that placement
+   lays out exactly as if it weren't here. */
+const MobileUploaderShell = styled.div<{ $open: boolean }>`
+  display: contents;
+
+  @media (max-width: 600px) {
+    ${p => p.$open && css`
+      position: fixed;
+      z-index: 30;
+      /* Inset a uniform 12px rather than sitting flush: the sheet reads as a
+         card lifted off the page, so it carries a border and a radius on all
+         four sides. The bottom offset takes the larger of that margin and the
+         home-indicator inset, which also means the inner padding no longer has
+         to clear the safe area itself. */
+      left: var(--space-3);
+      right: var(--space-3);
+      bottom: max(var(--space-3), env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      /* The gap the cue keeps above the card. */
+      gap: var(--space-2);
+      /* Deliberately no transform here — the entrance animation lives on the
+         two children instead. A transformed element becomes the backdrop root
+         for everything inside it, so animating this wrapper would leave the
+         card's backdrop-filter with nothing but the wrapper's own (empty)
+         backdrop to blur, and the thread behind it would read sharp. */
+    `}
+  }
+`;
+
+/* Jump-to-end affordance, floating just above the sheet. Same glass as the card
+   under it, so the pair reads as one floating unit. Sized to the touch minimum
+   rather than to its 18px glyph. */
+const MobileUploaderScrollCue = styled.button`
+  align-self: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--color-content-secondary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  ${liquidGlass}
+  /* Denser than the sheet's own glass. The card is large enough that a 50% fill
+     still reads as a surface, but at 44px the thread's prose runs straight
+     behind the chevron and turns it to mud — this stays glass (same blur, same
+     edge) while giving the glyph a field to sit on. */
+  background: color-mix(in srgb, var(--color-bg-primary) 88%, transparent);
+  /* Rises with the card rather than with a shared wrapper — see the shell. */
+  animation: ${mobileUploaderIn} 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  &:hover {
+    color: var(--color-content-primary);
+  }
+
+  /* Opacity, not a transform: the entrance animation above owns this element's
+     transform for the life of the sheet (fill mode "both"), so a pressed state
+     written as translateY would never paint. */
+  &:active {
+    opacity: 0.7;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+
 const MobileUploaderDock = styled.div<{ $open: boolean }>`
   position: relative;
   width: 100%;
@@ -2349,25 +2487,35 @@ const MobileUploaderDock = styled.div<{ $open: boolean }>`
     display: block;
 
     ${p => p.$open && css`
-      position: fixed;
-      z-index: 30;
-      /* Inset a uniform 12px rather than sitting flush: the sheet reads as a
-         card lifted off the page, so it carries a border and a radius on all
-         four sides. The bottom offset takes the larger of that margin and the
-         home-indicator inset, which also means the inner padding no longer has
-         to clear the safe area itself. */
-      left: var(--space-3);
-      right: var(--space-3);
-      bottom: max(var(--space-3), env(safe-area-inset-bottom));
-      width: auto;
+      /* Placement is the shell's; the card only sizes itself. min-height: 0 so
+         the flex column can shrink it to the cap below rather than to content. */
+      min-height: 0;
       max-height: min(82dvh, 680px);
       overflow-y: auto;
       overscroll-behavior: contain;
-      padding: var(--space-10) var(--space-3) var(--space-3);
-      background: var(--color-bg-primary);
-      border: 1px solid var(--color-border-opaque);
+      /* Top padding is derived from the close button rather than picked off the
+         scale: the button is absolutely positioned, so it takes no space of its
+         own, and a flat --space-10 (40px) landed the card exactly on its lower
+         edge. Clear its inset plus its height, then add the card's own 12px
+         gutter — so the gap under the button matches the inset on every other
+         side of the content. Keep in step with MobileUploaderClose below. */
+      padding: calc(var(--space-2) + var(--space-8) + var(--space-3)) var(--space-3) var(--space-3);
+      /* The sheet is the onboarding flow's glass, carried into the handoff: a
+         translucent pane that blurs the thread running underneath it rather than
+         an opaque card that hides it. Brings its own tint, border, and edge
+         highlight — the fill is deliberately see-through, and legibility comes
+         from the blur, not from opacity. */
+      ${liquidGlass}
       border-radius: var(--radius-2xl);
-      box-shadow: 0 -16px 48px rgb(0 0 0 / 24%);
+      /* Lighter than the slab shadow this replaced (was 0 -16px 48px / 24%):
+         the glass already separates itself from the page, so the shadow only has
+         to seat the sheet rather than do the lifting on its own. Still cast
+         upward — it rises from the bottom edge, so there is no light below it.
+         Declared after the mixin, whose own box-shadow this supersedes; the
+         inset edge highlight is restated here so it isn't lost. */
+      box-shadow:
+        inset 0 1px 0 color-mix(in srgb, white 45%, transparent),
+        0 -8px 28px rgb(0 0 0 / 10%);
       animation: ${mobileUploaderIn} 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
     `}
   }
@@ -2589,6 +2737,10 @@ const SchedulePreviewEmpty = styled.span`
 const IntakeUploader = styled(FileUploader)`
   && {
     min-height: 164px;
+    /* One step up from Alloy's default 6px (--radius-button, which suits the
+       controls this component usually sits among). This drop zone is a card in
+       the thread, not a control, so it takes the card radius. */
+    border-radius: var(--radius-md);
     overflow: hidden;
     transition:
       min-height 420ms var(--ease-out),
@@ -2749,7 +2901,7 @@ const ActivityGroupSlot = styled.div`
 /* The thread column. Its max-width leaves room for the side padding so the
    inner content runs exactly as wide as the 720px composer below — the recap
    cards and bubbles line up edge to edge with it. */
-const Thread = styled.div`
+const Thread = styled.div<{ $bottomInset?: number }>`
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -2761,6 +2913,14 @@ const Thread = styled.div`
   @media (max-width: 600px) {
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4) var(--space-4);
+
+    /* Scrollable room the height of the open intake sheet, so the conversation
+       can be pulled out from under it (the sheet's own scroll cue does exactly
+       that). Without this the thread simply ends behind the card and its last
+       turns are unreachable. Only while a sheet stands — 0 collapses it. */
+    ${p => p.$bottomInset ? css`
+      padding-bottom: calc(${p.$bottomInset}px + var(--space-4));
+    ` : ''}
   }
 `;
 
@@ -2811,7 +2971,13 @@ const Bubble = styled.div`
   }
 
   @media (max-width: 600px) {
-    font-size: var(--text-sm);
+    /* One step up from the desktop --text-sm. The thread is the whole screen on
+       a phone and its prose is the longest read in the flow — 14px is a UI size,
+       fine in a dense sidebar next to other chrome, but thin for paragraphs held
+       at arm's length. 16px is the phone's reading size. Line height comes down
+       a touch from --line-height-relaxed to stop the taller type from spreading
+       each turn out. */
+    font-size: var(--text-base);
     line-height: 1.45;
 
     &[data-from='operator'] {
@@ -4130,59 +4296,24 @@ const SuggestionPill = styled.button<{ $active?: boolean; $browseSized?: boolean
 
 /* Stacks an optional pending-files row over the input row. The composer-button
    sizing vars live here so the attach and send slots share them. */
-const Composer = styled.form<{ $phoneMode: boolean }>`
+const Composer = styled.form`
   width: 100%;
   max-width: 720px;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-2);
-  /* Mirror the ambient backdrop palette while the composer is collecting the
-     phone number, so the live-test handoff reads as a distinct action. */
-  --phone-aurora-mint: hsl(170 72% 64%);
-  --phone-aurora-sky: hsl(202 82% 64%);
-  --phone-aurora-blue: hsl(228 84% 64%);
-  --phone-aurora-violet: hsl(252 78% 64%);
-  --phone-aurora-pink: hsl(330 82% 68%);
-  --phone-aurora-peach: hsl(32 88% 66%);
-  /* How far the ring is carried past the bloom's pastel toward the page's own
-     ink, so a 1px outline holds a defined edge instead of washing out against
-     the composer fill. Mixing toward --color-content-primary rather than a
-     fixed dark keeps it theme-correct: it deepens the ring on a light surface
-     and lifts it on a dark one, so the edge holds either way. */
-  --phone-aurora-depth: 42%;
-  background: ${p => p.$phoneMode
-    ? `linear-gradient(var(--color-bg-primary), var(--color-bg-primary)) padding-box,
-       linear-gradient(
-         110deg,
-         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-mint)),
-         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-sky)) 25%,
-         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-blue)) 44%,
-         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-violet)) 62%,
-         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-pink)) 82%,
-         color-mix(in srgb, var(--color-content-primary) var(--phone-aurora-depth), var(--phone-aurora-peach))
-       ) border-box`
-    : 'var(--color-bg-primary)'};
-  border: 1px solid ${p => p.$phoneMode ? 'transparent' : 'var(--color-border-opaque)'};
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-opaque);
   border-radius: var(--radius-xl);
-  box-shadow: ${p => p.$phoneMode
-    ? `0 0 0 1px color-mix(in srgb, var(--phone-aurora-blue) 18%, transparent),
-       -18px 2px 38px color-mix(in srgb, var(--phone-aurora-sky) 14%, transparent),
-       16px 4px 42px color-mix(in srgb, var(--phone-aurora-violet) 16%, transparent),
-       0 12px 48px color-mix(in srgb, var(--phone-aurora-pink) 10%, transparent)`
-    : 'var(--shadow-below-low)'};
+  box-shadow: var(--shadow-below-low);
   transition:
     border-color var(--duration-base) var(--ease-out),
     box-shadow var(--duration-slow) var(--ease-out);
 
   &:focus-within {
-    border-color: ${p => p.$phoneMode ? 'transparent' : 'var(--color-border-focus)'};
-    box-shadow: ${p => p.$phoneMode
-      ? `0 0 0 2px color-mix(in srgb, var(--phone-aurora-sky) 38%, transparent),
-         -20px 2px 44px color-mix(in srgb, var(--phone-aurora-sky) 20%, transparent),
-         18px 4px 48px color-mix(in srgb, var(--phone-aurora-violet) 22%, transparent),
-         0 14px 54px color-mix(in srgb, var(--phone-aurora-pink) 14%, transparent)`
-      : 'var(--shadow-below-low)'};
+    border-color: var(--color-border-focus);
+    box-shadow: var(--shadow-below-low);
   }
 
   --composer-btn-size: var(--space-8);
@@ -4274,13 +4405,10 @@ const SentFiles = styled.span`
   gap: var(--space-2);
 `;
 
-const Field = styled.textarea<{ $phoneMode: boolean }>`
+const Field = styled.textarea`
   flex: 1;
   min-width: 0;
-  /* Phone mode drops the attachment button, so the field carries its own left
-     inset instead of sitting flush against the composer's edge. */
-  padding: calc((var(--space-8) - 1lh) / 2) 0
-           calc((var(--space-8) - 1lh) / 2) ${p => (p.$phoneMode ? 'var(--space-3)' : '0')};
+  padding: calc((var(--space-8) - 1lh) / 2) 0;
   border: none;
   background: transparent;
   resize: none;
@@ -4288,12 +4416,7 @@ const Field = styled.textarea<{ $phoneMode: boolean }>`
   font-family: var(--font-sans);
   font-size: var(--text-md);
   line-height: var(--line-height-relaxed);
-  /* Phone mode keeps the composer's own type — only the digits get tabular
-     figures, so entered numbers align without the placeholder reading as a
-     different typeface from the rest of the app. */
-  font-variant-numeric: ${p => p.$phoneMode ? 'tabular-nums' : 'normal'};
   color: var(--color-content-primary);
-  caret-color: ${p => p.$phoneMode ? 'var(--phone-aurora-sky)' : 'auto'};
 
   &::placeholder {
     color: var(--color-content-disabled);

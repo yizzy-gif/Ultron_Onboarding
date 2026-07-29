@@ -2048,7 +2048,12 @@ const TaskRow = styled.div`
 const TaskRail = styled.div`
   position: relative;
   flex-shrink: 0;
-  width: var(--space-5);
+  /* The dot's own width, not a padded column around it. At --space-5 (20px) the
+     8px dot centred to 6px in from the row's edge, which put the plan's thread
+     6px adrift of the prompt sitting directly above it. Sizing the rail to the
+     dot lands the two on one line. The thread below is drawn at left: 50% of
+     this box, so it stays centred on the dot either way. */
+  width: var(--space-2);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2227,6 +2232,14 @@ const Pill = styled(Button)`
      would read as two different rows. */
   @media (max-width: 600px) {
     min-height: 44px;
+
+    /* Yes and No split the card's width between them. Scoped to the decision
+       row so the same pill used as a lone CTA elsewhere (the offer card's
+       "Save workflow" / "View workflow") keeps hugging its label. */
+    ${Actions} > & {
+      flex: 1 1 0;
+      min-width: 0;
+    }
   }
 `;
 
@@ -2247,9 +2260,17 @@ const OtherPill = styled(Button)`
     border-color: var(--color-border-selected);
   }
 
-  /* Same touch height as the Yes/No choices it sits beside. */
+  /* Same touch height as the Yes/No choices it sits above. */
   @media (max-width: 600px) {
     min-height: 44px;
+
+    /* Its own row under the Yes/No pair — a 100% basis can't share their line,
+       so the wrap is automatic. "Other" is the odd one out of the three, and
+       giving it the full width says so, rather than leaving it as a stub
+       trailing a half-width pair. */
+    ${Actions} > & {
+      flex: 0 0 100%;
+    }
   }
 `;
 
