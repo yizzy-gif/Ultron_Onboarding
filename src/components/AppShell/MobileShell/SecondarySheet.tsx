@@ -22,9 +22,18 @@ interface SecondarySheetProps {
   /** Opens a new (empty) Ultron page. Omitted for modules that have none, in
    *  which case the sheet shows no trailing action. */
   onNewPage?: () => void;
+  /** Defers the guided spotlight until the sheet's own entrance is complete. */
+  spotlightEnabled?: boolean;
 }
 
-export function SecondarySheet({ moduleLabel, entries, onSelect, onHome, onNewPage }: SecondarySheetProps) {
+export function SecondarySheet({
+  moduleLabel,
+  entries,
+  onSelect,
+  onHome,
+  onNewPage,
+  spotlightEnabled = true,
+}: SecondarySheetProps) {
   // Ultron sets its own name as a logotype (mark in place of the O), the same
   // lockup the desktop identity card and the mobile crumb carry. Other modules
   // keep the sheet's plain uppercase heading.
@@ -104,7 +113,7 @@ export function SecondarySheet({ moduleLabel, entries, onSelect, onHome, onNewPa
                 </Row>
                 );
 
-                return child.spotlightPrompt ? (
+                return spotlightEnabled && child.spotlightPrompt ? (
                   <SpotlightedRow
                     key={child.id}
                     prompt={child.spotlightPrompt}
@@ -125,11 +134,14 @@ export function SecondarySheet({ moduleLabel, entries, onSelect, onHome, onNewPa
   );
 }
 
-/* The logotype at the sheet title's size. It brings its own caps and tracking,
-   so the heading's uppercase/letter-spacing don't apply — this only sets the
-   scale and inherits the title's muted colour. */
+/* The logotype leading the sheet. It brings its own caps and tracking, so the
+   heading's uppercase/letter-spacing don't apply — this only sets the scale and
+   inherits the title's muted colour. Held to --text-lg like the wordmark's other
+   two hosts (the identity card, the header crumb): the mark's fixed canvas is
+   tuned for that size, and at the title row's own 14px it read as a footnote of
+   the brand rather than the brand. */
 const SheetWordmark = styled(UltronWordmark)`
-  font-size: 14px;
+  font-size: var(--text-lg, 1.125rem);
 `;
 
 /* The comfortable minimum for a thumb. Both title-row actions are held to it —

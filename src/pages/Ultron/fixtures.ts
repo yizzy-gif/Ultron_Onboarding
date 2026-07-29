@@ -2028,8 +2028,8 @@ export const stepTools = (m: WorkingMilestone): UsageToolKind[] => m.tools ?? DE
 // ── Live landing — incoming signal stream ──────────────────────────────────
 // The Live landing feed is a conveyor of incoming operational signals Ultron is
 // watching. Each carries a trailing identifier: most are routine ("No action
-// required"), but some are real risks ("Risk detected") — those show the orange
-// Pulse mark and, the moment they surface, escalate into a fresh New case.
+// required"), while risk and action-required outcomes escalate into unread New
+// cases when they surface.
 
 /** One signal in the Live landing feed. */
 export interface IncomingEvent {
@@ -2038,10 +2038,10 @@ export interface IncomingEvent {
   capability: string;
   /** Event headline shown in the feed card. */
   title: string;
-  /** Short case name used as the New-group nav label when a risk escalates. */
+  /** Short case name used as the New-group nav label when attention escalates. */
   name: string;
-  /** A real risk: shows the orange Pulse mark and escalates into the New group
-   *  as a fresh analyzing case. Routine signals (false) read "No action required". */
+  /** A real risk always shows the orange Pulse mark. Routine signals may resolve
+   *  to no action or a blue "Action required" outcome. */
   risk: boolean;
   severity?: ThreadSeverity;
   assessment?: string;
@@ -2122,10 +2122,9 @@ export const INCOMING_EVENTS: IncomingEvent[] = [
   },
 ];
 
-/** Build a fresh analyzing case from a detected risk signal — the case that
- *  lands in the New group (orbit/working mark, typing title) the moment Ultron
- *  flags the risk. Minimal but complete enough to flow through the case
- *  pipeline (analyzing → Needs approval → …) via the generic fallbacks. */
+/** Build a fresh analyzing case from a risk or action-required signal — the
+ *  unread case that lands in New when Ultron flags something for attention.
+ *  Minimal but complete enough to flow through the generic case pipeline. */
 export function spawnThreadFromEvent(ev: IncomingEvent): ThreadItem {
   return {
     id: `detected_${ev.id}`,
@@ -2133,7 +2132,7 @@ export function spawnThreadFromEvent(ev: IncomingEvent): ThreadItem {
     title: ev.title,
     capability: ev.capability,
     status: 'analyzing',
-    severity: ev.severity ?? 'high',
+    severity: ev.severity ?? (ev.risk ? 'high' : 'medium'),
     event: ev.title.endsWith('.') ? ev.title : `${ev.title}.`,
     assessment: ev.assessment ?? 'Assessing impact and weighing options before recommending a plan.',
     recommendation: ev.recommendation ?? 'Prepare a recommended plan for your approval.',

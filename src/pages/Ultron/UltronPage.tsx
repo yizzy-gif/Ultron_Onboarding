@@ -81,8 +81,9 @@ interface UltronPageProps {
   onStop: (threadId: string) => void;
   /** Close the case detail and return to the Live landing. */
   onClose: () => void;
-  /** Fired when a risk signal surfaces on the Live landing — opens a New case. */
-  onDetectRisk: (event: IncomingEvent) => void;
+  /** Fired when a risk or action-required signal surfaces on Live — opens an
+   *  unread New case. */
+  onDetectEvent: (event: IncomingEvent) => void;
   /** Report that a New case animated in on the deck — the sidebar New group fills
    *  in lockstep with the reveal. */
   onRevealNew: (threadId: string) => void;
@@ -93,7 +94,7 @@ interface UltronPageProps {
 const CLOSE_MS = 280;
 
 export function UltronPage({
-  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onCompleteRun, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectRisk,
+  threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onCompleteRun, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectEvent,
   onRevealNew,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
@@ -270,7 +271,7 @@ export function UltronPage({
             T; opening the deck swaps that feed slot for the actionable cards while
             Ultron's orb stays put in the hero above. */}
         <LiveLanding
-          onDetectRisk={onDetectRisk}
+          onDetectEvent={onDetectEvent}
           deckActive={deckOpen}
           deck={deckOpen ? (
             <NewCaseDeck
@@ -520,6 +521,12 @@ const Scroll = styled.div`
   padding: 0 var(--space-5) var(--space-5);
   scrollbar-gutter: stable;
 
+  /* Mobile shell: a phone has no room to spend on a 20px gutter — pull the
+     inset to 12px so the cards keep their measure. */
+  @media (max-width: 767px) {
+    padding: 0 var(--space-3) var(--space-3);
+  }
+
   /* Bottom dissolve so thread content fades into the dock / page foot as it
      scrolls out. The top stays solid: the pinned event card's bg-primary panel
      (see StickyEvent) now covers the space above it, so content scrolling up
@@ -541,6 +548,13 @@ const Scroll = styled.div`
 const ActionDock = styled.div`
   flex-shrink: 0;
   padding: var(--space-6) var(--space-5) var(--space-5);
+
+  /* Mobile shell: the dock's screen-edge insets follow the scroller down to
+     12px; the top keeps its full gap — it separates dock from feed, not dock
+     from screen. */
+  @media (max-width: 767px) {
+    padding: var(--space-6) var(--space-3) var(--space-3);
+  }
 `;
 
 const ActionDockInner = styled.div`
@@ -618,4 +632,3 @@ const Empty = styled.div`
   font-size: var(--text-sm);
   color: var(--color-content-tertiary);
 `;
-

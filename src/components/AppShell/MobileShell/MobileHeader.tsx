@@ -8,13 +8,17 @@
 
 import { forwardRef, type MouseEventHandler } from 'react';
 import styled from 'styled-components';
+import { Badge } from 'alloy-design-system';
 import { BreadcrumbButton } from './BreadcrumbButton';
 import { UltronWordmark } from '../../../pages/Ultron/UltronWordmark';
 
-const HeaderRoot = styled.header<{ $hidden: boolean }>`
+const HeaderRoot = styled.header<{ $hidden: boolean; $foreground?: boolean }>`
   position: sticky;
   top: 0;
-  z-index: 800;
+  /* Keep the selector and its unread count visible during the guided event
+     spotlight. The spotlight scrim sits at 1000; once the unread event is
+     opened (or the sheet closes), the header returns to its normal shell layer. */
+  z-index: ${p => (p.$foreground ? 1003 : 800)};
   background: var(--color-bg-primary, #ffffff);
   border-bottom: 1px solid var(--color-border-opaque, #e8eaee);
   padding-top: env(safe-area-inset-top);
@@ -69,6 +73,12 @@ const Wordmark = styled(UltronWordmark)`
   font-size: var(--text-lg, 1.125rem);
 `;
 
+const UnreadEventBadge = styled(Badge)`
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 6px;
+`;
+
 const Separator = styled.span`
   flex: 0 0 auto;
   font-size: 14px;
@@ -98,6 +108,7 @@ interface MobileHeaderProps {
   tertiaryLabel?: string | null;
   openOverlay: 'drawer' | 'secondary' | 'persona' | null;
   hidden: boolean;
+  unreadEventCount?: number;
   onHamburgerClick: MouseEventHandler<HTMLButtonElement>;
   onSecondaryClick: MouseEventHandler<HTMLButtonElement>;
   onTertiaryClick?: MouseEventHandler<HTMLButtonElement>;
@@ -110,6 +121,7 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
     tertiaryLabel,
     openOverlay,
     hidden,
+    unreadEventCount = 0,
     onHamburgerClick,
     onSecondaryClick,
     onTertiaryClick,
@@ -117,7 +129,11 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
   ref,
 ) {
   return (
-    <HeaderRoot ref={ref} $hidden={hidden}>
+    <HeaderRoot
+      ref={ref}
+      $hidden={hidden}
+      $foreground={unreadEventCount > 0 && openOverlay === 'secondary'}
+    >
       <Row>
         <IconButton onClick={onHamburgerClick} aria-label="Open navigation">
           <HamburgerIcon size={18} />
@@ -126,9 +142,16 @@ export const MobileHeader = forwardRef<HTMLElement, MobileHeaderProps>(function 
         <Crumbs>
           <BreadcrumbButton
             label={secondaryLabel ?? (primaryLabel === 'Ultron' ? <Wordmark /> : primaryLabel)}
+            trailingSlot={unreadEventCount > 0 ? (
+              <UnreadEventBadge variant="warning" aria-hidden="true">
+                {unreadEventCount > 99 ? '99+' : unreadEventCount}
+              </UnreadEventBadge>
+            ) : undefined}
             isOpen={openOverlay === 'secondary'}
             onClick={onSecondaryClick}
-            ariaLabel="Choose a section"
+            ariaLabel={unreadEventCount > 0
+              ? `Choose a section, ${unreadEventCount} new unread ${unreadEventCount === 1 ? 'event' : 'events'}`
+              : 'Choose a section'}
           />
           {tertiaryLabel && (
             <>

@@ -112,6 +112,7 @@ export function SpotlightedRow({
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor) return;
+    let entranceFrame: number | null = null;
 
     const placePrompt = () => {
       // Measure the real row rendered inside the placeholder, not the menu
@@ -128,12 +129,31 @@ export function SpotlightedRow({
       });
     };
 
-    placePrompt();
+    // The mobile navigation row mounts inside a bottom sheet that is still
+    // translating up from below the viewport. ResizeObserver does not report
+    // transform-only movement, so a one-time measurement can strand the
+    // elevated spotlight copy at the sheet's off-screen starting position.
+    // Follow the short sheet entrance, then leave scroll/resize observation to
+    // maintain the settled position.
+    const entranceStartedAt = performance.now();
+    const followEntrance = (now: number) => {
+      placePrompt();
+      if (now - entranceStartedAt < 360) {
+        entranceFrame = window.requestAnimationFrame(followEntrance);
+      } else {
+        entranceFrame = null;
+      }
+    };
+    entranceFrame = window.requestAnimationFrame(followEntrance);
+
     const observer = new ResizeObserver(placePrompt);
     observer.observe(anchor);
     window.addEventListener('resize', placePrompt);
     window.addEventListener('scroll', placePrompt, true);
     return () => {
+      if (entranceFrame !== null) {
+        window.cancelAnimationFrame(entranceFrame);
+      }
       observer.disconnect();
       window.removeEventListener('resize', placePrompt);
       window.removeEventListener('scroll', placePrompt, true);

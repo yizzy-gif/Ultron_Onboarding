@@ -34,9 +34,8 @@ type Action =
 function reducer(state: ThreadItem[], action: Action): ThreadItem[] {
   switch (action.type) {
     case 'detect':
-      // A risk Ultron just flagged on the Live landing → opens a fresh analyzing
-      // case at the head of the list (it sorts to the top of New). Idempotent:
-      // a given signal only ever opens one case.
+      // An attention event Ultron just flagged on Live → opens a fresh analyzing
+      // case at the head of New. Idempotent: one case per incoming signal.
       return state.some(t => t.id === action.thread.id)
         ? state
         : [action.thread, ...state];
@@ -105,9 +104,9 @@ export interface UltronStore {
    *  answer) — drives the composer's stop button and the foot typing indicator. */
   replyingIds: string[];
   setSelectedId: (id: string) => void;
-  /** Open a fresh analyzing case from a risk signal detected on the Live
-   *  landing. Idempotent per signal; the user stays on Live while it lands. */
-  detectRisk: (event: IncomingEvent) => void;
+  /** Open a fresh unread analyzing case from a risk or action-required signal
+   *  detected on Live. Idempotent per signal; the user stays on Live. */
+  detectEvent: (event: IncomingEvent) => void;
   /** Surface one authored demo event on demand. Used by the welcome flow so
    *  Maria Ellis's shift drop arrives as the post-schedule test run. */
   surfaceDemoThread: (threadId: string) => void;
@@ -243,11 +242,14 @@ export function useUltronStore(): UltronStore {
   const revealNew = (threadId: string) =>
     setRevealedNewIds(prev => (prev.includes(threadId) ? prev : [...prev, threadId]));
 
-  // A risk surfaced on the Live landing → Ultron opens a case. Lands a fresh
-  // analyzing case at the top of New (orbit/working mark + typing title in the
-  // sidebar). The user stays on the Live landing; the New badge ticks up.
-  const detectRisk = (event: IncomingEvent) => {
-    dispatch({ type: 'detect', thread: spawnThreadFromEvent(event) });
+  // A risk or action-required signal surfaced on Live → Ultron opens an unread
+  // case at the top of New while the operator stays on the landing.
+  const detectEvent = (event: IncomingEvent) => {
+    const thread = spawnThreadFromEvent(event);
+    dispatch({ type: 'detect', thread });
+    // Live owns this arrival, so there is no New-deck entrance callback to mark
+    // it revealed. Record it immediately for the nav row and unread badge.
+    revealNew(thread.id);
   };
 
   const surfaceDemoThread = (threadId: string) => {
@@ -380,5 +382,5 @@ export function useUltronStore(): UltronStore {
     replyTimers.current[threadId] = timer;
   };
 
-  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectRisk, surfaceDemoThread, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved, revealedNewIds, revealNew };
+  return { threads, groups, selectedId, selectedThread, selectedStage, stageById, viewedIds, analyzedIds, outboundByThread, chatByThread, replyingIds, setSelectedId, detectEvent, surfaceDemoThread, decide, commit, completeRun, sendMessage, stopReply, refine, saveWorkflow, pendingWorkflowIds, toggleWorkflowSave, savedWorkflowIds, markWorkflowSaved, revealedNewIds, revealNew };
 }

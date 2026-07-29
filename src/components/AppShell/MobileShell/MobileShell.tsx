@@ -54,9 +54,16 @@ export interface MobileShellProps {
   onNewPage?: () => void;
   /** Opens the current module's navigation sheet for a guided event handoff. */
   openSecondaryNav?: boolean;
+  /** Shows an unread-event count beside the current module selector. */
+  unreadEventCount?: number;
 
   children: ReactNode;
 }
+
+/** Let the navigation sheet finish sliding into place before the stronger
+ *  full-screen spotlight takes over. This includes the 220ms sheet entrance
+ *  plus a short settling beat so the two motions read as separate steps. */
+const GUIDED_SPOTLIGHT_DELAY_MS = 340;
 
 /* Exactly the viewport, not "at least" it. Every page this shell hosts owns its
    full height and scrolls its own body (the welcome thread, the case page, the
@@ -108,10 +115,12 @@ export function MobileShell(props: MobileShellProps) {
     onHome,
     onNewPage,
     openSecondaryNav,
+    unreadEventCount,
     children,
   } = props;
 
   const [overlay, setOverlay] = useState<'drawer' | 'secondary' | 'persona' | null>(null);
+  const [guidedSpotlightReady, setGuidedSpotlightReady] = useState(false);
 
   const scrollDir = useScrollDirection({ deadZonePx: 8, topThresholdPx: 20 });
   const headerHidden = overlay === null && scrollDir === 'down';
@@ -126,7 +135,21 @@ export function MobileShell(props: MobileShellProps) {
   const open = (o: typeof overlay) => setOverlay(o);
 
   useEffect(() => {
-    if (openSecondaryNav) setOverlay('secondary');
+    if (!openSecondaryNav) {
+      setGuidedSpotlightReady(false);
+      return;
+    }
+
+    // The phone-capture handoff has three distinct beats: App owns the initial
+    // delay, this shell slides the navigation sheet open, and only after that
+    // entrance settles do its row and dimmed coaching layer appear.
+    setGuidedSpotlightReady(false);
+    setOverlay('secondary');
+    const timer = window.setTimeout(() => {
+      setGuidedSpotlightReady(true);
+    }, GUIDED_SPOTLIGHT_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
   }, [openSecondaryNav]);
 
   // Reused by every dismiss path (scrim, ESC, selection)
@@ -140,6 +163,7 @@ export function MobileShell(props: MobileShellProps) {
         tertiaryLabel={personaLabel}
         openOverlay={overlay}
         hidden={headerHidden}
+        unreadEventCount={unreadEventCount}
         onHamburgerClick={() => open('drawer')}
         onSecondaryClick={() => {
           // The crumb opens the current module's sections; a module without
@@ -160,6 +184,7 @@ export function MobileShell(props: MobileShellProps) {
           onSelect={close}
           onHome={onHome}
           onNewPage={onNewPage}
+          spotlightEnabled={guidedSpotlightReady}
         />
       )}
 

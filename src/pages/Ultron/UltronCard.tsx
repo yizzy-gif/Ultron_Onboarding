@@ -31,6 +31,7 @@ import { ActivityTrail, ActivityTrailCards, SessionActions, synthClock, Typewrit
 import { AgentMark } from './AgentMark';
 import { UltronComposer } from './UltronComposer';
 import type { UltronComposerHandle } from './UltronComposer';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 
 /** How soon the first work step appears after the operator's reply — a short
  *  beat so the response feels acknowledged immediately, before the remaining
@@ -318,6 +319,9 @@ interface UltronActionCardProps {
 }
 
 export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow, saved = false, saveIntent = false, onToggleSaveWorkflow, savedConversationally = false, onSend, replying = false, onStop, flat = false }: UltronActionCardProps) {
+  // On the phone the offer card's trailing CTA compresses to an icon-only check
+  // (its label rides the aria-label) so the question keeps the row's width.
+  const isMobile = useIsMobile();
   // The decision-card pill reads as "on" when the play is already saved or the
   // operator has flagged it to save on resolve (the deferred-save intent).
   const wantsSave = saved || saveIntent;
@@ -416,9 +420,25 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
             {lineDone && (
               <OfferCardActions>
                 {workflowSaved ? (
-                  <Pill variant="primary" size="sm" disabled leadingArtwork={<CheckIcon size={14} />}>
-                    Saved
-                  </Pill>
+                  isMobile ? (
+                    <SaveCheckButton variant="primary" size="sm" disabled iconOnly aria-label="Saved">
+                      <CheckIcon size={14} />
+                    </SaveCheckButton>
+                  ) : (
+                    <Pill variant="primary" size="sm" disabled leadingArtwork={<CheckIcon size={14} />}>
+                      Saved
+                    </Pill>
+                  )
+                ) : isMobile ? (
+                  <SaveCheckButton
+                    variant="primary"
+                    size="sm"
+                    iconOnly
+                    aria-label="Save workflow"
+                    onClick={() => { setSavePending(true); onSaveWorkflow(thread); }}
+                  >
+                    <CheckIcon size={14} />
+                  </SaveCheckButton>
                 ) : (
                   <Pill variant="primary" size="sm" onClick={() => { setSavePending(true); onSaveWorkflow(thread); }}>
                     Save workflow
@@ -2369,6 +2389,12 @@ const OfferCard = styled.div<{ $saved?: boolean }>`
     }
   `}
 
+  /* Mobile: the CTA compresses to a circled check, so it rides the question's
+     own row — wrapping would drop a 32px circle onto its own line for no gain. */
+  @media (max-width: 767px) {
+    flex-wrap: nowrap;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     transition: box-shadow var(--duration-base) var(--ease-out);
     &:hover { transform: none; }
@@ -2424,6 +2450,14 @@ const OfferCardIcon = styled.span`
   ${OfferCard}:not([data-saved]):hover & { color: var(--color-content-inverse); }
   ${OfferCard}:not([data-saved]):hover &::after { opacity: 1; }
 
+  /* Mobile shell: there's no hover to reveal the aurora, so a live offer wears
+     it outright — the badge is the card's one point of colour either way. The
+     saved card still stands down below. */
+  @media (max-width: 767px) {
+    ${OfferCard}:not([data-saved]) & { color: var(--color-content-inverse); }
+    ${OfferCard}:not([data-saved]) &::after { opacity: 1; }
+  }
+
   /* Saved (settled) card: the glyph quiets to the disabled tone alongside its
      label and button. */
   ${OfferCard}[data-saved] & { color: var(--color-content-disabled); }
@@ -2452,6 +2486,21 @@ const OfferCardActions = styled(Actions)`
   margin-top: 0;
   margin-left: auto;
   flex-wrap: nowrap;
+`;
+
+/* The offer CTA as the phone renders it: a circled check trailing the question
+   on its own row. A fixed square keeps it a true circle — the Pill's mobile
+   44px touch floor otherwise stretches the 32px-wide icon button into a
+   capsule, so the square is pinned AT that floor rather than under it. */
+const SaveCheckButton = styled(Pill)`
+  && {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+  align-self: center;
+  flex-shrink: 0;
 `;
 
 /* As the operator answers, the bordered decision card is replaced by this plain
@@ -2564,6 +2613,17 @@ const OutboundBubble = styled.div<{ $animate?: boolean }>`
   padding: var(--space-2) var(--space-4);
   background: var(--color-bg-secondary);
   border-radius: 16px;
+
+  /* Dark: lifted a couple of steps off bg-secondary so the bubble stands off
+     the page — kept in step with the Welcome thread's operator bubble. */
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) & {
+      background: color-mix(in srgb, var(--color-content-primary) 10%, var(--color-bg-secondary));
+    }
+  }
+  :root.dark & {
+    background: color-mix(in srgb, var(--color-content-primary) 10%, var(--color-bg-secondary));
+  }
   animation: ${bubbleIn} 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
   /* A pre-loaded (Done) mount shows the sent bubble in place, no slide-in. */
   ${p => p.$animate === false && 'animation: none;'}

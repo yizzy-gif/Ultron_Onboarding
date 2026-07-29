@@ -59,12 +59,14 @@ const Caret = styled.span`
 
 interface BreadcrumbButtonProps {
   label: ReactNode;
+  /** Optional compact control placed immediately before the dropdown caret. */
+  trailingSlot?: ReactNode;
   isOpen?: boolean;
   onClick: (e: MouseEvent<HTMLButtonElement>) => void;
   ariaLabel?: string;
 }
 
-export function BreadcrumbButton({ label, isOpen, onClick, ariaLabel }: BreadcrumbButtonProps) {
+export function BreadcrumbButton({ label, trailingSlot, isOpen, onClick, ariaLabel }: BreadcrumbButtonProps) {
   return (
     <TriggerButton
       type="button"
@@ -75,6 +77,7 @@ export function BreadcrumbButton({ label, isOpen, onClick, ariaLabel }: Breadcru
       aria-label={ariaLabel}
     >
       <Label>{label}</Label>
+      {trailingSlot}
       <Caret>
         <ChevronDownIcon size={14} />
       </Caret>

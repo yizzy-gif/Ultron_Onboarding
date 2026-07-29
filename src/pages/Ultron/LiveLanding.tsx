@@ -80,8 +80,8 @@ type CardPhase = 'entering' | 'in' | 'leaving';
  *  showing a progress loader ("coming in"), then — as it moves up — reveals one
  *  of these:
  *    · none   — "No action needed" (the calm majority)
- *    · action — "Action required"  (a nudge: a quiet blue dot)
- *    · risk   — "Risk detected"    (the hot one: orange Pulse mark; escalates) */
+ *    · action — "Action required"  (blue Pulse mark; escalates to unread New)
+ *    · risk   — "Risk detected"    (orange Pulse mark; escalates to unread New) */
 type CardOutcome = 'none' | 'action' | 'risk';
 
 interface FeedCard {
@@ -96,10 +96,10 @@ interface FeedCard {
 }
 
 interface LiveLandingProps {
-  /** Fired the moment a "Risk detected" signal surfaces in the feed (its
-   *  entering tick) — escalates it into a fresh New case. Each signal fires at
-   *  most once. */
-  onDetectRisk?: (event: IncomingEvent) => void;
+  /** Fired the moment a "Risk detected" or "Action required" signal surfaces
+   *  in the feed — escalates it into a fresh unread New case. Each signal fires
+   *  at most once. */
+  onDetectEvent?: (event: IncomingEvent) => void;
   /** True while the New-case deck (press T) is open. The resting landing UI —
    *  ambient activity feed swaps out for the deck (passed as `deck`) in the same
    *  slot, while Ultron's orb stays put in the hero. */
@@ -110,14 +110,15 @@ interface LiveLandingProps {
   deck?: ReactNode;
 }
 
-export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLandingProps) {
+export function LiveLanding({ onDetectEvent, deckActive = false, deck }: LiveLandingProps) {
   const [i, setI] = useState(0);
 
   // Latest detect callback held in a ref so the conveyor effect below never
   // re-runs (and re-seeds) just because the parent handed a new closure.
-  const onDetectRef = useRef(onDetectRisk);
-  onDetectRef.current = onDetectRisk;
-  // Signals already escalated this session — each risk opens a case only once.
+  const onDetectRef = useRef(onDetectEvent);
+  onDetectRef.current = onDetectEvent;
+  // Signals already escalated this session — each attention event opens a case
+  // only once, even if the conveyor cycles past the same fixture again.
   const detectedRef = useRef<Set<string>>(new Set());
 
   // While a risk has just surfaced in the feed, the hero core blooms into its
@@ -178,7 +179,7 @@ export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLand
       return;
     }
     // While the deck is open the conveyor pauses — leave the current cards frozen
-    // (they fade out via CSS) and stop advancing / escalating new risks. Closing
+    // (they fade out via CSS) and stop advancing / escalating new events. Closing
     // the deck re-runs this effect and re-seeds a fresh feed.
     if (deckActive) return;
     // Reset the sequencer, then seed a full window already settled in place
@@ -206,6 +207,20 @@ export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLand
       pendingRef.current = null;
     }
     setCards(seeded);
+    // The landing opens mid-conveyor with several rows already settled. If any
+    // of those visible rows require attention, register them immediately too;
+    // otherwise Home can visibly say "Action required" while the unread badge
+    // remains at zero until a later tick.
+    seeded.forEach(card => {
+      if (
+        card.resolved &&
+        card.outcome !== 'none' &&
+        !detectedRef.current.has(card.event.id)
+      ) {
+        detectedRef.current.add(card.event.id);
+        onDetectRef.current?.(card.event);
+      }
+    });
 
     const timers: ReturnType<typeof setTimeout>[] = [];
     const t = setInterval(() => {
@@ -214,13 +229,15 @@ export function LiveLanding({ onDetectRisk, deckActive = false, deck }: LiveLand
       const outcome = outcomeFor(event);
 
       // The card that was loading at the bottom is now moving up: reveal its
-      // outcome. A "Risk detected" reveal is the detection moment — it pulses
-      // the hero core and escalates into a fresh New case (once per signal).
+      // outcome. Risk and action outcomes both escalate into an unread New case;
+      // only a risk also blooms the hero core into its alert state.
       const resolving = pendingRef.current;
       if (resolving && resolving.outcome === 'risk') {
         setRiskActive(true);
         if (riskTimerRef.current) clearTimeout(riskTimerRef.current);
         riskTimerRef.current = setTimeout(() => setRiskActive(false), 2800);
+      }
+      if (resolving && resolving.outcome !== 'none') {
         if (!detectedRef.current.has(resolving.event.id)) {
           detectedRef.current.add(resolving.event.id);
           onDetectRef.current?.(resolving.event);

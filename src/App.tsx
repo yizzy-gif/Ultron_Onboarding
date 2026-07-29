@@ -347,6 +347,18 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // Shared Ultron store (threads + grouping + selection) — drives both the
   // sidebar and the main detail view.
   const ultron = useUltronStore();
+  // The mobile header is the only persistent Ultron navigation on a phone.
+  // Signal any surfaced New case that has not been opened yet; setSelectedId
+  // records the view, so the mark clears as soon as the operator opens it.
+  const unreadNewEventCount = ultron.revealedNewIds.reduce((count, threadId) => {
+    const thread = ultron.threads.find(item => item.id === threadId);
+    const unread = Boolean(
+      thread &&
+      STATUS_SECTION[thread.status] === 'new' &&
+      !ultron.viewedIds.includes(threadId),
+    );
+    return count + (unread ? 1 : 0);
+  }, 0);
   // Welcome landing — the handoff shown right after onboarding: a chat thread
   // recapping what was set up, with Ultron asking what to take on next. Present
   // on fresh entry (introAnswers passed in); any nav action drops out of it, but
@@ -719,6 +731,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
         // The live-test handoff opens this sheet automatically on phones, where
         // the persistent desktop sidebar is replaced by mobile navigation.
         openSecondaryNav: eventSpotlight,
+        unreadEventCount: unreadNewEventCount,
       }}
     >
       {welcomeMounted && (
@@ -769,7 +782,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
           replyingIds={ultron.replyingIds}
           onStop={ultron.stopReply}
           onClose={() => { setHomeView('ultron'); setOnWelcome(false); setOnLive(true); }}
-          onDetectRisk={ultron.detectRisk}
+          onDetectEvent={ultron.detectEvent}
           onRevealNew={ultron.revealNew}
         />
       )}

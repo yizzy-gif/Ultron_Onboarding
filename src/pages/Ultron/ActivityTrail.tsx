@@ -1256,6 +1256,12 @@ const SublineToggle = styled.button`
   flex-shrink: 0;
   width: var(--space-5);
   height: var(--space-5);
+  /* The box is a touch wider than its glyph so there's something to press, which
+     centring would leave the glyph inset from the row's left edge — visibly adrift
+     of the headline directly above, since that starts on the edge itself. Pull the
+     box back by exactly that inset: the glyph lands on the headline's edge while
+     the pressable area keeps its size. */
+  margin-left: calc((var(--space-5) - var(--space-4)) / -2);
   color: var(--color-content-tertiary);
   cursor: pointer;
   transition: color var(--duration-base) var(--ease-out);
