@@ -2451,7 +2451,10 @@ const GroupMark = styled.span`
   width: var(--space-10);
   height: var(--space-10);
   border-radius: var(--radius-md);
-  background: var(--color-bg-tertiary);
+  /* Half-opaque white rather than a solid token: the read-out sits on
+     translucent glass, so letting the card through keeps the mark a lift in the
+     surface instead of a patch laid over it. */
+  background: rgb(255 255 255 / 0.5);
   color: var(--color-content-secondary);
 
   svg { flex-shrink: 0; }
@@ -2586,7 +2589,9 @@ const ConfiguredHead = styled.span`
   svg { flex-shrink: 0; color: var(--color-content-tertiary); }
 `;
 
-/* The checklist of what Ultron set up — one check-led line per item. */
+/* The checklist of what Ultron set up — one check-led line per item. No indent
+   of its own: the check takes the gear's column and the prose lands on the same
+   rail as the head's label, which is what squares the list with the title. */
 const ConfiguredList = styled.ul`
   margin: 0;
   padding: 0;

@@ -20,10 +20,12 @@ import {
   Users03Icon, ClockIcon, File04Icon, Tag,
   AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader,
 } from 'alloy-design-system';
+import type { TagColor } from 'alloy-design-system';
 import { mockUltronReply } from './Ultron/fixtures';
 import type { ActivityMilestone } from './Ultron/fixtures';
 import { ActivityTrailCards } from './Ultron/ActivityTrail';
 import { AgentMark } from './Ultron/AgentMark';
+import { PhoneCaptureCard } from './Ultron/UltronComposer';
 import { IntroBackdrop } from './Onboarding/IntroBackdrop';
 import { TeambridgeMark } from './Onboarding/TeambridgeMark';
 import { liquidGlass } from './Onboarding/glass';
@@ -84,8 +86,7 @@ type OpeningBeat = { kind: 'text'; text: string } | { kind: 'rosterCta' };
 type IntroPhase = 'delivering' | 'ready';
 
 /** Where the in-chat setup stands: Ultron is waiting on the roster, then the
- *  schedule, then the setup is done and the thread becomes a normal
- *  conversation while the test-run event is surfaced automatically. */
+ *  schedule, then the composer gives way to the phone-gated event launch. */
 type SetupStage = 'roster' | 'schedule' | 'done';
 type AccessModalMode = 'grant' | 'waitlist';
 
@@ -96,10 +97,10 @@ const REPLY_DELAY_MS = 1100;
 const THINK_MS = 440;
 /** Cadence of the typewriter pass on a text beat. Timers clamp at ~4ms and each
  *  tick costs a render, so the chunk size — not the interval — is what actually
- *  sets the speed; two characters a tick reads noticeably quicker than one
- *  without turning into a dump. */
+ *  sets the speed; four characters a tick keeps the welcome moving without
+ *  collapsing the reveal into a single dump. */
 const TYPE_CHAR_MS = 4;
-const TYPE_CHARS_PER_TICK = 2;
+const TYPE_CHARS_PER_TICK = 4;
 /** How long a freshly revealed character takes to fade up, and how many
  *  characters that leaves in flight behind the caret. Anything older than one
  *  fade has finished, so only this many need elements of their own. */
@@ -613,21 +614,16 @@ interface WelcomeThreadProps {
    *  static recap and became a working conversation (the app moves its nav
    *  entry from New to Working on this signal). */
   onContinued?: () => void;
-  /** Fired once the post-schedule test-run invitation lands. The app uses this
-   *  moment to reveal the Maria Ellis shift-drop event after a short beat. */
-  onTestRunReady?: () => void;
-  /** Incremented after the authored event finishes. The Welcome thread stays
-   *  mounted while the user works the event, so it owns the portaled phone
-   *  dialog without resetting the setup conversation. */
-  realWorkPromptSignal?: number;
+  /** Fired once the post-schedule phone capture is submitted. The app uses this
+   *  moment to reveal and spotlight the Maria Ellis shift-drop event. */
+  onPhoneSubmitted?: (phone: string) => void;
 }
 
 export function WelcomeThread({
   active = true,
   answers = NO_ANSWERS,
   onContinued,
-  onTestRunReady,
-  realWorkPromptSignal = 0,
+  onPhoneSubmitted,
 }: WelcomeThreadProps) {
   // Phones drop this page's two decorative layers entirely (see the render).
   const isMobile = useIsMobile();
@@ -640,6 +636,9 @@ export function WelcomeThread({
   const [replying, setReplying] = useState<string | null>(null);
   // Where the in-chat setup stands (roster ask → schedule ask → done).
   const [stage, setStage] = useState<SetupStage>('roster');
+  // The transformed composer settles into confirmation while the event reveal
+  // begins in the nav. The number itself remains inside PhoneCaptureCard.
+  const [eventPhoneCaptured, setEventPhoneCaptured] = useState(false);
   // Which way the roster came in — drives the roster card's variant.
   const [rosterSample, setRosterSample] = useState(false);
   // Collapse the roster intake the moment either a file or sample crew is
@@ -662,9 +661,7 @@ export function WelcomeThread({
   const [unlocked, setUnlocked] = useState(false);
   const [waitlistJoined, setWaitlistJoined] = useState(false);
   const [accessModalMode, setAccessModalMode] = useState<AccessModalMode>('grant');
-  // The grant ask lives in a blocking modal: opens once the authored test event
-  // has fully completed, closes via the X / backdrop / Escape, and closes itself
-  // shortly after a successful unlock.
+  // Legacy demo-only access dialog, still reachable through the M shortcut.
   const [grantOpen, setGrantOpen] = useState(false);
   // The welcome identity starts as a prominent hero lockup. It only settles
   // into the compact app-header size after an intentional user scroll.
@@ -719,7 +716,6 @@ export function WelcomeThread({
   const turnTimer = useRef<number | null>(null);
   const turnAdvance = useRef<(() => void) | null>(null);
   const grantTimer = useRef<number | null>(null);
-  const handledRealWorkPrompt = useRef(realWorkPromptSignal);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // How far the open mobile intake sheet reaches up the viewport. The thread
@@ -907,19 +903,6 @@ export function WelcomeThread({
     };
   }, [openingBeats, prefersReduced]);
 
-  // The completed Welcome event is the production trigger for this prompt.
-  // The signal can arrive while this keep-alive page is visually hidden; Alloy
-  // portals the Dialog to body, so it still appears over the resolved event.
-  useEffect(() => {
-    if (realWorkPromptSignal <= handledRealWorkPrompt.current) return;
-    handledRealWorkPrompt.current = realWorkPromptSignal;
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
-    setPhone('');
-    setUnlocked(false);
-    setWaitlistJoined(false);
-    setGrantOpen(true);
-  }, [realWorkPromptSignal]);
-
   // Demo shortcut: M opens whichever access-modal variant was selected last.
   // Ignore editable controls so typing a phone number or message never triggers it.
   useEffect(() => {
@@ -1093,8 +1076,8 @@ export function WelcomeThread({
 
   // The schedule landed (a file / pasted table) or was described (a shape) →
   // build the week, show it, then invite the operator to watch Ultron handle a
-  // live event. Once that invitation lands, the app reveals the event
-  // automatically after a short beat.
+  // live event. Once that invitation lands, the composer becomes the phone
+  // capture; only submitting it reveals the event in the nav.
   // `cardFile` follows the same rule as the roster's (see runRosterImport): only
   // a file the schedule drop zone took itself drives that card's upload state.
   /** Rebuild the shown week to a different sample shape, in place. This is a
@@ -1135,10 +1118,28 @@ export function WelcomeThread({
       {
         workingLabel: source.fileName ? 'Turning it into shifts…' : 'Building your week…',
         workingMs: WORKING_MS,
-        then: () => {
-          setStage('done');
-          onTestRunReady?.();
+        then: () => setStage('done'),
+      },
+    );
+  };
+
+  // The schedule is useful context, but it should not block the live-work
+  // preview. Acknowledge the choice in the conversation, then advance through
+  // the same completed-setup gate that reveals the phone capture card.
+  const skipSchedule = () => {
+    retireMobileUploader('schedule');
+    postOperator('Skip the schedule for now');
+    deliverTurn(
+      [
+        {
+          role: 'ultron',
+          text: 'No problem — we’ll skip the schedule for now. You can add it anytime. ' +
+            'Your setup is ready; add your mobile number below to launch a live Ultron event.',
         },
+      ],
+      {
+        workingLabel: 'Skipping the schedule for now…',
+        then: () => setStage('done'),
       },
     );
   };
@@ -1217,7 +1218,15 @@ export function WelcomeThread({
   // Roster: the sample-crew stand-in. Schedule: the vertical-appropriate week
   // shapes. Both dock inside their drop zone. Once setup is done the thread is
   // a plain conversation — no suggestion row above the composer.
-  const pills: { icon?: ComponentType<{ size?: number }>; label: string; onTap: () => void }[] =
+  const pills: {
+    icon?: ComponentType<{ size?: number }>;
+    label: string;
+    onTap: () => void;
+    /** Alloy's secondary emphasis — a filled pill rather than an outlined one.
+     *  Marks the row's opt-out as a different kind of choice from the shapes
+     *  beside it, which are all suggestions to take. */
+    secondary?: boolean;
+  }[] =
     replying !== null
       ? []
       : stage === 'roster'
@@ -1225,21 +1234,24 @@ export function WelcomeThread({
           { icon: Users03Icon, label: 'No roster handy? Use sample teammates', onTap: () => { postOperator('Use sample teammates'); runRosterSample(); } },
         ]
       : stage === 'schedule'
-      ? shapeChips.map(s => ({
-          icon: ClockIcon,
-          label: s,
-          onTap: () => { postOperator(s); runWeekBuild({ shape: s }); },
-        }))
+      ? [
+          ...shapeChips.map(s => ({
+            icon: ClockIcon,
+            label: s,
+            onTap: () => { postOperator(s); runWeekBuild({ shape: s }); },
+          })),
+          { label: 'Skip for now', onTap: skipSchedule, secondary: true },
+        ]
       : [];
 
   // While the setup is collecting a document, the stage's pills dock inside
   // the drop zone itself, under its browse button (FileUploader's footerSlot).
   const cardPills = stage !== 'done' && pills.length > 0 ? (
-    <CardPills aria-label="Suggestions">
-      {pills.map(({ icon: Icon, label, onTap }) => (
+    <CardPills aria-label={stage === 'schedule' ? 'Schedule options' : 'Suggestions'}>
+      {pills.map(({ icon: Icon, label, onTap, secondary }) => (
         // $browseSized: these dock directly under the drop zone's Browse button,
         // so they take its dimensions rather than the compact pill's.
-        <SuggestionPill key={label} type="button" $browseSized onClick={onTap}>
+        <SuggestionPill key={label} type="button" $browseSized $secondary={secondary} onClick={onTap}>
           {Icon && <Icon size={14} />}
           {label}
         </SuggestionPill>
@@ -1664,54 +1676,64 @@ export function WelcomeThread({
             </MarkFormLayer>
           </MarkMorphBox>
         </FootMarkRow>
-        <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
-          {attachments.length > 0 && (
-            <PendingFiles aria-label="Files to send">
-              {attachments.map(name => (
-                <FileChip key={name}>
-                  <File04Icon size={14} />
-                  {name}
-                  <ChipRemove
-                    type="button"
-                    aria-label={`Remove ${name}`}
-                    onClick={() => removeFile(name)}
-                  >
-                    <XCloseIcon size={12} />
-                  </ChipRemove>
-                </FileChip>
-              ))}
-            </PendingFiles>
-          )}
-          <InputRow>
-            <ActionSlot>
-              <ComposerAttachment state="idle" onSelect={addFiles} />
-            </ActionSlot>
-            <Field
-              rows={1}
-              value={draft}
-              placeholder={placeholder}
-              aria-label="Message Ultron"
-              inputMode="text"
-              autoComplete="off"
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-              }}
-              onPaste={e => {
-                // A file pasted straight into the composer stages as a chip,
-                // same as picking it with the paperclip.
-                const files = e.clipboardData?.files;
-                if (files && files.length > 0) {
-                  e.preventDefault();
-                  addFiles(files);
-                }
-              }}
-            />
-            <ActionSlot>
-              <ComposerSendButton state={canSend ? 'ready' : 'disabled-invalid'} onSend={send} />
-            </ActionSlot>
-          </InputRow>
-        </Composer>
+        {stage === 'done' ? (
+          <PhoneCaptureCard
+            captured={eventPhoneCaptured}
+            onSubmit={phoneNumber => {
+              setEventPhoneCaptured(true);
+              onPhoneSubmitted?.(phoneNumber);
+            }}
+          />
+        ) : (
+          <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
+            {attachments.length > 0 && (
+              <PendingFiles aria-label="Files to send">
+                {attachments.map(name => (
+                  <FileChip key={name}>
+                    <File04Icon size={14} />
+                    {name}
+                    <ChipRemove
+                      type="button"
+                      aria-label={`Remove ${name}`}
+                      onClick={() => removeFile(name)}
+                    >
+                      <XCloseIcon size={12} />
+                    </ChipRemove>
+                  </FileChip>
+                ))}
+              </PendingFiles>
+            )}
+            <InputRow>
+              <ActionSlot>
+                <ComposerAttachment state="idle" onSelect={addFiles} />
+              </ActionSlot>
+              <Field
+                rows={1}
+                value={draft}
+                placeholder={placeholder}
+                aria-label="Message Ultron"
+                inputMode="text"
+                autoComplete="off"
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+                }}
+                onPaste={e => {
+                  // A file pasted straight into the composer stages as a chip,
+                  // same as picking it with the paperclip.
+                  const files = e.clipboardData?.files;
+                  if (files && files.length > 0) {
+                    e.preventDefault();
+                    addFiles(files);
+                  }
+                }}
+              />
+              <ActionSlot>
+                <ComposerSendButton state={canSend ? 'ready' : 'disabled-invalid'} onSend={send} />
+              </ActionSlot>
+            </InputRow>
+          </Composer>
+        )}
       </ComposerWrap>
       )}
 
@@ -1834,14 +1856,39 @@ export function WelcomeThread({
 
 // ── Result cards ─────────────────────────────────────────────────────────────
 
+/* Each role's tag: the abbreviation a scheduler actually reads (the row's meta
+ * line already spells the title out), and a colour that holds across the list so
+ * the mix of a crew is legible at a glance rather than row by row.
+ *
+ * Every hue here is a plain identifier — yellow, orange and red stay out of it,
+ * because in this card family they mean expiring / needs-attention, and a role
+ * has no business borrowing that read. LPN and LVN share azure deliberately:
+ * they're the same licence under two states' names, so they never co-occur. */
+const ROLE_TAGS: Record<string, { short: string; color: TagColor }> = {
+  'Registered Nurse':            { short: 'RN',        color: 'blue' },
+  'Charge Nurse':                { short: 'Charge RN', color: 'pink' },
+  'Licensed Practical Nurse':    { short: 'LPN',       color: 'azure' },
+  'Licensed Vocational Nurse':   { short: 'LVN',       color: 'azure' },
+  'Certified Nursing Assistant': { short: 'CNA',       color: 'green' },
+  // Generated crews already carry short role labels; they're listed so their
+  // colour is deliberate rather than the neutral fallback.
+  RN:          { short: 'RN',        color: 'blue' },
+  LPN:         { short: 'LPN',       color: 'azure' },
+  CNA:         { short: 'CNA',       color: 'green' },
+  Caregiver:   { short: 'Caregiver', color: 'matcha' },
+  'Med Aide':  { short: 'Med Aide',  color: 'purple' },
+};
+
+/** An unmapped role keeps its own label — the non-healthcare verticals name
+ *  roles short already ("Forklift Op", "Event Staff") — and reads as neutral. */
+function roleTag(role: string): { short: string; color: TagColor } {
+  return ROLE_TAGS[role] ?? { short: role, color: 'neutral' };
+}
+
 /** The roster import result, delivered as its own Ultron message. Import
- *  variant: the "81 of 84" confidence stat, a preview of the people who came
- *  in clean, and the quarantined rows collapsed behind a review toggle.
- *  Sample variant: the generated crew, every row visibly tagged "Sample". */
+ *  variant: the "81 of 84" confidence stat and a preview of the people who came
+ *  in clean. Sample variant: the generated crew, every row tagged "Sample". */
 function RosterResultCard({ sample }: { sample: boolean }) {
-  // Collapsed by default — the count + alert toggle carry the signal, and the
-  // detail expands only when the admin wants to look.
-  const [reviewOpen, setReviewOpen] = useState(false);
   // The people list starts expanded (it's the reveal), but the whole card
   // header is a toggle — the chevron on its top right collapses the list back
   // to just the headline once the admin has seen it.
@@ -1878,31 +1925,30 @@ function RosterResultCard({ sample }: { sample: boolean }) {
 
       {peopleOpen && (
       <PeopleList id="welcome-roster-people" aria-label={sample ? 'Sample teammates' : 'Imported teammates'}>
-        {preview.map((w, i) => (
-          <PersonRow key={w.name} $i={i}>
-            <PersonAvatar aria-hidden="true">
-              {initials(w.name)}
-              <img
-                src={avatarPhoto(i)}
-                alt=""
-                loading="lazy"
-                onError={e => { e.currentTarget.style.display = 'none'; }}
-              />
-            </PersonAvatar>
-            <PersonWho>
-              <PersonName>{w.name}</PersonName>
-              <PersonMeta>{w.role} · {w.tenure}</PersonMeta>
-            </PersonWho>
-            {w.credentialStatus === 'expiring' ? (
-              <Tag size="sm" variant="subtle" color="yellow" dot>
-                {w.credential} · {w.expiresInDays}d
-              </Tag>
-            ) : (
-              <Tag size="sm" variant="subtle" color="green">{w.credential}</Tag>
-            )}
-            {sample && <Tag size="sm" variant="outline" color="purple">Sample</Tag>}
-          </PersonRow>
-        ))}
+        {preview.map((w, i) => {
+          const role = roleTag(w.role);
+          return (
+            <PersonRow key={w.name} $i={i}>
+              <PersonAvatar aria-hidden="true">
+                {initials(w.name)}
+                <img
+                  src={avatarPhoto(i)}
+                  alt=""
+                  loading="lazy"
+                  onError={e => { e.currentTarget.style.display = 'none'; }}
+                />
+              </PersonAvatar>
+              <PersonWho>
+                <PersonName>{w.name}</PersonName>
+                {/* Location, not role — the tag on the right now carries the role,
+                    so this line adds the other fact the file brought in. */}
+                <PersonMeta>{w.location} · {w.tenure}</PersonMeta>
+              </PersonWho>
+              <Tag size="sm" variant="subtle" color={role.color}>{role.short}</Tag>
+              {sample && <Tag size="sm" variant="outline" color="purple">Sample</Tag>}
+            </PersonRow>
+          );
+        })}
         <PeopleMore>
           {sample
             ? `+ ${more} more · every one tagged “Sample”`
@@ -1911,40 +1957,6 @@ function RosterResultCard({ sample }: { sample: boolean }) {
       </PeopleList>
       )}
 
-      {/* The messy rows quarantine at the bottom of the card — flagged for
-          review, never blocking the import. Only the real-import variant has
-          them; a generated crew has nothing to hold back. */}
-      {!sample && (
-        <ReviewList>
-          <ReviewToggle
-            type="button"
-            aria-expanded={reviewOpen}
-            aria-controls="welcome-roster-review-rows"
-            onClick={() => setReviewOpen(o => !o)}
-          >
-            <ReviewHead>{QUARANTINE_ROWS.length} rows kept for review</ReviewHead>
-            <ReviewTrail>
-              <ReviewAlert aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewAlert>
-              <ReviewChevron $open={reviewOpen} aria-hidden="true">
-                <ChevronDownIcon size={16} />
-              </ReviewChevron>
-            </ReviewTrail>
-          </ReviewToggle>
-          {reviewOpen && (
-            <ReviewRows id="welcome-roster-review-rows" aria-label="Rows held for review">
-              {QUARANTINE_ROWS.map(row => (
-                <ReviewRow key={row.where}>
-                  <ReviewRowIcon aria-hidden="true"><AlertTriangleIcon size={15} /></ReviewRowIcon>
-                  <ReviewText>
-                    <ReviewWhere>{row.where}</ReviewWhere>
-                    <ReviewReason>{row.reason}</ReviewReason>
-                  </ReviewText>
-                </ReviewRow>
-              ))}
-            </ReviewRows>
-          )}
-        </ReviewList>
-      )}
     </ResultCard>
   );
 }
@@ -3282,51 +3294,8 @@ const PeopleMore = styled.span`
   @media (prefers-reduced-motion: reduce) { animation: none; }
 `;
 
-/* Quarantined rows / waiting problems — flagged, never blocking. Collapsed by
-   default behind a toggle whose trailing side carries the alert + chevron. */
-const ReviewList = styled.div`
-  display: flex;
-  flex-direction: column;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border-opaque);
-`;
-
-/* The header row is the toggle: label on the lead, alert + chevron trailing. */
-const ReviewToggle = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  width: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 2px;
-  }
-`;
-
-const ReviewHead = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-content-tertiary);
-`;
-
-/* Trailing cluster — the warning marker beside a chevron that rotates on open. */
-const ReviewTrail = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-`;
-
+/* Waiting problems — flagged, never blocking. Collapsed by default behind the
+   week card's header toggle, which carries the alert + chevron. */
 const ReviewAlert = styled.span`
   display: inline-flex;
   color: var(--color-warning-content);
@@ -3370,37 +3339,11 @@ const ReviewRow = styled.div`
   }
 `;
 
-/* Leading tile — the person list's avatar slot, here carrying the warning glyph. */
-const ReviewRowIcon = styled.span`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: var(--space-8);
-  height: var(--space-8);
-  border-radius: var(--radius-full);
-  background: var(--color-warning-bg);
-  color: var(--color-warning-content);
-`;
-
 const ReviewText = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
-`;
-
-const ReviewWhere = styled.span`
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-content-secondary);
-`;
-
-const ReviewReason = styled.span`
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  line-height: var(--line-height-relaxed);
-  color: var(--color-content-primary);
 `;
 
 /* Week-card header row — the stat line on the lead, the waiting-problems
@@ -4244,7 +4187,7 @@ const CardPills = styled.div`
 /* `$browseSized` matches Alloy's Browse-File action in the drop zone — 32px tall,
    16px sides, --text-xs — and holds those at every width, since that button does
    not shrink on narrow screens the way the compact pill does. */
-const SuggestionPill = styled.button<{ $active?: boolean; $browseSized?: boolean }>`
+const SuggestionPill = styled.button<{ $active?: boolean; $browseSized?: boolean; $secondary?: boolean }>`
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -4276,6 +4219,22 @@ const SuggestionPill = styled.button<{ $active?: boolean; $browseSized?: boolean
       color: var(--color-content-primary);
     }
   }
+
+  /* Alloy's secondary emphasis — filled, borderless, full-strength label. The
+     default pill above is Alloy's tertiary (white + border), so this reads as
+     the medium-emphasis sibling in the same row rather than another outline.
+     Written after the base hover so it wins on both rest and hover. */
+  ${p => p.$secondary && css`
+    background: var(--color-bg-secondary);
+    border-color: transparent;
+    color: var(--color-content-primary);
+
+    &:hover {
+      background: var(--color-bg-tertiary);
+      border-color: var(--color-border-hover);
+      color: var(--color-content-primary);
+    }
+  `}
 
   &:focus-visible {
     outline: 2px solid var(--color-border-focus);

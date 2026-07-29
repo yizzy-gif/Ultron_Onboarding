@@ -57,8 +57,6 @@ const BOTTOM_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
 
 const EVENT_SPOTLIGHT_DELAY_MS = 3000;
 const EVENT_STANDBY_DELAY_MS = 4000;
-/** Let the resolved outcome land before the real-work invitation covers it. */
-const REAL_WORK_PROMPT_DELAY_MS = 650;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -369,21 +367,12 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // the orange pulse used for a New event standing by for review.
   const [eventMarkLoading, setEventMarkLoading] = useState(false);
   const eventStandbyTimer = useRef<number | null>(null);
-  // A monotonically increasing signal keeps the access dialog owned by the
-  // persistent Welcome thread while allowing the event page to open it.
-  const [realWorkPromptSignal, setRealWorkPromptSignal] = useState(0);
-  const realWorkPromptShown = useRef(false);
-  const realWorkPromptTimer = useRef<number | null>(null);
-
   useEffect(() => () => {
     if (eventSpotlightTimer.current !== null) {
       window.clearTimeout(eventSpotlightTimer.current);
     }
     if (eventStandbyTimer.current !== null) {
       window.clearTimeout(eventStandbyTimer.current);
-    }
-    if (realWorkPromptTimer.current !== null) {
-      window.clearTimeout(realWorkPromptTimer.current);
     }
   }, []);
 
@@ -416,18 +405,6 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     }, EVENT_STANDBY_DELAY_MS);
   };
 
-  const completeUltronRun = (threadId: string) => {
-    ultron.completeRun(threadId);
-    // Maria is the authored Welcome test run and has no follow-up stage. The
-    // callback fires only after its final execution beat, so this is the true
-    // end of the event flow—not merely the approval click that starts it.
-    if (threadId !== 'shift_drop_maria' || realWorkPromptShown.current) return;
-    realWorkPromptShown.current = true;
-    realWorkPromptTimer.current = window.setTimeout(() => {
-      realWorkPromptTimer.current = null;
-      setRealWorkPromptSignal(signal => signal + 1);
-    }, REAL_WORK_PROMPT_DELAY_MS);
-  };
   // Live landing — Ultron's resting presence (large Circle mark, no case open).
   // Ultron's normal home: the user rests here, opening any case in the sidebar
   // leaves it, and clicking the identity returns to it. Starts inactive while the
@@ -753,8 +730,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
             active={homeView === 'ultron' && onWelcome}
             answers={introAnswers}
             onContinued={() => setWelcomeContinued(true)}
-            onTestRunReady={scheduleTestRunReveal}
-            realWorkPromptSignal={realWorkPromptSignal}
+            onPhoneSubmitted={scheduleTestRunReveal}
           />
         </WelcomeThreadKeepAlive>
       )}
@@ -783,7 +759,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
           selectedId={ultron.selectedId}
           onDecide={ultron.decide}
           onAction={ultron.commit}
-          onCompleteRun={completeUltronRun}
+          onCompleteRun={ultron.completeRun}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
           pendingWorkflowIds={ultron.pendingWorkflowIds}
