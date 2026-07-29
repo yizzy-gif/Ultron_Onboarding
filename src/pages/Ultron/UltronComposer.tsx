@@ -14,7 +14,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { Button, ArrowNarrowUpIcon, CheckCircleIcon } from 'alloy-design-system';
+import {
+  Button, ArrowNarrowUpIcon, CheckCircleIcon, XCloseIcon,
+} from 'alloy-design-system';
 
 export interface UltronComposerHandle {
   /** Focus the input — the prompt card's "Other" answer hands off here so the
@@ -58,12 +60,18 @@ interface PhoneCaptureCardProps {
   captured?: boolean;
   /** Receive the entered digits. */
   onSubmit: (phone: string) => void;
+  /** Dismiss the submitted card and restore the regular composer. */
+  onDismiss: () => void;
 }
 
 /** Prominent conversion surface used when Welcome finishes building the week.
  *  It occupies the composer's exact slot, so the chat input visibly transforms
  *  into this card without blocking or navigating away from the conversation. */
-export function PhoneCaptureCard({ captured = false, onSubmit }: PhoneCaptureCardProps) {
+export function PhoneCaptureCard({
+  captured = false,
+  onSubmit,
+  onDismiss,
+}: PhoneCaptureCardProps) {
   const [phone, setPhone] = useState('');
   const phoneRef = useRef<HTMLInputElement>(null);
   const phoneReady = phone.length >= 10;
@@ -83,6 +91,15 @@ export function PhoneCaptureCard({ captured = false, onSubmit }: PhoneCaptureCar
   return (
     <PhoneCallout onSubmit={submitPhone} aria-label="See Ultron handle real work">
       <CalloutGlow aria-hidden="true" />
+      {captured && (
+        <PhoneCloseButton
+          type="button"
+          aria-label="Close phone number confirmation"
+          onClick={onDismiss}
+        >
+          <XCloseIcon size={18} />
+        </PhoneCloseButton>
+      )}
       <CalloutCopy>
         <CalloutEyebrow><LivePulse aria-hidden="true" /> YOUR SETUP IS READY</CalloutEyebrow>
         <CalloutTitle>Ready to see the real work?</CalloutTitle>
@@ -273,10 +290,44 @@ const CalloutGlow = styled.span`
   pointer-events: none;
 `;
 
+const PhoneCloseButton = styled.button`
+  position: absolute;
+  z-index: 1;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: rgb(226 232 255 / 76%);
+  background: rgb(255 255 255 / 10%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    color var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+
+  &:hover {
+    color: #fff;
+    background: rgb(255 255 255 / 18%);
+    border-color: rgb(255 255 255 / 32%);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #a7f3d0;
+    outline-offset: 2px;
+  }
+`;
+
 const CalloutCopy = styled.div`
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  padding-right: var(--space-8);
 `;
 
 const CalloutEyebrow = styled.span`

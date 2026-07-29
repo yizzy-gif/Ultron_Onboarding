@@ -636,9 +636,10 @@ export function WelcomeThread({
   const [replying, setReplying] = useState<string | null>(null);
   // Where the in-chat setup stands (roster ask → schedule ask → done).
   const [stage, setStage] = useState<SetupStage>('roster');
-  // The transformed composer settles into confirmation while the event reveal
-  // begins in the nav. The number itself remains inside PhoneCaptureCard.
+  // Submission launches the live event while the capture card settles into a
+  // confirmation. Closing that confirmation restores the composer.
   const [eventPhoneCaptured, setEventPhoneCaptured] = useState(false);
+  const [eventPhoneCaptureDismissed, setEventPhoneCaptureDismissed] = useState(false);
   // Which way the roster came in — drives the roster card's variant.
   const [rosterSample, setRosterSample] = useState(false);
   // Collapse the roster intake the moment either a file or sample crew is
@@ -1226,12 +1227,26 @@ export function WelcomeThread({
      *  Marks the row's opt-out as a different kind of choice from the shapes
      *  beside it, which are all suggestions to take. */
     secondary?: boolean;
+    /** Leaves the pill row on a phone and becomes a full-width secondary Alloy
+     *  button above the browse action — the stage's one alternative to handing
+     *  over a file, given the same weight as the file itself. */
+    mobileCta?: boolean;
+    /** Shorter copy for that button. A pill can afford to explain itself mid-row
+     *  ("No roster handy? …"); a full-width button under the same question reads
+     *  as the answer to it, so the preamble only repeats what's above. */
+    mobileLabel?: string;
   }[] =
     replying !== null
       ? []
       : stage === 'roster'
       ? [
-          { icon: Users03Icon, label: 'No roster handy? Use sample teammates', onTap: () => { postOperator('Use sample teammates'); runRosterSample(); } },
+          {
+            icon: Users03Icon,
+            label: 'No roster handy? Use sample teammates',
+            mobileLabel: 'Use sample teammates',
+            mobileCta: true,
+            onTap: () => { postOperator('Use sample teammates'); runRosterSample(); },
+          },
         ]
       : stage === 'schedule'
       ? [
@@ -1240,23 +1255,41 @@ export function WelcomeThread({
             label: s,
             onTap: () => { postOperator(s); runWeekBuild({ shape: s }); },
           })),
-          { label: 'Skip for now', onTap: skipSchedule, secondary: true },
+          { label: 'Skip for now', onTap: skipSchedule, secondary: true, mobileCta: true },
         ]
       : [];
 
   // While the setup is collecting a document, the stage's pills dock inside
   // the drop zone itself, under its browse button (FileUploader's footerSlot).
+  // On a phone the flagged alternative leaves the pill row: it becomes a
+  // full-width Alloy button in the browse CTA's own mobile geometry, stacked
+  // directly above it, so the card closes on a two-button group — hand over a
+  // file, or take the way past it.
+  const ctaPill = isMobile ? pills.find(p => p.mobileCta) : undefined;
+  const rowPills = ctaPill ? pills.filter(p => p !== ctaPill) : pills;
   const cardPills = stage !== 'done' && pills.length > 0 ? (
-    <CardPills aria-label={stage === 'schedule' ? 'Schedule options' : 'Suggestions'}>
-      {pills.map(({ icon: Icon, label, onTap, secondary }) => (
-        // $browseSized: these dock directly under the drop zone's Browse button,
-        // so they take its dimensions rather than the compact pill's.
-        <SuggestionPill key={label} type="button" $browseSized $secondary={secondary} onClick={onTap}>
-          {Icon && <Icon size={14} />}
-          {label}
-        </SuggestionPill>
-      ))}
-    </CardPills>
+    // FooterStack: Alloy's footerSlot is a centring row, so the pills and the
+    // full-width action need their own column to stack instead of sitting
+    // side by side.
+    <FooterStack>
+      {rowPills.length > 0 && (
+        <CardPills aria-label={stage === 'schedule' ? 'Schedule options' : 'Suggestions'}>
+          {rowPills.map(({ icon: Icon, label, onTap, secondary }) => (
+            // $browseSized: these dock directly under the drop zone's Browse button,
+            // so they take its dimensions rather than the compact pill's.
+            <SuggestionPill key={label} type="button" $browseSized $secondary={secondary} onClick={onTap}>
+              {Icon && <Icon size={14} />}
+              {label}
+            </SuggestionPill>
+          ))}
+        </CardPills>
+      )}
+      {ctaPill && (
+        <FooterCta type="button" variant="secondary" size="sm" onClick={ctaPill.onTap}>
+          {ctaPill.mobileLabel ?? ctaPill.label}
+        </FooterCta>
+      )}
+    </FooterStack>
   ) : null;
 
   const placeholder =
@@ -1676,13 +1709,14 @@ export function WelcomeThread({
             </MarkFormLayer>
           </MarkMorphBox>
         </FootMarkRow>
-        {stage === 'done' ? (
+        {stage === 'done' && !eventPhoneCaptureDismissed ? (
           <PhoneCaptureCard
             captured={eventPhoneCaptured}
             onSubmit={phoneNumber => {
               setEventPhoneCaptured(true);
               onPhoneSubmitted?.(phoneNumber);
             }}
+            onDismiss={() => setEventPhoneCaptureDismissed(true)}
           />
         ) : (
           <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
@@ -2264,7 +2298,7 @@ const PageHeaderTitle = styled.span<{ $condensed: boolean }>`
   line-height: ${p => p.$condensed ? 'var(--line-height-relaxed)' : 'var(--line-height-tight)'};
   font-weight: var(--font-weight-semibold);
   letter-spacing: ${p => p.$condensed ? 'var(--tracking-wide)' : 'var(--tracking-tight)'};
-  color: #000;
+  color: var(--color-content-primary);
   white-space: nowrap;
   transition:
     top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
@@ -2658,7 +2692,9 @@ const schedulePreviewShiftIn = keyframes`
 const SchedulePreview = styled.div`
   position: absolute;
   z-index: 2;
-  top: var(--space-4);
+  /* Matches the drop zone's own (space-8) padding, so the art sits as far off
+     the card's top edge as the footer pills sit off its bottom. */
+  top: var(--space-8);
   left: 50%;
   display: flex;
   flex-direction: column;
@@ -2677,7 +2713,9 @@ const SchedulePreview = styled.div`
   pointer-events: none;
 
   @media (max-width: 600px) {
-    top: var(--space-2);
+    /* Same rule as above at the sheet's scale: the art's offset matches the
+       sheet's (space-4) bottom inset rather than hugging the top edge. */
+    top: var(--space-4);
     width: 218px;
     padding: 6px 8px 7px;
   }
@@ -2772,8 +2810,10 @@ const IntakeUploader = styled(FileUploader)`
   }
 
   &&[data-schedule-flow][data-state='empty'] {
-    min-height: 204px;
-    padding-top: 82px;
+    /* Both track the week art's 16px move down to the space-8 inset — the
+       reserved band above the text block and the card's floor grow with it. */
+    min-height: 220px;
+    padding-top: 98px;
     gap: var(--space-4);
   }
 
@@ -2804,22 +2844,36 @@ const IntakeUploader = styled(FileUploader)`
     font-weight: var(--font-weight-semibold);
   }
 
-  /* Keep the welcome intake action visually consistent with the rounded
-     suggestion controls below it without affecting footer actions. Alloy's
-     primary fill (--color-bg-inverse-primary) resolves to the page surface
-     inside this card, so the button disappears against the dark drop zone —
-     pin the inverse pair to the content/bg tokens, which flip correctly with
-     the theme (white fill on dark, dark fill on light). */
+  /* Only sizing here — the browse action keeps Alloy's own primary style (fill,
+     radius, hover). It used to pin the fill to the content/bg tokens because
+     Alloy's dark mode forced primary onto a surface token, which made the button
+     vanish against this dark card; that override is gone from Alloy, so its
+     inverse pair now flips correctly on its own and re-stating it here would
+     only drift from the design system. */
   &&[data-state='empty'] > button {
     min-width: 112px;
     padding-inline: var(--space-4);
-    border-radius: var(--radius-full);
-    background: var(--color-content-primary);
-    color: var(--color-bg-primary);
   }
 
-  &&[data-state='empty'] > button:hover:not(:disabled) {
-    background: var(--color-content-secondary);
+  /* On phones the browse action closes the uploader's stack: alternatives stay
+     above it, and the primary action stretches to a full-width thumb target —
+     full width and a 44px floor only, so it still reads as an Alloy button.
+     CSS order changes only the visual layout; the native file input and desktop
+     DOM order remain untouched. */
+  @media (max-width: 767px) {
+    &&[data-state='empty'] > button {
+      order: 2;
+      align-self: stretch;
+      width: 100%;
+      min-width: 0;
+      min-height: 44px;
+      padding-inline: var(--space-5);
+      font-size: var(--text-sm);
+    }
+
+    &&[data-state='empty'] > button + div {
+      order: 1;
+    }
   }
 
   & > *:not(input) {
@@ -2839,6 +2893,19 @@ const IntakeUploader = styled(FileUploader)`
       gap: var(--space-3);
     }
 
+    /* When alternatives are present, preserve a little extra separation before
+       the final full-width action. */
+    &&[data-state='empty']:has(> button + div) > button {
+      margin-top: var(--space-2);
+    }
+
+    /* Except in the guided flows, where the alternative is itself a full-width
+       button sitting immediately above browse: the two are one button group, so
+       the column's own 8px gap is the whole distance between them. */
+    &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty']:has(> button + div) > button {
+      margin-top: 0;
+    }
+
     &&[data-roster-flow][data-state='empty'] {
       min-height: 166px;
       padding: 76px var(--space-4) var(--space-4);
@@ -2846,8 +2913,9 @@ const IntakeUploader = styled(FileUploader)`
     }
 
     &&[data-schedule-flow][data-state='empty'] {
-      min-height: 176px;
-      padding: 70px var(--space-4) var(--space-4);
+      /* Tracks the week art's 8px move down to the space-4 inset. */
+      min-height: 184px;
+      padding: 78px var(--space-4) var(--space-4);
       gap: var(--space-2);
     }
 
@@ -2975,6 +3043,19 @@ const Bubble = styled.div`
     background: var(--color-bg-secondary);
     border-radius: var(--radius-xl);
     font-weight: var(--font-weight-medium);
+
+    /* Dark: bg-secondary sits one step off the page, which reads as mud rather
+       than a bubble. Lift it a couple of steps by folding a tenth of the text
+       colour into the fill — quieter than an interactive pill, but unmistakably
+       a bubble. (Mirrored on the event page's OutboundBubble.) */
+    @media (prefers-color-scheme: dark) {
+      :root:not(.light) & {
+        background: color-mix(in srgb, var(--color-content-primary) 10%, var(--color-bg-secondary));
+      }
+    }
+    :root.dark & {
+      background: color-mix(in srgb, var(--color-content-primary) 10%, var(--color-bg-secondary));
+    }
   }
 
   /* Inbound (Ultron) — no bubble wrap, just prose (matches the event page). */
@@ -2982,14 +3063,12 @@ const Bubble = styled.div`
     max-width: 100%;
   }
 
-  @media (max-width: 600px) {
-    /* One step up from the desktop --text-sm. The thread is the whole screen on
-       a phone and its prose is the longest read in the flow — 14px is a UI size,
-       fine in a dense sidebar next to other chrome, but thin for paragraphs held
-       at arm's length. 16px is the phone's reading size. Line height comes down
-       a touch from --line-height-relaxed to stop the taller type from spreading
-       each turn out. */
-    font-size: var(--text-base);
+  @media (max-width: 767px) {
+    /* Match the app's mobile-shell breakpoint. Message prose is general reading
+       content here, so keep every inbound and outbound turn at a definite 16px
+       throughout the full mobile range instead of falling back to the 14px
+       desktop UI size between 601px and 767px. */
+    font-size: 16px;
     line-height: 1.45;
 
     &[data-from='operator'] {
@@ -4123,10 +4202,13 @@ const ComposerWrap = styled.div`
 
   @media (max-width: 600px) {
     gap: var(--space-2);
+    /* Bottom matches the sides, so the dock's content sits centred in its own
+       chrome rather than tight against the screen edge; the safe-area inset
+       still wins on hardware that needs more. */
     padding:
       var(--space-2)
       var(--space-4)
-      max(var(--space-3), env(safe-area-inset-bottom));
+      max(var(--space-4), env(safe-area-inset-bottom));
   }
 
   @media (prefers-reduced-motion: reduce) { animation: none; }
@@ -4178,6 +4260,31 @@ const CardPills = styled.div`
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-2);
+`;
+
+/* Stacks the suggestion row over the opt-out inside Alloy's footerSlot (itself
+   a centring row, which would otherwise lay the two side by side). */
+const FooterStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+`;
+
+/* A stage's alternative to handing over a file, as the phone renders it: a real
+   Alloy Button stacked directly above the browse CTA inside the drop zone's
+   footer slot, so the two close the card as one button group — the secondary
+   fill keeping it a clear step below "browse". Sizing only (it matches the browse
+   action's full width and 44px thumb floor); fill, radius and hover stay Alloy's.
+   The top gap applies only when a pill row precedes it — the roster stage
+   promotes its single pill, leaving this button alone in the slot. */
+const FooterCta = styled(Button)`
+  width: 100%;
+  min-height: 44px;
+  font-size: var(--text-sm);
+
+  &:not(:first-child) {
+    margin-top: var(--space-2);
+  }
 `;
 
 /* A quiet chip on the page surface (the app context calls for the standard
@@ -4233,6 +4340,21 @@ const SuggestionPill = styled.button<{ $active?: boolean; $browseSized?: boolean
       background: var(--color-bg-tertiary);
       border-color: var(--color-border-hover);
       color: var(--color-content-primary);
+    }
+
+    /* Dark: bg-secondary flips to a near-page dark, sinking the fill into the
+       card behind it. Mirror the Alloy Button's own dark secondary — a slate
+       mid-fill that stands forward of the surface — via the slate semantic
+       aliases, which resolve to that same fill (and its hover step) in dark. */
+    @media (prefers-color-scheme: dark) {
+      :root:not(.light) & {
+        background: var(--color-slate-bg-secondary);
+        &:hover { background: var(--color-slate-bg-primary); }
+      }
+    }
+    :root.dark & {
+      background: var(--color-slate-bg-secondary);
+      &:hover { background: var(--color-slate-bg-primary); }
     }
   `}
 

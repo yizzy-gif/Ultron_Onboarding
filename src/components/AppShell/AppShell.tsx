@@ -41,6 +41,8 @@ export interface AppShellProps
     onNewPage?: () => void;
     /** Opens the Ultron navigation sheet when a guided event is spotlighted. */
     openSecondaryNav?: boolean;
+    /** Shows an unread-event count beside the mobile module selector. */
+    unreadEventCount?: number;
   };
 }
 
@@ -67,6 +69,7 @@ export function AppShell(props: AppShellProps) {
         onHome={nav.onHome}
         onNewPage={nav.onNewPage}
         openSecondaryNav={nav.openSecondaryNav}
+        unreadEventCount={nav.unreadEventCount}
       >
         {props.children}
       </MobileShell>

@@ -15,7 +15,7 @@ export interface UseScrollDirectionOptions {
   deadZonePx?: number;
   /** Don't return 'down' until scrollY exceeds this. Default 20. */
   topThresholdPx?: number;
-  /** Element to observe. Default: window. */
+  /** Element to observe. Default: every scroller in the document (see below). */
   target?: HTMLElement | null;
 }
 
@@ -25,22 +25,31 @@ export function useScrollDirection({
   target,
 }: UseScrollDirectionOptions = {}): ScrollDirection {
   const [direction, setDirection] = useState<ScrollDirection>(null);
-  const lastYRef = useRef<number>(0);
+  // Baseline scroll position per scroller. Without an explicit target the hook
+  // hears from many elements, so each keeps its own baseline — mixing them
+  // would read a switch between scrollers as a huge phantom delta.
+  const lastYsRef = useRef(new WeakMap<EventTarget, number>());
 
   useEffect(() => {
-    const getY = () =>
-      target
-        ? target.scrollTop
-        : typeof window !== 'undefined'
-          ? window.scrollY
-          : 0;
+    const lastYs = lastYsRef.current;
 
-    lastYRef.current = getY();
+    const yOf = (t: EventTarget): number =>
+      t === document || t === window
+        ? document.scrollingElement?.scrollTop ?? 0
+        : (t as HTMLElement).scrollTop ?? 0;
 
-    const onScroll = () => {
-      const y = getY();
-      const delta = y - lastYRef.current;
-
+    const onScroll = (e: Event) => {
+      const t = target ?? e.target;
+      if (!t) return;
+      const y = yOf(t);
+      if (!lastYs.has(t)) {
+        // First sighting of this scroller — record a baseline, judge nothing.
+        lastYs.set(t, y);
+        return;
+      }
+      const delta = y - lastYs.get(t)!;
+      // Hold the baseline through sub-threshold noise so a slow, continuous
+      // scroll still accumulates into a real delta.
       if (Math.abs(delta) < deadZonePx) return;
 
       if (delta > 0 && y > topThresholdPx) {
@@ -48,16 +57,21 @@ export function useScrollDirection({
       } else if (delta < 0) {
         setDirection('up');
       }
-      lastYRef.current = y;
+      lastYs.set(t, y);
     };
 
-    const listenerTarget: EventTarget =
-      target ?? (typeof window !== 'undefined' ? window : ({} as EventTarget));
-
-    listenerTarget.addEventListener?.('scroll', onScroll, { passive: true });
-    return () => {
-      listenerTarget.removeEventListener?.('scroll', onScroll);
-    };
+    // An explicit target is observed directly. Otherwise listen on the document
+    // in the CAPTURE phase: scroll events don't bubble, but capture still visits
+    // the document first — the one place that hears every scroller. That matters
+    // here because the mobile shell's pages each scroll an inner column (the
+    // welcome thread, the case feed), so the window itself never scrolls.
+    if (target) {
+      target.addEventListener('scroll', onScroll, { passive: true });
+      return () => target.removeEventListener('scroll', onScroll);
+    }
+    if (typeof document === 'undefined') return;
+    document.addEventListener('scroll', onScroll, { passive: true, capture: true });
+    return () => document.removeEventListener('scroll', onScroll, { capture: true });
   }, [deadZonePx, topThresholdPx, target]);
 
   return direction;
