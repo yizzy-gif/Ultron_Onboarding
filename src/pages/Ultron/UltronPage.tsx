@@ -14,7 +14,7 @@ import styled, { keyframes, css } from 'styled-components';
 import type { ChatMessage, ThreadItem, ThreadStatus } from './types';
 import { SEVERITY_RANK, isPurpleRow, composerPlaceholder } from './ultronShared';
 import { UltronCard, UltronActionCard, UltronActivityCards, UltronAnalyzingTrigger } from './UltronCard';
-import { UltronComposer } from './UltronComposer';
+import { UltronComposer, PhoneCaptureCard } from './UltronComposer';
 import type { UltronComposerHandle } from './UltronComposer';
 import { LiveLanding } from './LiveLanding';
 import { NewCaseDeck } from './NewCaseDeck';
@@ -87,15 +87,33 @@ interface UltronPageProps {
   /** Report that a New case animated in on the deck — the sidebar New group fills
    *  in lockstep with the reveal. */
   onRevealNew: (threadId: string) => void;
+  /** Fired once an event page's run has played all the way out: its save-as-workflow
+   *  surface has landed, which is the last thing the completed run puts on screen. */
+  onRunCompleted?: (threadId: string) => void;
+  /** The case whose page is still holding the guided phone ask. Its event header
+   *  shows alone, with the capture card in place of the run below it, until the
+   *  number lands or the card is closed. Null once neither is pending. */
+  phoneGateThreadId?: string | null;
+  /** The number has been taken; the card is settling into its confirmation. */
+  phoneGateCaptured?: boolean;
+  onPhoneGateSubmit?: (phone: string) => void;
+  onPhoneGateClose?: () => void;
 }
 
 /** How long the close animation plays before the page swaps to Live. Kept in
  *  sync with the `pageOut` keyframe duration below. */
 const CLOSE_MS = 280;
 
+/** Beat between the event page opening and the phone ask arriving on it. Long
+ *  enough that the header is read as the page's own content first, and the card
+ *  as something that then lands on top of it — at 0 they would arrive as one
+ *  layout and the ask would look like part of the event. */
+const PHONE_GATE_POP_MS = 620;
+
 export function UltronPage({
   threads, stageById, section, analyzedIds, outboundByThread, chatByThread, selectedId, onDecide, onAction, onCompleteRun, onRefinement, onSaveWorkflow, pendingWorkflowIds, onToggleSaveWorkflow, savedWorkflowIds, onSend, replyingIds, onStop, onClose, onDetectEvent,
-  onRevealNew,
+  onRevealNew, onRunCompleted,
+  phoneGateThreadId = null, phoneGateCaptured = false, onPhoneGateSubmit, onPhoneGateClose,
 }: UltronPageProps) {
   // While true, the paged case detail plays its exit animation; once it finishes
   // we hand off to the parent, which swaps the page to the Live landing.
@@ -262,6 +280,22 @@ export function UltronPage({
     ['needs_approval', 'recommended', 'unresolved', 'monitoring'].includes(pagedThread.status))
     || !!pagedThread?.analysisResult;
 
+  // The guided handoff's phone ask, held on this one case's page: the event header
+  // arrives on its own, the ask lands on top of it a beat later, and the run —
+  // trail, prompt card, composer — stays folded behind it until it's answered or
+  // closed. Scoped to the paged view, since that's the only one that shows a
+  // single case with a foot of its own.
+  const phoneGated = paged && !!phoneGateThreadId && pagedCurrentId === phoneGateThreadId;
+  const [phoneGateIn, setPhoneGateIn] = useState(false);
+  useEffect(() => {
+    if (!phoneGated) { setPhoneGateIn(false); return; }
+    // Already answered on a previous visit to the page? Then the card is a
+    // confirmation, not an entrance — it belongs on screen immediately.
+    if (phoneGateCaptured) { setPhoneGateIn(true); return; }
+    const timer = window.setTimeout(() => setPhoneGateIn(true), PHONE_GATE_POP_MS);
+    return () => window.clearTimeout(timer);
+  }, [phoneGated, phoneGateCaptured]);
+
   // Live — the default landing: Ultron's resting presence, a large Circle
   // identity mark centered in the page (no feed, no dock).
   if (section === 'live') {
@@ -351,12 +385,26 @@ export function UltronPage({
                     onSaveWorkflow={onSaveWorkflow}
                   />
                 </StickyEvent>
+                {/* The guided phone ask takes the trail's place while it stands, so
+                    the page opens as the header alone and the card pops in over the
+                    space the run will fill. Answering or closing it mounts the trail
+                    below, which then plays its own reveal — the event arriving as the
+                    reward for the ask rather than behind it. */}
+                {phoneGated ? phoneGateIn && (
+                  <PhoneGateSlot>
+                    <PhoneCaptureCard
+                      captured={phoneGateCaptured}
+                      onSubmit={phone => onPhoneGateSubmit?.(phone)}
+                      onDismiss={() => onPhoneGateClose?.()}
+                    />
+                  </PhoneGateSlot>
+                ) : null}
                 {/* One accumulating trail across analyzing → awaiting → executing →
                     resolved. While analyzing it runs live (the reasoning streams in
                     with the working mark); the analysis steps are part of the same
                     group, so there's no separate analyzing card. Keyed by case id so
                     it remounts only when the case changes, not when it advances. */}
-                {(analyzing || awaitingDecision || executing || resolved || monitoring || workflowReady) && (
+                {!phoneGated && (analyzing || awaitingDecision || executing || resolved || monitoring || workflowReady) && (
                   <UltronActivityCards
                     key={thread.id}
                     thread={thread}
@@ -386,6 +434,9 @@ export function UltronPage({
                         onSend={text => onSend(dockThread.id, text)}
                         replying={replyingIds.includes(dockThread.id)}
                         onStop={() => onStop(dockThread.id)}
+                        /* The run's own finish line — only the paged view reports it,
+                           since the event page is where a run is walked through. */
+                        onOfferShown={() => onRunCompleted?.(dockThread.id)}
                       />
                     ) : undefined}
                   />
@@ -425,7 +476,9 @@ export function UltronPage({
           stacked above the always-present chat composer, so every event page is a
           complete chat interface — free-text replies alongside the action pills.
           The bottom dissolve is handled by the Scroll mask above. */}
-      {paged && pagedCurrentId && pagedThread && (
+      {/* No foot while the phone ask stands: the card is the page's only action,
+          and a composer under it would offer a way past the gate it holds. */}
+      {paged && pagedCurrentId && pagedThread && !phoneGated && (
         <ActionDock>
           <ActionDockInner>
             {/* Ultron's thread-level presence mark pins here, just above the composer
@@ -483,13 +536,20 @@ const Page = styled.div<{ $closing?: boolean; $static?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
-  /* Cancel the shell's ContentMain bottom padding for Ultron only: this page
-     owns its full height and snaps the action dock / bottom fade to the very
-     foot. Reclaim the 32px the padding carves off the content box, then pull the
-     margin box back up by the same amount so it adds no scroll overflow. */
-  height: calc(100% + var(--space-8));
-  margin-bottom: calc(-1 * var(--space-8));
+  height: 100%;
   min-height: 0;
+
+  /* Cancel the desktop shell's ContentMain bottom padding for Ultron only: this
+     page owns its full height and snaps the action dock / bottom fade to the
+     very foot. Reclaim the 32px the padding carves off the content box, then
+     pull the margin box back up by the same amount so it adds no scroll
+     overflow. Desktop-only because only that shell carries the padding — on the
+     mobile shell the same 32px made the page taller than the viewport, letting
+     the whole app scroll under the sticky header. */
+  @media (min-width: 768px) {
+    height: calc(100% + var(--space-8));
+    margin-bottom: calc(-1 * var(--space-8));
+  }
   overflow: hidden;
   font-family: var(--font-sans);
   color: var(--color-content-primary);
@@ -606,9 +666,17 @@ const StickyEvent = styled.div`
 
   /* The pinned header reads as a neutral surface in every tone/state — the
      colored status fill belongs to the scrolling list cards, not the focused
-     event header, so flatten any tonal background to the page surface here. */
+     event header, so flatten any tonal background to the page surface here.
+     It doesn't lift under the pointer either: the hover rise + shadow is a list
+     row's "open me" affordance, and this card is already open and pinned (its
+     toggle is a no-op), so the movement promised something it can't do. */
   & > div[data-tone] {
     background-color: var(--color-bg-primary);
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
   }
 
   /* Soft gradient just below the pinned card so content scrolling up dissolves
@@ -624,6 +692,14 @@ const StickyEvent = styled.div`
     background: linear-gradient(to bottom, var(--color-bg-primary), transparent);
     pointer-events: none;
   }
+`;
+
+/* Holds the phone ask in the space the run's activity trail will occupy. The top
+   margin clears the pinned header's dissolve gradient (space-6 tall), so the card
+   lands below that fade rather than under it. */
+const PhoneGateSlot = styled.div`
+  display: flex;
+  margin-top: var(--space-4);
 `;
 
 const Empty = styled.div`

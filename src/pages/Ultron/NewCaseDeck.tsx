@@ -14,11 +14,13 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import styled, { keyframes } from 'styled-components';
 import { Button, Eyebrow, Badge, XCloseIcon } from 'alloy-design-system';
 import type { ThreadItem } from './types';
 import { SEVERITY_RANK } from './ultronShared';
 import { UltronDeckCard } from './UltronCard';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 
 /** Beat between each card animating in. */
 const REVEAL_MS = 5000;
@@ -51,6 +53,11 @@ interface NewCaseDeckProps {
 export function NewCaseDeck({
   threads, stageById, onAction, onRefinement, onSaveWorkflow, onToggleSaveWorkflow, pendingWorkflowIds, savedWorkflowIds, onReveal, onClose,
 }: NewCaseDeckProps) {
+  // On a phone the deck's slot is what's left of the landing under the hero orb —
+  // not enough for a combined card, so the front card opened clipped. There it
+  // leaves the flow entirely and takes the screen as a layer above the app, over
+  // a blurred backdrop. Desktop keeps the deck in the landing's feed slot.
+  const isMobile = useIsMobile();
   // Freeze the deck order at open time (severity-first, then authored recency) so
   // acting on cases — which shifts their status out of New — doesn't reshuffle the
   // stack under the operator. We keep the thread ids and re-read each thread live.
@@ -126,8 +133,13 @@ export function NewCaseDeck({
 
   const remaining = order.length - actioned.size;
 
-  return (
-    <Region role="region" aria-label="New cases">
+  const region = (
+    <Region
+      role={isMobile ? 'dialog' : 'region'}
+      aria-modal={isMobile || undefined}
+      aria-label="New cases"
+      $overlay={isMobile}
+    >
       <Head>
         <Eyebrow>Needs your decision</Eyebrow>
         <Badge>{remaining}</Badge>
@@ -162,14 +174,50 @@ export function NewCaseDeck({
       </Scroll>
     </Region>
   );
+
+  if (!isMobile) return region;
+
+  // Portaled to the body so the layer is measured against the viewport rather
+  // than the case page — that page sets `will-change: transform`, which would
+  // otherwise make itself the containing block and re-clip the deck to the slot
+  // this move exists to escape.
+  return createPortal(
+    <>
+      <Backdrop onClick={onClose} aria-hidden="true" />
+      {region}
+    </>,
+    document.body,
+  );
 }
 
 // ── Styled ───────────────────────────────────────────────────────────────────
 
-/* The deck lives inside the landing's feed slot (see LiveLanding's DeckSlot), so
-   it's a plain in-flow column — no scrim, no overlay — that fills that region.
-   The orb hero sits above it, untouched. */
-const Region = styled.div`
+/* The layer's stacking floor on mobile. Above the shell header (800) — a deck
+   card mid-decision is the whole screen's business, so it covers the chrome
+   rather than tucking under it — and below the guided welcome spotlight (1000+),
+   which belongs to a flow the deck never shares a screen with. */
+const OVERLAY_Z = 900;
+
+/* Frosts the app behind the mobile layer. The blur is the separation; the wash
+   over it only keeps the white cards from floating on a near-white page. */
+const Backdrop = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: ${OVERLAY_Z};
+  background: color-mix(in srgb, var(--color-bg-primary) 55%, transparent);
+  backdrop-filter: blur(18px) saturate(115%);
+  -webkit-backdrop-filter: blur(18px) saturate(115%);
+  animation: fadeIn var(--duration-base, 200ms) var(--ease-out, ease) both;
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+`;
+
+/* On desktop the deck lives inside the landing's feed slot (see LiveLanding's
+   DeckSlot) — a plain in-flow column, no scrim, the orb hero above it untouched.
+   $overlay is the mobile treatment: the same column, promoted to a full-screen
+   layer over the frosted backdrop. */
+const Region = styled.div<{ $overlay?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -179,6 +227,19 @@ const Region = styled.div`
   /* The deck lives inside the landing Stage (which centers its text); reset to
      left so card titles / subtitles / prompts read as a normal left-aligned card. */
   text-align: left;
+
+  ${p => p.$overlay && `
+    position: fixed;
+    inset: 0;
+    z-index: ${OVERLAY_Z + 1};
+    /* The screen's own margin, plus whatever the hardware needs on top of it —
+       the layer covers the status bar and home indicator, so both insets are the
+       deck's to respect. */
+    padding:
+      calc(var(--space-4) + env(safe-area-inset-top))
+      var(--space-4)
+      calc(var(--space-4) + env(safe-area-inset-bottom));
+  `}
 `;
 
 /* The card stack scrolls within the slot; the header stays pinned above it. */

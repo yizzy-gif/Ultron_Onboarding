@@ -12,6 +12,12 @@ import { Badge } from 'alloy-design-system';
 import { BreadcrumbButton } from './BreadcrumbButton';
 import { UltronWordmark } from '../../../pages/Ultron/UltronWordmark';
 
+/* The control row's height, and with the bottom rule the header's whole layout
+   box before the notch inset. One constant so the scroll-away's negative margin
+   can't drift from the row it has to cancel. */
+const ROW_PX = 48;
+const HEADER_BOX = `calc(${ROW_PX + 1}px + env(safe-area-inset-top))`;
+
 const HeaderRoot = styled.header<{ $hidden: boolean; $foreground?: boolean }>`
   position: sticky;
   top: 0;
@@ -23,11 +29,18 @@ const HeaderRoot = styled.header<{ $hidden: boolean; $foreground?: boolean }>`
   border-bottom: 1px solid var(--color-border-opaque, #e8eaee);
   padding-top: env(safe-area-inset-top);
   transform: ${p => (p.$hidden ? 'translateY(-100%)' : 'translateY(0)')};
-  transition: transform 180ms ease-out;
+  /* The shell is a flex column, not a scroller, so a transform alone slides the
+     header out of sight while its box stays in flow — stranding a blank strip
+     the height of the header above the page. Take that box back as it leaves, on
+     the same curve, so the page rises with the header instead of behind it. */
+  margin-bottom: ${p => (p.$hidden ? `calc(-1 * ${HEADER_BOX})` : '0px')};
+  transition:
+    transform 180ms ease-out,
+    margin-bottom 180ms ease-out;
 `;
 
 const Row = styled.div`
-  height: 48px;
+  height: ${ROW_PX}px;
   display: flex;
   align-items: center;
   /* 4px between controls + the selector's 4px leading inset = an 8px

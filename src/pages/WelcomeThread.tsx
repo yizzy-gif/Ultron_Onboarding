@@ -12,11 +12,11 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentType, FormEvent, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, FormEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
+import styled, { css, keyframes } from 'styled-components';
 import {
-  Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, Dialog, XCloseIcon,
+  Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, XCloseIcon,
   Users03Icon, ClockIcon, File04Icon, Tag,
   AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader,
 } from 'alloy-design-system';
@@ -25,9 +25,7 @@ import { mockUltronReply } from './Ultron/fixtures';
 import type { ActivityMilestone } from './Ultron/fixtures';
 import { ActivityTrailCards } from './Ultron/ActivityTrail';
 import { AgentMark } from './Ultron/AgentMark';
-import { PhoneCaptureCard } from './Ultron/UltronComposer';
 import { IntroBackdrop } from './Onboarding/IntroBackdrop';
-import { TeambridgeMark } from './Onboarding/TeambridgeMark';
 import { liquidGlass } from './Onboarding/glass';
 import { MouseGlow } from '../components/MouseGlow';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -88,7 +86,6 @@ type IntroPhase = 'delivering' | 'ready';
 /** Where the in-chat setup stands: Ultron is waiting on the roster, then the
  *  schedule, then the composer gives way to the phone-gated event launch. */
 type SetupStage = 'roster' | 'schedule' | 'done';
-type AccessModalMode = 'grant' | 'waitlist';
 
 const REPLY_DELAY_MS = 1100;
 
@@ -118,30 +115,32 @@ const WORKING_MS = 2000;
 /** Gap between the parts of one multi-message Ultron turn (text → card → ask). */
 const TURN_GAP_MS = 950;
 
-/** How long the "you're set" confirmation shows before the modal closes itself. */
-const GRANT_CONFIRM_HOLD_MS = 1600;
-
 // ── Header morph ─────────────────────────────────────────────────────────────
-// The welcome identity lands as a hero lockup and settles to an app-bar once the
-// operator scrolls into the thread. These heights are shared with the header's
-// own CSS (see PageHeaderInner) so the scroll maths and the rendered height
-// cannot drift apart.
+// The welcome identity lands as a hero lockup and settles to an app-bar as the
+// operator scrolls into the thread — continuously, tied to the scroll position
+// rather than snapped at a threshold.
+//
+// The header is an overlay, not a row in the column: it takes no space in the
+// flow, and the thread reserves the hero's height as its own top padding. That
+// is what makes the morph smooth. While the header sat in flow, every change of
+// size reflowed the scroller — moving the content by however much the header
+// gave up, clamping the scroll position, and emitting scroll events that fed
+// straight back into the state driving the morph. Out of flow, the scroll range
+// never changes and the content only ever moves because the operator moved it.
+//
+// The two edges then track each other for free: the content's top sits at
+// (hero - scrollTop) and the header's bottom at (hero - progress × span), so
+// running the morph over exactly `span` px of scroll — the height the header has
+// to give — keeps the first line of prose pinned to the header's lower edge the
+// whole way down. Past that the header is a bar and the thread scrolls under it.
 const HEADER_HERO_PX = 249;
 const HEADER_BAR_PX = 68;
 const HEADER_HERO_SM_PX = 229;
 const HEADER_BAR_SM_PX = 47;
-/** Scrolled past this, a downward gesture settles the header to the bar. */
-const HEADER_CONDENSE_AT_PX = 56;
-/** Back within this of the top, an upward gesture restores the hero. */
-const HEADER_EXPAND_AT_PX = 8;
-/** Condensing hands the hero's ~180px back to the thread, which shortens the
- *  scroll by the same amount. If the thread has less overflow than that, the
- *  collapse would leave nothing to scroll — and with no scroll there is no way
- *  to scroll back up, so the header would stick small with the hero unreachable.
- *  Requiring more overflow than the hero's FULL height clears the reclaimed
- *  space with margin at both breakpoints, so there is always scroll left to
- *  carry the operator back to the top. */
-const HEADER_CONDENSE_MIN_OVERFLOW_PX = HEADER_HERO_PX;
+/** The scroll distance the morph runs over, per breakpoint: exactly the height
+ *  the header sheds, so the header's edge and the content's edge stay in step. */
+const HEADER_MORPH_SPAN_PX = HEADER_HERO_PX - HEADER_BAR_PX;
+const HEADER_MORPH_SPAN_SM_PX = HEADER_HERO_SM_PX - HEADER_BAR_SM_PX;
 /** Slack for "already at the end" — sub-pixel scroll positions and fractional
  *  layout heights mean the bottom rarely lands on an exact integer. */
 const SCROLL_END_EPSILON_PX = 8;
@@ -474,12 +473,6 @@ function looksLikePastedTable(text: string): boolean {
   return text.includes('\t') || text.trim().includes('\n');
 }
 
-/** Whether the thread has enough overflow that settling the header to the bar
- *  still leaves it scrollable — see HEADER_CONDENSE_MIN_OVERFLOW_PX. */
-function threadOutgrowsHero(el: HTMLElement): boolean {
-  return el.scrollHeight - el.clientHeight > HEADER_CONDENSE_MIN_OVERFLOW_PX;
-}
-
 // Two-letter initials for the teammate avatar tiles.
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -614,16 +607,18 @@ interface WelcomeThreadProps {
    *  static recap and became a working conversation (the app moves its nav
    *  entry from New to Working on this signal). */
   onContinued?: () => void;
-  /** Fired once the post-schedule phone capture is submitted. The app uses this
-   *  moment to reveal and spotlight the Maria Ellis shift-drop event. */
-  onPhoneSubmitted?: (phone: string) => void;
+  /** Fired once, when the in-chat setup reaches its completed gate — the test-run
+   *  invitation has landed. The app uses this moment to reveal and spotlight the
+   *  Maria Ellis shift-drop event; the phone ask now waits on that event's own
+   *  page rather than in this thread. */
+  onSetupComplete?: () => void;
 }
 
 export function WelcomeThread({
   active = true,
   answers = NO_ANSWERS,
   onContinued,
-  onPhoneSubmitted,
+  onSetupComplete,
 }: WelcomeThreadProps) {
   // Phones drop this page's two decorative layers entirely (see the render).
   const isMobile = useIsMobile();
@@ -636,10 +631,6 @@ export function WelcomeThread({
   const [replying, setReplying] = useState<string | null>(null);
   // Where the in-chat setup stands (roster ask → schedule ask → done).
   const [stage, setStage] = useState<SetupStage>('roster');
-  // Submission launches the live event while the capture card settles into a
-  // confirmation. Closing that confirmation restores the composer.
-  const [eventPhoneCaptured, setEventPhoneCaptured] = useState(false);
-  const [eventPhoneCaptureDismissed, setEventPhoneCaptureDismissed] = useState(false);
   // Which way the roster came in — drives the roster card's variant.
   const [rosterSample, setRosterSample] = useState(false);
   // Collapse the roster intake the moment either a file or sample crew is
@@ -656,17 +647,18 @@ export function WelcomeThread({
   // card can mark the current one. Null when the schedule arrived as a document
   // (no described shape) — then no pill is selected until one is tried.
   const [weekShape, setWeekShape] = useState<string | null>(null);
-  // Sales reach-out — the number the admin leaves for the grant unlock.
-  // DEMO ONLY: held in memory, never sent anywhere.
-  const [phone, setPhone] = useState('');
-  const [unlocked, setUnlocked] = useState(false);
-  const [waitlistJoined, setWaitlistJoined] = useState(false);
-  const [accessModalMode, setAccessModalMode] = useState<AccessModalMode>('grant');
-  // Legacy demo-only access dialog, still reachable through the M shortcut.
-  const [grantOpen, setGrantOpen] = useState(false);
-  // The welcome identity starts as a prominent hero lockup. It only settles
-  // into the compact app-header size after an intentional user scroll.
-  const [headerCondensed, setHeaderCondensed] = useState(false);
+  // The header's morph position, 0 (hero lockup) → 1 (app bar). Written straight
+  // to the element as a CSS variable rather than held in state: it changes with
+  // every scroll frame, and a re-render per frame is exactly the cost this design
+  // is trying to avoid. Every animated property reads it (see PageHeaderInner and
+  // the lockup pieces below).
+  const headerRef = useRef<HTMLElement>(null);
+  // Scroll the thread reserves at its foot so the morph can always finish. The
+  // collapse needs its full span of scroll to run; a thread with less than that
+  // of its own would strand the header part-collapsed, holding onto height it
+  // should have given back and leaving the operator scrolling into a stop. 0 for
+  // any thread whose own length already covers the span, which is most of them.
+  const [headerRunwayPx, setHeaderRunwayPx] = useState(0);
 
   // Landing choreography. Ultron's opening turn starts immediately and types
   // itself in one beat at a time; the composer and suggestions hold back until
@@ -706,9 +698,18 @@ export function WelcomeThread({
     : stage === 'schedule'
       ? dismissedMobileUploader.schedule
       : true;
+  /* On a phone the sheet is the intake's FIRST presentation, not a promotion it
+     earns once the turn settles: it stands as soon as the card it carries is
+     revealed, and the in-thread copy is what the operator gets AFTER dismissing
+     it — only then.
+     This used to also wait on `phase === 'ready'`, which flips a beat gap after
+     the roster CTA is revealed. That gap was long enough to watch: the drop zone
+     landed in the thread, then leapt out of it into the sheet.
+     No reveal test is needed here. Both surfaces render inside content that only
+     exists once revealed, so this answers "is an intake presented as a sheet on
+     this viewport", and each surface decides whether it has anything to present. */
   const mobileUploaderOpen =
     mobileManualAdvance
-    && phase === 'ready'
     && stage !== 'done'
     && !currentUploaderDismissed;
 
@@ -716,7 +717,6 @@ export function WelcomeThread({
   const timers = useRef<number[]>([]);
   const turnTimer = useRef<number | null>(null);
   const turnAdvance = useRef<(() => void) | null>(null);
-  const grantTimer = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // How far the open mobile intake sheet reaches up the viewport. The thread
@@ -728,6 +728,10 @@ export function WelcomeThread({
   // that padding (and the message) below the fold, still behind the sheet.
   const scrollThreadToEnd = () => {
     const el = scrollRef.current;
+    // Hold the intent for the duration of the animation: the smooth scroll's own
+    // events read as "not at the end" until it arrives, and without this a follow
+    // still in flight would disqualify the next one.
+    atEndRef.current = true;
     el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
   // Whether the thread is already parked at its end. The scroll cue has nothing
@@ -735,8 +739,13 @@ export function WelcomeThread({
   // — so it only appears once the operator has scrolled back up into history.
   // Starts true so it never flashes on open.
   const [threadAtEnd, setThreadAtEnd] = useState(true);
+  // The same answer as a ref, for the auto-follow to read without taking it as a
+  // dependency — the follow must not re-run merely because this flipped.
+  const atEndRef = useRef(true);
   const syncThreadAtEnd = (el: HTMLElement) => {
-    setThreadAtEnd(el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_END_EPSILON_PX);
+    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_END_EPSILON_PX;
+    atEndRef.current = atEnd;
+    setThreadAtEnd(atEnd);
   };
 
   // The signal the sample data derives from — what they typed for their
@@ -775,32 +784,123 @@ export function WelcomeThread({
   useEffect(() => () => {
     timers.current.forEach(id => window.clearTimeout(id));
     if (turnTimer.current) window.clearTimeout(turnTimer.current);
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
   }, []);
 
+  /* The completed-setup gate. Both routes into 'done' (a built week, or skipping
+     the schedule) land the test-run invitation, and that invitation is now the
+     whole handoff: the event surfaces in the nav immediately, and the number is
+     asked for on the event's own page. Announced from an effect rather than each
+     route's `then`, so there is one gate rather than two that have to agree.
+     Fires once — nothing moves the stage back off 'done'. */
+  const setupAnnounced = useRef(false);
+  useEffect(() => {
+    if (stage !== 'done' || setupAnnounced.current) return;
+    setupAnnounced.current = true;
+    onSetupComplete?.();
+  }, [stage, onSetupComplete]);
+
   // ── Header morph ───────────────────────────────────────────────────────────
-  /** The header follows where the thread actually sits: hero at the top, app-bar
-   *  once the thread is scrolled into. Position alone drives it — the earlier
-   *  version only reacted to wheel/touch gestures, which meant the thread could
-   *  auto-scroll (every new message ends with a scrollIntoView) and run right
-   *  under a hero that never settled.
+  /** Drive the header's size straight off the scroll position: 0 at the top, 1
+   *  once the thread has scrolled the height the header sheds. Written to the
+   *  element as a CSS variable inside a rAF, so a burst of scroll events costs one
+   *  style write per frame and no React render at all — the morph rides the
+   *  scroll instead of chasing it with a transition.
    *
-   *  This is safe from the bounce that gesture gate was guarding against because
-   *  of the overflow rule below. Collapsing shortens the thread by the height it
-   *  reclaims, and the resize emits its own scroll event; if that landed back at
-   *  the top the header would expand, re-lengthen the thread and oscillate.
-   *  Condensing only when the thread outgrows the hero keeps the post-collapse
-   *  scroll well clear of the expand threshold, so the resize's scroll event
-   *  finds the header already settled and nothing flips back. */
+   *  Nothing here can feed back into the scroll: the header is out of flow, so
+   *  changing its size neither reflows the scroller nor moves the position. */
+  const morphFrame = useRef<number | null>(null);
   const resolveHeaderForScroll = (el: HTMLElement) => {
-    const scrollTop = el.scrollTop;
-    setHeaderCondensed(condensed => (condensed
-      // Hold the bar until the operator is genuinely back at the top.
-      ? scrollTop > HEADER_EXPAND_AT_PX
-      // Settle to the bar once scrolled in — but only when the thread has the
-      // length to spare, so there is always scroll left to carry them back up.
-      : scrollTop > HEADER_CONDENSE_AT_PX && threadOutgrowsHero(el)));
+    if (morphFrame.current !== null) return;
+    morphFrame.current = window.requestAnimationFrame(() => {
+      morphFrame.current = null;
+      const header = headerRef.current;
+      if (!header) return;
+      const span = window.matchMedia('(max-width: 600px)').matches
+        ? HEADER_MORPH_SPAN_SM_PX
+        : HEADER_MORPH_SPAN_PX;
+      // Never measure against more scroll than there is. The runway keeps the
+      // range at the span, but content heights are fractional and it settles to
+      // within a pixel — against the nominal span that pixel would leave the bar
+      // permanently a few px tall of its final size. Against the real range, the
+      // bottom of the scroll always means fully collapsed.
+      const reach = Math.min(span, el.scrollHeight - el.clientHeight) || span;
+      const progress = Math.min(1, Math.max(0, el.scrollTop / reach));
+      header.style.setProperty('--morph', progress.toFixed(4));
+    });
   };
+  useEffect(() => () => {
+    if (morphFrame.current !== null) window.cancelAnimationFrame(morphFrame.current);
+  }, []);
+
+  /* Keep at least a full morph span of scroll available, reserving the shortfall
+     at the thread's foot. Unlike the header's old in-flow arrangement, nothing
+     here can feed back: the header is an overlay, so the scroller's height is
+     fixed, and the shortfall is measured against the thread alone — the reserve
+     sits beside it and is never part of the measurement, so adding to the reserve
+     cannot change the next answer. Re-runs as turns arrive and the thread outgrows
+     it, and settles in a single pass whenever it does. */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    /* The thread proper — everything the operator can actually scroll through. The
+       reserve is its sibling, so this is the one box that answers "how long is the
+       conversation", independent of whatever reserve is currently parked beside it. */
+    const content = el.firstElementChild;
+    const settle = () => {
+      // No layout box, nothing to measure. The app keeps this thread mounted and
+      // hides it with display:none while another view is up (see App's keep-alive
+      // wrapper), and a hidden element measures 0 — which would read as a thread of
+      // no length owing a full span of reserve. Nothing to do but wait: the observer
+      // fires again when the box comes back.
+      if (!content || el.clientHeight === 0) return;
+      const span = window.matchMedia('(max-width: 600px)').matches
+        ? HEADER_MORPH_SPAN_SM_PX
+        : HEADER_MORPH_SPAN_PX;
+      /* Measured off the thread itself rather than by subtracting the reserve back
+         out of scrollHeight. Two reasons, and the second is why this can't run away:
+         scrollHeight never reports less than the viewport, so while the conversation
+         is shorter than one screen it reads as exactly clientHeight and says nothing
+         about the thread's real length — a reserve subtracted from that lands short
+         and asks again next pass. And measuring the thread direct means the answer
+         doesn't depend on the value this writes, so a pass cannot feed the next one:
+         it converges in one, or not at all. */
+      const own = content.getBoundingClientRect().height - el.clientHeight;
+      const needed = Math.max(0, span - own);
+      // A pixel of slack, or fractional content heights trade sub-pixel updates
+      // back and forth with the observer.
+      setHeaderRunwayPx(prev => (Math.abs(prev - needed) > 1 ? needed : prev));
+    };
+    settle();
+    // border-box, not the default content-box: most of what changes the thread's
+    // measured height here is padding — the hero reservation at its head and the
+    // sheet's clearance at its foot — and a content-box observation is blind to
+    // that. Watching the content box alone left the runway sized for whatever the
+    // sheet was when it last settled, so the scroll range came up short.
+    const observer = new ResizeObserver(settle);
+    observer.observe(el, { box: 'border-box' });
+    if (content) observer.observe(content, { box: 'border-box' });
+    window.addEventListener('resize', settle);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', settle);
+    };
+  }, [mobileSheetInset]);
+
+  /* Resizing the runway moves the end of the scroll. A thread parked there should
+     stay parked — otherwise growing the runway silently leaves the operator short
+     of it, and the header rests part-collapsed on height it has already conceded.
+     atEndRef still holds the answer from before the resize, since resizing emits
+     no scroll event of its own.
+     Instant, not the smooth follow: the runway can change again while an animation
+     is in flight, and a smooth scroll finishes at the offset it was handed rather
+     than at the end as it then stands — landing short, which is the very thing
+     this is here to prevent. */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !atEndRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [headerRunwayPx]);
+
   useEffect(() => {
     const query = window.matchMedia?.('(max-width: 600px)');
     if (!query) return;
@@ -904,52 +1004,22 @@ export function WelcomeThread({
     };
   }, [openingBeats, prefersReduced]);
 
-  // Demo shortcut: M opens whichever access-modal variant was selected last.
-  // Ignore editable controls so typing a phone number or message never triggers it.
-  useEffect(() => {
-    const openFromKeyboard = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const editing = target?.isContentEditable
-        || target?.tagName === 'INPUT'
-        || target?.tagName === 'TEXTAREA'
-        || target?.tagName === 'SELECT';
-      if (!active || editing || event.metaKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== 'm') return;
-      event.preventDefault();
-      setGrantOpen(true);
-    };
-    document.addEventListener('keydown', openFromKeyboard);
-    return () => document.removeEventListener('keydown', openFromKeyboard);
-  }, [active]);
-
-  const unlock = () => {
-    setUnlocked(true);
-    // Let the confirmation land, then hand the screen back to the thread.
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
-    grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
-  };
-
-  const joinWaitlist = () => {
-    setWaitlistJoined(true);
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
-    grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
-  };
   useEffect(() => {
     if (!active) return;
-    // With a sheet standing, follow the scroll to the true end rather than to
-    // the last message: the thread is padded by the sheet's height, and
-    // scrollIntoView would stop at the message and leave that padding below the
-    // fold — parking each new turn behind the card as it arrives, and undoing
-    // the scroll cue on the very next keystroke of the typewriter.
-    if (mobileSheetInset > 0) scrollThreadToEnd();
-    else endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    // Only follow if the operator is already at the end. Otherwise this fought
+    // them for the scroll: reading back through the thread raises the sheet's
+    // scroll cue, which changes the sheet's height, which reports a new inset —
+    // a dependency here — and the follow dragged them straight back to the
+    // bottom. They could not scroll away at all.
+    if (!atEndRef.current) return;
+    // Follow to the true end, not to the last message. Everything below it is
+    // reserved space that has to be scrolled through to do its job: the sheet's
+    // padding (scrollIntoView would stop at the message and leave it below the
+    // fold, parking each new turn behind the card as it arrives), and the collapse
+    // runway (stopping short strands the header above the bar it should settle
+    // into).
+    scrollThreadToEnd();
   }, [active, messages, replying, phase, revealed, activeIdx, typed, showDots, mobileSheetInset]);
-
-  // A normal navigation away from Welcome closes a manually opened dialog. The
-  // event-completion signal arrives later, while `active` is already false, and
-  // deliberately reopens the portal over the resolved event.
-  useEffect(() => {
-    if (!active) setGrantOpen(false);
-  }, [active]);
 
   const canSend = (draft.trim().length > 0 || attachments.length > 0) && replying === null;
 
@@ -1077,8 +1147,8 @@ export function WelcomeThread({
 
   // The schedule landed (a file / pasted table) or was described (a shape) →
   // build the week, show it, then invite the operator to watch Ultron handle a
-  // live event. Once that invitation lands, the composer becomes the phone
-  // capture; only submitting it reveals the event in the nav.
+  // live event. That invitation is the handoff: it surfaces the event in the nav,
+  // and the phone ask waits on the event's own page.
   // `cardFile` follows the same rule as the roster's (see runRosterImport): only
   // a file the schedule drop zone took itself drives that card's upload state.
   /** Rebuild the shown week to a different sample shape, in place. This is a
@@ -1126,7 +1196,7 @@ export function WelcomeThread({
 
   // The schedule is useful context, but it should not block the live-work
   // preview. Acknowledge the choice in the conversation, then advance through
-  // the same completed-setup gate that reveals the phone capture card.
+  // the same completed-setup gate that surfaces the live event.
   const skipSchedule = () => {
     retireMobileUploader('schedule');
     postOperator('Skip the schedule for now');
@@ -1135,7 +1205,7 @@ export function WelcomeThread({
         {
           role: 'ultron',
           text: 'No problem — we’ll skip the schedule for now. You can add it anytime. ' +
-            'Your setup is ready; add your mobile number below to launch a live Ultron event.',
+            `Your setup is ready. ${TEST_RUN_ASK}`,
         },
       ],
       {
@@ -1298,9 +1368,6 @@ export function WelcomeThread({
       : stage === 'schedule'
       ? 'Attach your schedule, or describe your week…'
       : 'Tell Ultron what to take on next…';
-  const isWaitlistModal = accessModalMode === 'waitlist';
-  const accessConfirmed = isWaitlistModal ? waitlistJoined : unlocked;
-  const phoneReady = phone.length >= 10;
 
   return (
     <Root>
@@ -1324,28 +1391,29 @@ export function WelcomeThread({
       {/* Page header — the event page's header lockup (title over a muted
           one-line subtitle), with the case avatar swapped for the page's
           document icon and no trailing open-record control. */}
-      <PageHeader $condensed={headerCondensed}>
-        <PageHeaderInner $condensed={headerCondensed}>
+      <PageHeader ref={headerRef} style={{ '--morph': 0 } as CSSProperties}>
+        <PageHeaderInner>
           {/* The leading artwork is Ultron's magnetic globe — the same identity
               the onboarding flow built cell by cell, now held compactly in the
               header while the welcome messages begin immediately. */}
-          <PageHeaderIcon $condensed={headerCondensed} role="img" aria-label="Ultron">
+          <PageHeaderIcon role="img" aria-label="Ultron">
             {/* Keep both canvases at a native render size and cross-fade them.
                 Scaling the detailed 140px canvas through fractional sizes made
                 its particles shimmer while the header was moving. The hero holds
-                the full 3D sphere; the condensed bar takes the 2D (flat-on) form
-                of the same mark, which is what reads at 36px — the same call the
-                secondary nav's rows make. */}
-            <PageHeaderMarkLayer $show={!headerCondensed} aria-hidden="true">
+                the full 3D sphere; the bar takes the 2D (flat-on) form of the same
+                mark, which is what reads at 36px — the same call the secondary
+                nav's rows make. The crossfade rides --morph, so it happens across
+                the middle of the collapse rather than at one instant. */}
+            <PageHeaderMarkLayer aria-hidden="true">
               <AgentMark mark="magnetic" size={140} tone="auto" state="active" />
             </PageHeaderMarkLayer>
-            <PageHeaderMarkLayer $show={headerCondensed} $compact aria-hidden="true">
+            <PageHeaderMarkLayer $compact aria-hidden="true">
               <AgentMark mark="magnetic2d" size={36} tone="auto" state="active" />
             </PageHeaderMarkLayer>
           </PageHeaderIcon>
-          <PageHeaderText $condensed={headerCondensed}>
-            <PageHeaderTitle $condensed={headerCondensed}>Welcome</PageHeaderTitle>
-            <PageHeaderSubtitle $condensed={headerCondensed}>
+          <PageHeaderText>
+            <PageHeaderTitle>Welcome</PageHeaderTitle>
+            <PageHeaderSubtitle>
               Finish your setup, right in the chat
             </PageHeaderSubtitle>
           </PageHeaderText>
@@ -1425,7 +1493,13 @@ export function WelcomeThread({
                                     progress={rosterUpload?.progress ?? 0}
                                     file={rosterUpload?.file ?? null}
                                     disabled={replying !== null && !rosterUpload}
-                                    footerSlot={waiting && phase === 'ready' ? cardPills : undefined}
+                                    // The pills arrive with the card's own readiness:
+                                    // 'ready' on desktop, or the phone sheet standing,
+                                    // which now happens a beat gap earlier. Without
+                                    // that second case the sheet would open and then
+                                    // grow a row under the browse button just as its
+                                    // entrance finished.
+                                    footerSlot={waiting && (phase === 'ready' || mobileUploaderOpen) ? cardPills : undefined}
                                     onFileSelect={file => pickRosterFiles([file])}
                                     onClear={() => {}}
                                   />
@@ -1691,6 +1765,10 @@ export function WelcomeThread({
             )}
             <div ref={endRef} />
         </Thread>
+        {/* Headroom for the collapse, not content — see headerRunwayPx. It sits
+            past the thread's own foot padding, in the band the composer or the
+            open intake sheet covers anyway. */}
+        <HeaderRunway style={{ height: headerRunwayPx }} aria-hidden="true" />
       </Scroll>
 
       {/* Composer + one-tap pills hold back until the opening turn has fully
@@ -1709,181 +1787,59 @@ export function WelcomeThread({
             </MarkFormLayer>
           </MarkMorphBox>
         </FootMarkRow>
-        {stage === 'done' && !eventPhoneCaptureDismissed ? (
-          <PhoneCaptureCard
-            captured={eventPhoneCaptured}
-            onSubmit={phoneNumber => {
-              setEventPhoneCaptured(true);
-              onPhoneSubmitted?.(phoneNumber);
-            }}
-            onDismiss={() => setEventPhoneCaptureDismissed(true)}
-          />
-        ) : (
-          <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
-            {attachments.length > 0 && (
-              <PendingFiles aria-label="Files to send">
-                {attachments.map(name => (
-                  <FileChip key={name}>
-                    <File04Icon size={14} />
-                    {name}
-                    <ChipRemove
-                      type="button"
-                      aria-label={`Remove ${name}`}
-                      onClick={() => removeFile(name)}
-                    >
-                      <XCloseIcon size={12} />
-                    </ChipRemove>
-                  </FileChip>
-                ))}
-              </PendingFiles>
-            )}
-            <InputRow>
-              <ActionSlot>
-                <ComposerAttachment state="idle" onSelect={addFiles} />
-              </ActionSlot>
-              <Field
-                rows={1}
-                value={draft}
-                placeholder={placeholder}
-                aria-label="Message Ultron"
-                inputMode="text"
-                autoComplete="off"
-                onChange={e => setDraft(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-                }}
-                onPaste={e => {
-                  // A file pasted straight into the composer stages as a chip,
-                  // same as picking it with the paperclip.
-                  const files = e.clipboardData?.files;
-                  if (files && files.length > 0) {
-                    e.preventDefault();
-                    addFiles(files);
-                  }
-                }}
-              />
-              <ActionSlot>
-                <ComposerSendButton state={canSend ? 'ready' : 'disabled-invalid'} onSend={send} />
-              </ActionSlot>
-            </InputRow>
-          </Composer>
-        )}
-      </ComposerWrap>
-      )}
-
-      {/* Sales reach-out — one number unlocks the usage grant. The thread's
-          single high-emphasis conversion moment, so it blocks the screen as a
-          centered modal (Alloy Dialog: portal, scrim, Escape/backdrop close)
-          over a blurred backdrop, on the inverse surface. */}
-      <GrantOverlayBlur />
-      <Dialog
-        open={grantOpen}
-        onClose={() => setGrantOpen(false)}
-        size="lg"
-        aria-label={`${isWaitlistModal ? 'Join waitlist' : 'Unlock grant'} — Ultron access`}
-      >
-        <GrantCard>
-          <GrantBrandWatermark aria-hidden="true">
-            <TeambridgeMark size={300} />
-          </GrantBrandWatermark>
-          <GrantClose type="button" aria-label="Close" onClick={() => setGrantOpen(false)}>
-            <XCloseIcon size={18} />
-          </GrantClose>
-
-          <GrantEyebrow>
-            <GrantSpark aria-hidden="true" />
-            {isWaitlistModal ? 'Ultron early access' : 'Your welcome grant'}
-          </GrantEyebrow>
-          {!isWaitlistModal && (
-            <GrantOffer aria-label="$1,000 of work on us">
-              <GrantAmount><GrantCurrency>$</GrantCurrency>1,000</GrantAmount>
-              <GrantOfferLabel>of work<br /><strong>on us</strong></GrantOfferLabel>
-            </GrantOffer>
+        {/* The composer stays a composer for the whole thread now, completed setup
+            included: the phone ask moved onto the surfaced event's page, where the
+            work it is asking to follow is actually visible. */}
+        <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
+          {attachments.length > 0 && (
+            <PendingFiles aria-label="Files to send">
+              {attachments.map(name => (
+                <FileChip key={name}>
+                  <File04Icon size={14} />
+                  {name}
+                  <ChipRemove
+                    type="button"
+                    aria-label={`Remove ${name}`}
+                    onClick={() => removeFile(name)}
+                  >
+                    <XCloseIcon size={12} />
+                  </ChipRemove>
+                </FileChip>
+              ))}
+            </PendingFiles>
           )}
-
-          <GrantTitle $prominent={isWaitlistModal}>
-            {isWaitlistModal ? 'Be first when access opens.' : 'Ready to see the real work?'}
-          </GrantTitle>
-          <GrantBody>
-            {isWaitlistModal
-              ? 'Ultron is opening access in waves. Leave your number and we’ll text the moment your workspace is unblocked.'
-              : 'Bring Ultron into your operation. Leave your mobile number and we’ll get the real workspace ready—your first 100,000 credits are covered.'}
-          </GrantBody>
-
-          <GrantPerks aria-label={isWaitlistModal ? 'Waitlist benefits' : 'Grant benefits'}>
-            {isWaitlistModal ? (
-              <>
-                <GrantPerk>Priority access</GrantPerk>
-                <GrantPerk>One text when ready</GrantPerk>
-                <GrantPerk>No commitment</GrantPerk>
-              </>
-            ) : (
-              <>
-                <GrantPerk>100,000 credits</GrantPerk>
-                <GrantPerk>Up to 3 months</GrantPerk>
-                <GrantPerk>You approve every action</GrantPerk>
-              </>
-            )}
-          </GrantPerks>
-
-          {accessConfirmed ? (
-            <GrantConfirmed role="status">
-              <CheckCircleIcon size={20} />
-              {isWaitlistModal
-                ? 'You’re on the list — we’ll text as soon as your access opens.'
-                : 'You’re set — we’ll text you when your real workspace is ready. Your $1,000 grant is live.'}
-            </GrantConfirmed>
-          ) : (
-            <GrantForm
-              onSubmit={(e: FormEvent) => {
-                e.preventDefault();
-                if (phoneReady) {
-                  if (isWaitlistModal) joinWaitlist();
-                  else unlock();
+          <InputRow>
+            <ActionSlot>
+              <ComposerAttachment state="idle" onSelect={addFiles} />
+            </ActionSlot>
+            <Field
+              rows={1}
+              value={draft}
+              placeholder={placeholder}
+              aria-label="Message Ultron"
+              inputMode="text"
+              autoComplete="off"
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+              }}
+              onPaste={e => {
+                // A file pasted straight into the composer stages as a chip,
+                // same as picking it with the paperclip.
+                const files = e.clipboardData?.files;
+                if (files && files.length > 0) {
+                  e.preventDefault();
+                  addFiles(files);
                 }
               }}
-            >
-                <GrantFormLabel htmlFor="welcome-grant-phone">
-                  {isWaitlistModal
-                    ? 'Where should we send your access text?'
-                    : 'Where should we text your invite?'}
-                </GrantFormLabel>
-                <GrantFormRow>
-                  <GrantField
-                    id="welcome-grant-phone"
-                    type="tel"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    minLength={10}
-                    maxLength={15}
-                    value={phone}
-                    placeholder="Your phone number"
-                    aria-label="Mobile number"
-                    autoComplete="tel"
-                    onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
-                  />
-                <GrantButton type="submit" variant="tertiary" size="lg" disabled={!phoneReady}>
-                  {isWaitlistModal ? 'Join waitlist' : 'Unlock $1,000'}
-                </GrantButton>
-              </GrantFormRow>
-            </GrantForm>
-          )}
-          <GrantFinePrint>
-            {isWaitlistModal
-              ? 'Access updates only — never spam. Msg & data rates may apply. Reply STOP to opt out.'
-              : 'Proposals only — never spam. Msg & data rates may apply. Reply STOP to opt out.'}
-          </GrantFinePrint>
-        </GrantCard>
-        <ModalDemoSwitch
-          type="button"
-          onClick={() => {
-            if (grantTimer.current) window.clearTimeout(grantTimer.current);
-            setAccessModalMode(mode => mode === 'grant' ? 'waitlist' : 'grant');
-          }}
-        >
-          Demo: show {isWaitlistModal ? 'welcome grant' : 'waitlist'}
-        </ModalDemoSwitch>
-      </Dialog>
+            />
+            <ActionSlot>
+              <ComposerSendButton state={canSend ? 'ready' : 'disabled-invalid'} onSend={send} />
+            </ActionSlot>
+          </InputRow>
+        </Composer>
+      </ComposerWrap>
+      )}
     </Root>
   );
 }
@@ -2148,84 +2104,95 @@ const glassBarFade = (fade: 'down' | 'up') => css`
   pointer-events: none;
 `;
 
-const PageHeader = styled.header<{ $condensed: boolean }>`
-  flex-shrink: 0;
-  position: relative;
+const PageHeader = styled.header`
+  /* An overlay, not a row in the column: the thread scrolls the full height of
+     the page behind it and reserves the hero's height as its own top padding
+     (see Thread). Taking the header out of flow is what makes the morph smooth —
+     in flow, every size change reflowed the scroller, shunted the content and
+     clamped the scroll position. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   isolation: isolate;
   /* Sit above the scroll area so the fade below paints over its content. */
   z-index: 2;
   background: transparent;
+  pointer-events: none;
+  /* The hero end of the morph, and the declared floor for it: the scroll handler
+     writes this variable on the element, and every rule below is a calc() that
+     reads it — one invalid term drops the whole property, so it must never be
+     unset, including on the first paint before any scroll has happened. */
+  --morph: 0;
 
-  /* The glass bar only exists in the condensed state: the large welcome lockup
-     floats directly on the scene with no frost or fade, and the bar eases in
-     as the header condenses over scrolling content. */
+  /* The glass bar arrives with the collapse, on the same scroll-driven value: at
+     the very top the content's first line sits exactly at the hero's lower edge,
+     so there is nothing behind the header and it floats on the bare scene; from
+     the first scrolled pixel there is, and the frost fades in as the prose slides
+     under it. No transition — --morph is already continuous, and easing it here
+     would only lag the scroll. Squared so the tint stays out of the way through
+     the early part of the collapse, where the content is still below the edge. */
   &::before {
     ${glassBarFrost}
-    opacity: ${p => (p.$condensed ? 1 : 0)};
-    transition: opacity 220ms var(--ease-out);
+    opacity: calc(var(--morph) * var(--morph));
   }
   &::after {
     ${glassBarFade('down')}
-    opacity: ${p => (p.$condensed ? 1 : 0)};
-    transition: opacity 220ms var(--ease-out);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    &::before,
-    &::after {
-      transition: none;
-    }
+    opacity: calc(var(--morph) * var(--morph));
   }
 `;
 
-const HEADER_MORPH_MS = '320ms';
-const HEADER_MORPH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+/* Interpolate a property between its hero and bar values on --morph. Every
+   animated part of the lockup is a length, a position or an opacity, so the whole
+   morph is expressible this way — no transitions anywhere, because --morph is
+   itself driven by the scroll and easing it would only make the header lag behind
+   the finger. `hero` and `bar` may be any calc-compatible values, including
+   percentages, custom properties and clamp(). */
+const morph = (hero: string, bar: string) =>
+  `calc(${hero} * (1 - var(--morph)) + ${bar} * var(--morph))`;
+/** The same, for the plain px values the two states are authored in. */
+const morphPx = (hero: number, bar: number) => morph(`${hero}px`, `${bar}px`);
 
-const PageHeaderInner = styled.div<{ $condensed: boolean }>`
+const PageHeaderInner = styled.div`
   position: relative;
   z-index: 1;
   width: 100%;
-  height: ${p => (p.$condensed ? HEADER_BAR_PX : HEADER_HERO_PX)}px;
+  height: ${morphPx(HEADER_HERO_PX, HEADER_BAR_PX)};
   /* Match the thread column exactly: 720px of content plus the same side
      padding, so the header lockup left-aligns with the bubbles and composer. */
   max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
-  transition: height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    height: ${p => (p.$condensed ? HEADER_BAR_SM_PX : HEADER_HERO_SM_PX)}px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
+    height: ${morphPx(HEADER_HERO_SM_PX, HEADER_BAR_SM_PX)};
   }
 `;
 
 /* The leading artwork — Ultron's magnetic globe in the event header. A compact
    bloom keeps the mark legible without recreating the removed center splash. */
-const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
+const PageHeaderIcon = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   position: absolute;
-  /* Condensed: centred on the text lockup rather than on the bar, since the
-     lockup itself sits slightly below the bar's middle. The block runs from the
-     title's top (15) through the subtitle's bottom (15 + 14×1.5 + 14×1.5 = 57),
-     so its centre is 36 and a 36px mark starts at 18. */
-  top: ${p => p.$condensed ? '18px' : '24px'};
-  left: ${p => p.$condensed ? 'var(--space-6)' : '50%'};
-  width: ${p => p.$condensed ? '36px' : '140px'};
-  height: ${p => p.$condensed ? '36px' : '140px'};
-  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
+  /* Bar end: centred on the text lockup rather than on the bar, since the lockup
+     itself sits slightly below the bar's middle. The block runs from the title's
+     top (15) through the subtitle's bottom (15 + 14×1.5 + 14×1.5 = 57), so its
+     centre is 36 and a 36px mark starts at 18. */
+  /* Carried as a bare number so the mark layers can divide by it for their own
+     scale (a length over a number is a length, which transform: scale won't
+     take). The px form is derived right below. */
+  --icon-n: ${morph('140', '36')};
+  top: ${morphPx(24, 18)};
+  left: ${morph('50%', 'var(--space-6)')};
+  width: calc(var(--icon-n) * 1px);
+  height: calc(var(--icon-n) * 1px);
+  /* The hero's -50% has to unwind alongside the left value, or the mark would
+     drift half its own width as it crosses to the leading edge. */
+  transform: translateX(calc(-50% * (1 - var(--morph))));
   opacity: 1;
   visibility: visible;
-  transition:
-    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    width ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   &::before {
     content: '';
@@ -2243,92 +2210,86 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
   @media (max-width: 600px) {
     /* Same centring at the small scale: a 7 → 41 block (14×1.5 title over a
        12×1.2 subtitle) against a 32px mark. */
-    top: ${p => p.$condensed ? '8px' : '16px'};
-    left: ${p => p.$condensed ? 'var(--space-4)' : '50%'};
-    width: ${p => p.$condensed ? '32px' : '140px'};
-    height: ${p => p.$condensed ? '32px' : '140px'};
+    --icon-n: ${morph('140', '32')};
+    top: ${morphPx(16, 8)};
+    left: ${morph('50%', 'var(--space-4)')};
   }
 
-  /* Short viewports drop the condensed subtitle (see PageHeaderSubtitle), which
-     leaves the title alone as the lockup — a 7 → 28 block, centre 17.5. */
+  /* Short viewports fade the subtitle out as the bar arrives (see
+     PageHeaderSubtitle), which leaves the title alone as the lockup — a 7 → 28
+     block, centre 17.5. */
   @media (max-width: 600px) and (max-height: 700px) {
-    top: ${p => p.$condensed ? '1.5px' : '16px'};
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
+    top: ${morphPx(16, 1.5)};
   }
 `;
 
-const PageHeaderMarkLayer = styled.span<{ $show: boolean; $compact?: boolean }>`
+/* Both marks are drawn at their native canvas size and scaled to whatever the
+   icon box currently measures, so the artwork tracks the box through the whole
+   morph instead of sitting at a fixed size inside a shrinking frame. Each is a
+   CSS raster scale of an already-rendered canvas — cheap, and free of the shimmer
+   that re-rendering the detailed mark at fractional sizes caused.
+   The swap happens late and with the two windows overlapping, so the detailed
+   hero form carries most of the collapse (downscaling stays crisp, upscaling the
+   36px form would not) and the handover lands where the box is near its final
+   size. Overlapping matters: ranges that merely met left both marks at zero for
+   an instant, and the mark blinked out mid-scroll. */
+const PageHeaderMarkLayer = styled.span<{ $compact?: boolean }>`
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: 1;
   display: block;
-  opacity: ${p => p.$show ? 1 : 0};
-  transform: translate(-50%, -50%);
+  opacity: ${p => p.$compact
+    ? 'clamp(0, calc((var(--morph) - 0.76) / 0.12), 1)'
+    : 'clamp(0, calc((0.9 - var(--morph)) / 0.12), 1)'};
+  transform: translate(-50%, -50%)
+    scale(calc(var(--icon-n) / ${p => (p.$compact ? 36 : 140)}));
   transform-origin: center;
   pointer-events: none;
-  transition: opacity ${p => p.$show ? '190ms 55ms' : '130ms'} var(--ease-out);
-  will-change: opacity;
-
-  @media (max-width: 600px) {
-    transform: translate(-50%, -50%) scale(${p => p.$compact ? 0.8889 : 1});
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-  }
 `;
 
-const PageHeaderText = styled.div<{ $condensed: boolean }>`
+const PageHeaderText = styled.div`
   display: contents;
 `;
 
 /* The page identity uses the original responsive title scale, in solid black. */
-const PageHeaderTitle = styled.span<{ $condensed: boolean }>`
+const PageHeaderTitle = styled.span`
   position: absolute;
-  top: ${p => p.$condensed ? '15px' : '180px'};
-  left: ${p => p.$condensed ? '72px' : '50%'};
-  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
-  max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
+  top: ${morphPx(180, 15)};
+  left: ${morph('50%', '72px')};
+  transform: translateX(calc(-50% * (1 - var(--morph))));
+  max-width: ${morph('calc(100% - 48px)', 'calc(100% - 96px)')};
   font-family: var(--font-sans);
-  font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'clamp(24px, 3vw, 30px)'};
-  line-height: ${p => p.$condensed ? 'var(--line-height-relaxed)' : 'var(--line-height-tight)'};
+  font-size: ${morph('clamp(24px, 3vw, 30px)', 'var(--text-sm)')};
+  line-height: ${morph('var(--line-height-tight)', 'var(--line-height-relaxed)')};
   font-weight: var(--font-weight-semibold);
-  letter-spacing: ${p => p.$condensed ? 'var(--tracking-wide)' : 'var(--tracking-tight)'};
+  letter-spacing: ${morph('var(--tracking-tight)', 'var(--tracking-wide)')};
   color: var(--color-content-primary);
   white-space: nowrap;
-  transition:
-    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    letter-spacing ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    top: ${p => p.$condensed ? '7px' : '168px'};
-    left: ${p => p.$condensed ? '56px' : '50%'};
-    max-width: ${p => p.$condensed ? 'calc(100% - 72px)' : 'calc(100% - 32px)'};
-    font-size: ${p => p.$condensed ? 'var(--text-sm)' : '24px'};
+    top: ${morphPx(168, 7)};
+    left: ${morph('50%', '56px')};
+    max-width: ${morph('calc(100% - 32px)', 'calc(100% - 72px)')};
+    font-size: ${morph('24px', 'var(--text-sm)')};
   }
-
-  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 /* One-line muted subtitle — the event header's CardSubtitle, with the muted
    tone drawn from the neutral family (this header sits on the primary surface,
    not the card's tonal fill). */
-const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
+const PageHeaderSubtitle = styled.span`
   position: absolute;
-  top: ${p => p.$condensed ? '36px' : '213px'};
-  left: ${p => p.$condensed ? '72px' : '50%'};
-  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
-  max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
+  top: ${morphPx(213, 36)};
+  left: ${morph('50%', '72px')};
+  transform: translateX(calc(-50% * (1 - var(--morph))));
+  max-width: ${morph('calc(100% - 48px)', 'calc(100% - 96px)')};
   font-family: var(--font-sans);
-  font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'var(--text-md)'};
+  /* 16px, not --text-md: that token isn't defined, so this declaration was being
+     dropped and the size fell through to the inherited 16px. Stating it keeps the
+     rendered size exactly as it was while giving the interpolation two real ends
+     to work between — a calc() with one invalid term drops the whole property. */
+  font-size: ${morph('16px', 'var(--text-sm)')};
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-normal);
@@ -2336,26 +2297,21 @@ const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition:
-    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    top: ${p => p.$condensed ? '27px' : '197px'};
-    left: ${p => p.$condensed ? '56px' : '50%'};
-    max-width: ${p => p.$condensed ? 'calc(100% - 72px)' : 'calc(100% - 32px)'};
-    font-size: ${p => p.$condensed ? 'var(--text-xs)' : 'var(--text-sm)'};
-    line-height: ${p => p.$condensed ? 'var(--line-height-snug)' : 'var(--line-height-relaxed)'};
+    top: ${morphPx(197, 27)};
+    left: ${morph('50%', '56px')};
+    max-width: ${morph('calc(100% - 32px)', 'calc(100% - 72px)')};
+    font-size: ${morph('var(--text-sm)', 'var(--text-xs)')};
+    line-height: ${morph('var(--line-height-relaxed)', 'var(--line-height-snug)')};
   }
 
+  /* Short viewports have no room for the subtitle once the bar arrives. Fading it
+     over the first half of the collapse (rather than switching display) keeps the
+     morph continuous — display has no in-between to interpolate through. */
   @media (max-width: 600px) and (max-height: 700px) {
-    display: ${p => p.$condensed ? 'none' : 'block'};
+    opacity: clamp(0, calc(1 - var(--morph) * 2), 1);
   }
-
-  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 const Scroll = styled.div`
@@ -2367,6 +2323,13 @@ const Scroll = styled.div`
   display: flex;
   flex-direction: column;
 `;
+
+/* Reserved scroll for the header's collapse (height set inline — it's measured).
+   flex-shrink: 0 so the column can't squeeze the reserve back out. */
+const HeaderRunway = styled.div`
+  flex-shrink: 0;
+`;
+
 
 /* The opening turn (and any dynamic replies) fade + rise in as they mount, so
    the handoff reads as Ultron arriving rather than a static dump. */
@@ -2853,6 +2816,18 @@ const IntakeUploader = styled(FileUploader)`
   &&[data-state='empty'] > button {
     min-width: 112px;
     padding-inline: var(--space-4);
+    /* On the web view, a pill rather than Alloy's control radius: at this width
+       the action is a compact 112px chip sitting inside a card in the thread,
+       among the intake's own rounded surfaces and the message bubbles above it,
+       so the fully round form reads as part of the conversation.
+       Desktop-only, and stated as a min-width query rather than something the
+       phone branch below has to undo — on mobile the button stretches to a
+       full-width thumb target, where a pill of that length stops reading as a
+       chip and starts looking like a stadium bar. There it keeps Alloy's own
+       button radius, untouched: no value restated here, nothing to drift. */
+    @media (min-width: 768px) {
+      border-radius: var(--radius-full);
+    }
   }
 
   /* On phones the browse action closes the uploader's stack: alternatives stay
@@ -2904,6 +2879,22 @@ const IntakeUploader = styled(FileUploader)`
        the column's own 8px gap is the whole distance between them. */
     &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty']:has(> button + div) > button {
       margin-top: 0;
+    }
+
+    /* That same 8px is too tight above the group, though — one gap value is doing
+       two jobs here, and they want different answers: 8px between the two actions
+       reads as one button group, but 8px under the description reads as cramped.
+       So the extra space goes on whichever action LEADS the group, leaving the
+       distance between them alone: the alternatives row when it's there (order
+       lifts it above browse — see the 767px block), otherwise browse itself.
+       Lands the ask-to-action distance on the same 16px the wider layout already
+       gets from its own column gap. */
+    &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty'] > button + div {
+      margin-top: var(--space-2);
+    }
+
+    &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty']:not(:has(> button + div)) > button {
+      margin-top: var(--space-2);
     }
 
     &&[data-roster-flow][data-state='empty'] {
@@ -2988,11 +2979,17 @@ const Thread = styled.div<{ $bottomInset?: number }>`
   width: 100%;
   max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
-  padding: var(--space-8) var(--space-6);
+  /* The header is an overlay (see PageHeader), so the thread carries the hero's
+     height as padding — the space the header used to hold in the flow. Fixed at
+     the hero size and never animated: this is the padding whose changing would
+     move the content, which is the whole reason the morph used to jump. As the
+     header sheds height the content rises past it at the same rate, so the first
+     line stays on its lower edge. */
+  padding: calc(${HEADER_HERO_PX}px + var(--space-8)) var(--space-6) var(--space-8);
 
   @media (max-width: 600px) {
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-4) var(--space-4);
+    padding: calc(${HEADER_HERO_SM_PX}px + var(--space-3)) var(--space-4) var(--space-4);
 
     /* Scrollable room the height of the open intake sheet, so the conversation
        can be pulled out from under it (the sheet's own scroll cue does exactly
@@ -3617,470 +3614,6 @@ const ShiftWho = styled.span`
   @media (max-width: 700px) {
     font-size: 10px;
   }
-`;
-
-/* ── Grant modal (sales reach-out) ────────────────────────────────────────────
-   The one deliberately inverse surface on the page — the inverse token family
-   keeps it maximally contrasted against the scrim in either theme (dark card on
-   light, light card on dark), so the conversion moment reads as its own moment
-   rather than another bubble. Layout mirrors the wireframe — headline, body,
-   phone field beside the action, fine print — wrapped in Alloy's Dialog, which
-   supplies the portal, centering, radius clip, and close behaviors. */
-
-/* The gentle deceleration curve the intro flow uses (easeOutQuint) — glides to
-   rest instead of Alloy's snappier default, so the modal reads smooth. */
-const GRANT_SMOOTH = 'cubic-bezier(0.22, 1, 0.36, 1)';
-
-/* Entrance: the scrim's blur has to be animated explicitly — backdrop-filter
-   doesn't fade with the element's opacity, so without this the blur snaps on
-   at full strength one frame in. */
-const grantScrimIn = keyframes`
-  from {
-    opacity: 0;
-    -webkit-backdrop-filter: blur(0px);
-    backdrop-filter: blur(0px);
-  }
-  to {
-    opacity: 1;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-  }
-`;
-
-const grantScrimOut = keyframes`
-  from {
-    opacity: 1;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-  }
-  to {
-    opacity: 0;
-    -webkit-backdrop-filter: blur(0px);
-    backdrop-filter: blur(0px);
-  }
-`;
-
-const grantCardIn = keyframes`
-  0%   { opacity: 0; transform: scale(0.88) translateY(36px) rotate(-1deg); }
-  70%  { opacity: 1; transform: scale(1.018) translateY(-2px) rotate(0); }
-  100% { opacity: 1; transform: scale(1) translateY(0) rotate(0); }
-`;
-
-const grantCardOut = keyframes`
-  from { opacity: 1; transform: scale(1) translateY(0); }
-  to   { opacity: 0; transform: scale(0.97) translateY(10px); }
-`;
-
-/* Blurs this dialog's scrim and smooths its motion. Alloy's Dialog owns the
-   overlay (a CSS-module class portaled to <body>), so the one stable hook is
-   the overlay's own dialog semantics — scoped to this modal via its aria-label.
-   The extra [data-state] in each selector out-specifies Alloy's own animation
-   rules regardless of stylesheet injection order. Exit durations must stay
-   under the Dialog's 180ms unmount timer or the animation gets cut off. */
-const GrantOverlayBlur = createGlobalStyle`
-  [role='dialog'][aria-label$='Ultron access'][data-state] {
-    background: color-mix(in srgb, black 58%, transparent);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    animation: ${grantScrimIn} 440ms ${GRANT_SMOOTH} both;
-
-    & > div {
-      position: relative;
-      overflow: visible;
-      border: 0;
-      background: transparent;
-      box-shadow: 0 32px 90px rgba(3, 11, 25, 0.56);
-      animation: ${grantCardIn} 560ms ${GRANT_SMOOTH} both;
-    }
-  }
-
-  @media (max-width: 620px) {
-    [role='dialog'][aria-label$='Ultron access'][data-state] {
-      padding:
-        max(var(--space-4), env(safe-area-inset-top))
-        max(var(--space-4), env(safe-area-inset-right))
-        max(var(--space-4), env(safe-area-inset-bottom))
-        max(var(--space-4), env(safe-area-inset-left));
-
-      & > div {
-        width: 100%;
-        max-height: calc(
-          100dvh
-          - max(var(--space-4), env(safe-area-inset-top))
-          - max(var(--space-4), env(safe-area-inset-bottom))
-          - 40px
-        );
-        border-radius: var(--radius-xl);
-      }
-    }
-  }
-
-  [role='dialog'][aria-label$='Ultron access'][data-state='closed'] {
-    animation: ${grantScrimOut} 170ms var(--ease-default, ease) forwards;
-
-    & > div {
-      animation: ${grantCardOut} 170ms var(--ease-default, ease) forwards;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [role='dialog'][aria-label$='Ultron access'][data-state],
-    [role='dialog'][aria-label$='Ultron access'][data-state] > div {
-      animation: none;
-    }
-  }
-`;
-
-const GrantCard = styled.section`
-  position: relative;
-  width: 100%;
-  min-height: 0;
-  padding: var(--space-10);
-  overflow-x: hidden;
-  overflow-y: auto;
-  background:
-    radial-gradient(75% 90% at 100% 0%, color-mix(in srgb, var(--Alloy-blue-500) 38%, transparent), transparent 68%),
-    radial-gradient(70% 80% at 0% 100%, color-mix(in srgb, var(--Alloy-purple-500) 30%, transparent), transparent 72%),
-    linear-gradient(145deg, var(--Alloy-slate-950), var(--Alloy-purple-950));
-  border: none;
-  border-radius: var(--radius-xl);
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-
-  & > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  @media (max-width: 620px) {
-    padding:
-      var(--space-8)
-      var(--space-6)
-      max(var(--space-6), env(safe-area-inset-bottom));
-    gap: var(--space-4);
-  }
-`;
-
-/* Demo-only control beneath the access card. It is deliberately quiet so the
-   modal content remains the conversion surface while both variants stay easy
-   to review without restarting the flow. */
-const ModalDemoSwitch = styled.button`
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  left: 50%;
-  z-index: 2;
-  transform: translateX(-50%);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: var(--radius-full);
-  background: rgba(15, 23, 42, 0.72);
-  color: var(--Alloy-slate-200);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-relaxed);
-  cursor: pointer;
-  white-space: nowrap;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-
-  &:hover {
-    background: rgba(30, 41, 59, 0.9);
-    color: var(--color-bg-always-light);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 2px;
-  }
-`;
-
-const GrantBrandWatermark = styled.div`
-  && {
-    position: absolute;
-    right: -74px;
-    bottom: -44px;
-    z-index: 0;
-    color: var(--Alloy-blue-100);
-    opacity: 0.075;
-    transform: rotate(-8deg);
-    filter: drop-shadow(0 0 32px color-mix(in srgb, var(--Alloy-blue-300) 30%, transparent));
-    pointer-events: none;
-  }
-
-  @media (max-width: 620px) {
-    && {
-      right: -112px;
-      bottom: -34px;
-      opacity: 0.06;
-      transform: rotate(-8deg) scale(0.82);
-    }
-  }
-`;
-
-/* Ghost close, top-right — Alloy's DialogHeader close button re-cut for the
-   inverse surface (the header bar itself doesn't fit this card's layout). */
-const GrantClose = styled.button`
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-8);
-  height: var(--space-8);
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--Alloy-slate-200);
-  cursor: pointer;
-  transition:
-    background var(--duration-fast) var(--ease-default),
-    color var(--duration-fast) var(--ease-default);
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.14);
-    color: var(--color-bg-always-light);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 1px;
-  }
-`;
-
-const GrantEyebrow = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: fit-content;
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--Alloy-blue-200);
-`;
-
-const GrantSpark = styled.span`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--Alloy-matcha-400);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--Alloy-matcha-400) 14%, transparent),
-              0 0 20px var(--Alloy-matcha-400);
-`;
-
-const GrantOffer = styled.div`
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-4);
-  margin: var(--space-1) 0;
-
-  @media (max-width: 620px) {
-    gap: var(--space-2);
-  }
-`;
-
-const GrantAmount = styled.div`
-  font-family: 'Geist', var(--font-sans), sans-serif;
-  font-size: clamp(64px, 13vw, 96px);
-  font-weight: var(--font-weight-bold);
-  line-height: 0.82;
-  letter-spacing: -0.05em;
-  color: var(--color-bg-always-light);
-  text-shadow: 0 0 44px color-mix(in srgb, var(--Alloy-blue-300) 36%, transparent);
-  font-variant-numeric: tabular-nums;
-
-  @media (max-width: 620px) {
-    font-size: clamp(48px, 17vw, 64px);
-  }
-`;
-
-const GrantCurrency = styled.span`
-  display: inline-block;
-  margin-right: 0.03em;
-  font-size: 0.52em;
-  vertical-align: 0.42em;
-  color: var(--Alloy-matcha-400);
-`;
-
-const GrantOfferLabel = styled.span`
-  padding-bottom: var(--space-1);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-tight);
-  color: var(--Alloy-slate-300);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-
-  strong {
-    color: var(--Alloy-matcha-400);
-    font-weight: var(--font-weight-bold);
-  }
-
-  @media (max-width: 620px) {
-    font-size: var(--text-xs);
-  }
-`;
-
-const GrantTitle = styled.h2<{ $prominent?: boolean }>`
-  margin: 0;
-  /* Keep the headline clear of the close button. */
-  padding-right: var(--space-8);
-  font-family: var(--font-sans);
-  font-size: ${p => p.$prominent ? 'clamp(36px, 6vw, 48px)' : 'var(--text-3xl)'};
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-  letter-spacing: var(--tracking-tight);
-  color: var(--color-bg-always-light);
-
-  @media (max-width: 620px) {
-    font-size: ${p => p.$prominent ? 'clamp(32px, 10vw, 40px)' : 'var(--text-3xl)'};
-  }
-`;
-
-const GrantBody = styled.p`
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  line-height: var(--line-height-relaxed);
-  color: var(--Alloy-slate-200);
-  max-width: 520px;
-`;
-
-const GrantPerks = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-`;
-
-const GrantPerk = styled.span`
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--space-8);
-  padding: 0 var(--space-3);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.065);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--Alloy-slate-200);
-`;
-
-const GrantForm = styled.form`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-top: var(--space-1);
-`;
-
-const GrantFormLabel = styled.label`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  color: var(--Alloy-slate-300);
-`;
-
-const GrantFormRow = styled.div`
-  display: flex;
-  align-items: stretch;
-  gap: var(--space-3);
-
-  @media (max-width: 520px) {
-    flex-direction: column;
-  }
-`;
-
-/* Dark-surface text field, hand-rolled: Alloy's Input has no inverse-surface
-   variant yet — candidate for promotion into Alloy. The border is the inverse
-   tertiary content mixed down so it reads as a hairline on the dark fill. */
-const GrantField = styled.input`
-  flex: 1;
-  min-width: 200px;
-  height: var(--space-12);
-  padding: 0 var(--space-4);
-  background: rgba(255, 255, 255, 0.075);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: var(--radius-md);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  color: var(--color-bg-always-light);
-  outline: none;
-  transition:
-    border-color var(--duration-fast) var(--ease-default),
-    background var(--duration-fast) var(--ease-default);
-
-  &::placeholder { color: var(--Alloy-slate-400); }
-  &:focus-visible {
-    border-color: var(--Alloy-blue-300);
-    background: rgba(255, 255, 255, 0.11);
-  }
-
-  @media (max-width: 520px) {
-    width: 100%;
-    min-width: 0;
-  }
-`;
-
-const GrantButton = styled(Button)`
-  && {
-    min-width: 156px;
-    color: var(--Alloy-slate-950);
-    background: var(--Alloy-matcha-400);
-    border-color: transparent;
-    font-weight: var(--font-weight-bold);
-    box-shadow: 0 8px 28px color-mix(in srgb, var(--Alloy-matcha-400) 24%, transparent);
-  }
-
-  &&:hover:not(:disabled) {
-    background: var(--Alloy-matcha-300);
-    transform: translateY(-1px);
-  }
-
-  &&:disabled {
-    color: var(--Alloy-slate-600);
-    background: var(--Alloy-slate-300);
-    box-shadow: none;
-  }
-
-  @media (max-width: 520px) {
-    && {
-      width: 100%;
-    }
-  }
-`;
-
-/* Post-submit state — swaps in where the form row sat, holding its height so
-   the card doesn't jump. The check carries the neon matcha accent. */
-const GrantConfirmed = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--space-12);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-bg-always-light);
-
-  & svg {
-    flex-shrink: 0;
-    color: var(--Alloy-matcha-400);
-  }
-`;
-
-const GrantFinePrint = styled.p`
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  line-height: var(--line-height-relaxed);
-  color: var(--Alloy-slate-400);
 `;
 
 /* Ultron's working presence while a reply is in flight — the lines mark, the

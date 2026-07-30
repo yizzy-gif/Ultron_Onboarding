@@ -10,6 +10,10 @@ import { useEffect, useRef, useState } from 'react';
 
 export type ScrollDirection = 'up' | 'down' | null;
 
+/** Slack for "landed exactly on the end" — scroll positions and content heights
+ *  are fractional, so a clamp rarely lands on an exact integer. */
+const CLAMP_EPSILON_PX = 2;
+
 export interface UseScrollDirectionOptions {
   /** Minimum |delta| in px before a direction change fires. Default 8. */
   deadZonePx?: number;
@@ -25,39 +29,66 @@ export function useScrollDirection({
   target,
 }: UseScrollDirectionOptions = {}): ScrollDirection {
   const [direction, setDirection] = useState<ScrollDirection>(null);
-  // Baseline scroll position per scroller. Without an explicit target the hook
-  // hears from many elements, so each keeps its own baseline — mixing them
-  // would read a switch between scrollers as a huge phantom delta.
-  const lastYsRef = useRef(new WeakMap<EventTarget, number>());
+  // Baseline per scroller: the position last judged from, and the scrollable
+  // range as it stood at that same moment. Without an explicit target the hook
+  // hears from many elements, so each keeps its own baseline — mixing them would
+  // read a switch between scrollers as a huge phantom delta. The range travels
+  // with the position because the two are only comparable over the same interval
+  // (see the clamp check below), and a held baseline can span many events.
+  const baselinesRef = useRef(new WeakMap<EventTarget, { y: number; max: number }>());
 
   useEffect(() => {
-    const lastYs = lastYsRef.current;
+    const baselines = baselinesRef.current;
 
-    const yOf = (t: EventTarget): number =>
+    const elOf = (t: EventTarget): HTMLElement | null =>
       t === document || t === window
-        ? document.scrollingElement?.scrollTop ?? 0
-        : (t as HTMLElement).scrollTop ?? 0;
+        ? (document.scrollingElement as HTMLElement | null)
+        : (t as HTMLElement);
+
+    const measure = (t: EventTarget): { y: number; max: number } => {
+      const el = elOf(t);
+      return el
+        ? { y: el.scrollTop, max: el.scrollHeight - el.clientHeight }
+        : { y: 0, max: 0 };
+    };
 
     const onScroll = (e: Event) => {
       const t = target ?? e.target;
       if (!t) return;
-      const y = yOf(t);
-      if (!lastYs.has(t)) {
+      const now = measure(t);
+      const base = baselines.get(t);
+      if (!base) {
         // First sighting of this scroller — record a baseline, judge nothing.
-        lastYs.set(t, y);
+        baselines.set(t, now);
         return;
       }
-      const delta = y - lastYs.get(t)!;
+      const delta = now.y - base.y;
       // Hold the baseline through sub-threshold noise so a slow, continuous
-      // scroll still accumulates into a real delta.
+      // scroll still accumulates into a real delta. The baseline's range is held
+      // with it, so the comparison below stays over one interval.
       if (Math.abs(delta) < deadZonePx) return;
 
-      if (delta > 0 && y > topThresholdPx) {
+      // A scroller sitting at its end, whose range shrank over this same span by
+      // at least as much as the position moved back, was clamped — the content or
+      // the viewport resized and dragged the position with it. Reading that as an
+      // upward gesture is what let the mobile header oscillate: hiding it hands
+      // its box back to the page, which lengthens the page's scroller, which
+      // clamps a thread parked at its end, which looks like scrolling up, which
+      // shows the header again. Re-baseline and judge nothing.
+      const clamped = delta < 0 &&
+        now.y >= now.max - CLAMP_EPSILON_PX &&
+        base.max - now.max >= -delta - CLAMP_EPSILON_PX;
+      if (clamped) {
+        baselines.set(t, now);
+        return;
+      }
+
+      if (delta > 0 && now.y > topThresholdPx) {
         setDirection('down');
       } else if (delta < 0) {
         setDirection('up');
       }
-      lastYs.set(t, y);
+      baselines.set(t, now);
     };
 
     // An explicit target is observed directly. Otherwise listen on the document
