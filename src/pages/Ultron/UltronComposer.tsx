@@ -60,13 +60,15 @@ interface PhoneCaptureCardProps {
   captured?: boolean;
   /** Receive the entered digits. */
   onSubmit: (phone: string) => void;
-  /** Dismiss the submitted card and restore the regular composer. */
+  /** Close the card — declining the ask, or dismissing the confirmation. Either
+   *  way the surface it was holding back is released. */
   onDismiss: () => void;
 }
 
-/** Prominent conversion surface used when Welcome finishes building the week.
- *  It occupies the composer's exact slot, so the chat input visibly transforms
- *  into this card without blocking or navigating away from the conversation. */
+/** Prominent conversion surface, shown on the first live event's own page: it
+ *  stands where that event's activity trail will be, so the ask is made against
+ *  the work it is offering to follow, and closing it (or answering it) releases
+ *  the run underneath. */
 export function PhoneCaptureCard({
   captured = false,
   onSubmit,
@@ -78,6 +80,9 @@ export function PhoneCaptureCard({
 
   useEffect(() => {
     if (captured) return;
+    // Not on a phone: this card stands over the event the operator just opened,
+    // and summoning the keyboard would cover the very thing the ask is about.
+    if (window.matchMedia?.('(max-width: 600px)').matches) return;
     const frame = window.requestAnimationFrame(() => phoneRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [captured]);
@@ -91,28 +96,30 @@ export function PhoneCaptureCard({
   return (
     <PhoneCallout onSubmit={submitPhone} aria-label="See Ultron handle real work">
       <CalloutGlow aria-hidden="true" />
-      {captured && (
-        <PhoneCloseButton
-          type="button"
-          aria-label="Close phone number confirmation"
-          onClick={onDismiss}
-        >
-          <XCloseIcon size={18} />
-        </PhoneCloseButton>
-      )}
+      {/* Closable from the start, not only once answered: the ask sits on top of
+          the event the operator came here to read, so declining it has to be one
+          click away. */}
+      <PhoneCloseButton
+        type="button"
+        aria-label={captured ? 'Close phone number confirmation' : 'Close — go straight to the event'}
+        onClick={onDismiss}
+      >
+        <XCloseIcon size={18} />
+      </PhoneCloseButton>
       <CalloutCopy>
-        <CalloutEyebrow><LivePulse aria-hidden="true" /> YOUR SETUP IS READY</CalloutEyebrow>
+        <CalloutEyebrow><LivePulse aria-hidden="true" /> YOUR FIRST LIVE EVENT</CalloutEyebrow>
         <CalloutTitle>Ready to see the real work?</CalloutTitle>
         <CalloutBody>
-          Add your mobile number to launch a live Ultron event and watch it work
-          from detection through resolution.
+          Ultron just caught a last-minute callout. Add your mobile number to follow
+          it from detection through resolution — and to get the next one wherever
+          you are.
         </CalloutBody>
       </CalloutCopy>
 
       {captured ? (
         <PhoneConfirmed role="status">
           <CheckCircleIcon size={22} />
-          <span><strong>You’re in.</strong> Your live event is arriving now.</span>
+          <span>Activating demo event now</span>
         </PhoneConfirmed>
       ) : (
         <>

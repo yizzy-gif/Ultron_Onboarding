@@ -316,9 +316,14 @@ interface UltronActionCardProps {
    *  card's own border / shadow / fill / padding so it reads as one block of the
    *  host card rather than a nested card. */
   flat?: boolean;
+  /** Fired once, when the save-as-workflow surface has fully landed — the recap has
+   *  finished typing and the offer's CTA (or the saved confirmation) is on screen.
+   *  That's the last thing a completed run puts up, so it marks the end of the run
+   *  for whatever is choreographing around it. */
+  onOfferShown?: () => void;
 }
 
-export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow, saved = false, saveIntent = false, onToggleSaveWorkflow, savedConversationally = false, onSend, replying = false, onStop, flat = false }: UltronActionCardProps) {
+export function UltronActionCard({ thread, stage, onAction, onRefinement, onSaveWorkflow, saved = false, saveIntent = false, onToggleSaveWorkflow, savedConversationally = false, onSend, replying = false, onStop, flat = false, onOfferShown }: UltronActionCardProps) {
   // On the phone the offer card's trailing CTA compresses to an icon-only check
   // (its label rides the aria-label) so the question keeps the row's width.
   const isMobile = useIsMobile();
@@ -381,6 +386,28 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
   // avatar rides the card's top-right corner instead of a full record card.
   const person = actionable && !(tasks && tasks.length > 0) && records.length > 0 ? records[0] : undefined;
 
+  // The resolution recap, and whether the offer that follows it is on screen yet.
+  // Computed out here (not inside the branch below) so the completion signal can
+  // read them from above the early return.
+  const resolution = RESOLVE_OUTCOMES[thread.id];
+  // The offer/saved line + CTA wait until the recap has finished typing (or there's
+  // no recap to type), so they land after Ultron has "spoken" its summary.
+  const showOffer = recapDone || !resolution;
+  // The play was pre-flagged to save on the original decision card (the deferred
+  // toggle, committed on resolve) — no conversational exchange was posted. There's
+  // nothing left to ask, so the offer card is skipped entirely: only the "Workflow
+  // saved" confirmation card shows.
+  const preSaved = saved && !savedConversationally && !savePending;
+  // The run's last surface: the saved confirmation, or the offer once its question
+  // has finished typing and the Save CTA has landed under it.
+  const offerLanded = offerWorkflow && !actionable && showOffer && (preSaved || lineDone);
+  const offerAnnounced = useRef(false);
+  useEffect(() => {
+    if (!offerLanded || offerAnnounced.current) return;
+    offerAnnounced.current = true;
+    onOfferShown?.();
+  }, [offerLanded, onOfferShown]);
+
   // Pure save-offer (resolved / workflow-ready rows — not a live decision). Reads as
   // a plain-text turn (no bordered card): a short, sharp recap of how the event
   // resolved, then either the offer to save the play (with a Save CTA) or — once
@@ -388,15 +415,6 @@ export function UltronActionCard({ thread, stage, onAction, onRefinement, onSave
   // saved confirmation inline, so it stays part of this resolution turn rather than
   // arriving as a separate message.
   if (offerWorkflow && !actionable) {
-    const resolution = RESOLVE_OUTCOMES[thread.id];
-    // The offer/saved line + CTA wait until the recap has finished typing (or there's
-    // no recap to type), so they land after Ultron has "spoken" its summary.
-    const showOffer = recapDone || !resolution;
-    // The play was pre-flagged to save on the original decision card (the deferred
-    // toggle, committed on resolve) — no conversational exchange was posted. There's
-    // nothing left to ask, so the offer card is skipped entirely: only the "Workflow
-    // saved" confirmation card shows.
-    const preSaved = saved && !savedConversationally && !savePending;
     return (
       <OfferTurn $divided>
         {resolution && (

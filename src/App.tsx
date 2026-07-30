@@ -22,6 +22,7 @@ import {
   type UltronSection, type ThreadStatus, type NewPageMessage,
 } from './pages/Ultron';
 import { WelcomeThread, companyName, type WelcomeAnswers } from './pages/WelcomeThread';
+import { AccessModal } from './pages/AccessModal';
 import { useHashSync } from './nav/hashSync';
 import type { MobileModuleGroup } from './components/AppShell/MobileShell';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -57,6 +58,10 @@ const BOTTOM_ITEMS: Omit<PrimaryNavItem, 'isActive' | 'onClick'>[] = [
 
 const EVENT_SPOTLIGHT_DELAY_MS = 3000;
 const EVENT_STANDBY_DELAY_MS = 4000;
+/** How long the phone card's confirmation holds the event page before the run it
+ *  was gating takes over. Long enough to read the line; short enough that the
+ *  operator never has to close it themselves. */
+const EVENT_PHONE_CONFIRM_MS = 1900;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -347,6 +352,45 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // Shared Ultron store (threads + grouping + selection) — drives both the
   // sidebar and the main detail view.
   const ultron = useUltronStore();
+  // Demo shortcut: M opens the access modal (grant / waitlist). It lives here
+  // rather than in the welcome thread it started in, so it answers on every
+  // Ultron surface — the Live landing, any event page, Memory, the account
+  // database — which is every screen this app renders.
+  const [accessModalOpen, setAccessModalOpen] = useState(false);
+  /* The end of the demo. Once an event page's run has played all the way out —
+     execution finished, recap spoken, save-as-workflow offered — the waitlist card
+     takes the screen and keeps it: no close, no Escape, no backdrop, and it stays
+     up through the confirmation. There is nothing after this beat to go back to,
+     so the gate is terminal by construction (it is never set back to false). */
+  const [accessGateOpen, setAccessGateOpen] = useState(false);
+  /* Runs the operator actually stepped through here. A case that was already
+     resolved when it was opened shows the same save-as-workflow surface the moment
+     it mounts, and that must not spring the gate — only finishing a run does. */
+  const steppedRuns = useRef<Set<string>>(new Set());
+  const handleCompleteRun = (threadId: string) => {
+    steppedRuns.current.add(threadId);
+    ultron.completeRun(threadId);
+  };
+  const handleRunCompleted = (threadId: string) => {
+    if (steppedRuns.current.has(threadId)) setAccessGateOpen(true);
+  };
+  useEffect(() => {
+    const openFromKeyboard = (event: KeyboardEvent) => {
+      // Editable controls keep their letters: typing a message, a phone number,
+      // or a page title must never be a shortcut.
+      const target = event.target as HTMLElement | null;
+      const editing = target?.isContentEditable
+        || target?.tagName === 'INPUT'
+        || target?.tagName === 'TEXTAREA'
+        || target?.tagName === 'SELECT';
+      if (editing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() !== 'm') return;
+      event.preventDefault();
+      setAccessModalOpen(true);
+    };
+    document.addEventListener('keydown', openFromKeyboard);
+    return () => document.removeEventListener('keydown', openFromKeyboard);
+  }, []);
   // The mobile header is the only persistent Ultron navigation on a phone.
   // Signal any surfaced New case that has not been opened yet; setSelectedId
   // records the view, so the mark clears as soon as the operator opens it.
@@ -366,8 +410,15 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   const [onWelcome, setOnWelcome] = useState(Boolean(introAnswers));
   // Whether the operator has continued the welcome conversation (sent a first
   // message). Drives where the Welcome entry sits in the sidebar: New until
-  // the conversation continues, Working after.
+  // the conversation continues, Working after — and Done once the setup itself
+  // is finished (see welcomeSetupComplete).
   const [welcomeContinued, setWelcomeContinued] = useState(false);
+  // Whether the in-chat setup reached its end: the schedule landed and its week
+  // card was delivered, or the operator skipped the schedule. Both routes are the
+  // same gate in the thread, so this is one flag rather than two. Carries the
+  // Welcome entry on from Working to Done, where it stays — the conversation is
+  // still open and re-openable, but there is nothing left it is asking for.
+  const [welcomeSetupComplete, setWelcomeSetupComplete] = useState(false);
   // Arriving through onboarding mounts Welcome immediately. A refreshed app
   // mounts it on first open, then retains it for every subsequent return.
   const [welcomeMounted, setWelcomeMounted] = useState(Boolean(introAnswers));
@@ -379,6 +430,12 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // the orange pulse used for a New event standing by for review.
   const [eventMarkLoading, setEventMarkLoading] = useState(false);
   const eventStandbyTimer = useRef<number | null>(null);
+  // The phone ask rides the surfaced event rather than the welcome thread: the
+  // event's page opens with its header and this card, and the run behind it stays
+  // folded until the number lands ('captured', which holds the confirmation for a
+  // beat) or the operator closes the card ('off', straight through).
+  const [eventPhoneGate, setEventPhoneGate] = useState<'off' | 'pending' | 'captured'>('off');
+  const eventPhoneGateTimer = useRef<number | null>(null);
   useEffect(() => () => {
     if (eventSpotlightTimer.current !== null) {
       window.clearTimeout(eventSpotlightTimer.current);
@@ -386,7 +443,28 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     if (eventStandbyTimer.current !== null) {
       window.clearTimeout(eventStandbyTimer.current);
     }
+    if (eventPhoneGateTimer.current !== null) {
+      window.clearTimeout(eventPhoneGateTimer.current);
+    }
   }, []);
+
+  const closeEventPhoneGate = () => {
+    if (eventPhoneGateTimer.current !== null) {
+      window.clearTimeout(eventPhoneGateTimer.current);
+      eventPhoneGateTimer.current = null;
+    }
+    setEventPhoneGate('off');
+  };
+
+  // DEMO ONLY — the number is never sent anywhere. It buys the confirmation, and
+  // the confirmation holds just long enough to be read before the run takes over.
+  const captureEventPhone = () => {
+    setEventPhoneGate('captured');
+    eventPhoneGateTimer.current = window.setTimeout(() => {
+      eventPhoneGateTimer.current = null;
+      setEventPhoneGate('off');
+    }, EVENT_PHONE_CONFIRM_MS);
+  };
 
   const dismissEventSpotlight = () => {
     if (eventSpotlightTimer.current !== null) {
@@ -396,13 +474,21 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
     setEventSpotlight(false);
   };
 
+  // The welcome thread's completed-setup gate: a beat after the test-run invitation
+  // lands, Ultron surfaces the callout in New and points the operator at it. The
+  // phone ask is armed with it, to be made on that event's own page.
+  // The setup row settles into Done on the gate itself rather than on the delay
+  // below: the delay is there to stagger Ultron's next move, and holding the row
+  // in Working for it would leave the sidebar claiming work that is already done.
   const scheduleTestRunReveal = () => {
+    setWelcomeSetupComplete(true);
     dismissEventSpotlight();
     eventSpotlightTimer.current = window.setTimeout(() => {
       eventSpotlightTimer.current = null;
       ultron.surfaceDemoThread('shift_drop_maria');
       startEventLoading();
       setEventSpotlight(true);
+      setEventPhoneGate('pending');
     }, EVENT_SPOTLIGHT_DELAY_MS);
   };
 
@@ -525,7 +611,8 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // The Welcome thread's sidebar row — the post-onboarding recap, kept always
   // reachable. It lives with the cases and follows their lifecycle: listed
   // under New until the operator continues the conversation, under Working
-  // after (see welcomeContinued). Named after what onboarding learned — the
+  // after (see welcomeContinued), and under Done once the setup itself is
+  // finished (see welcomeSetupComplete). Named after what onboarding learned — the
   // company (from the pasted website) or the workforce they described —
   // falling back to a plain "Account setup" when neither is known (refresh).
   const welcomeCompany =
@@ -580,11 +667,17 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
         const groupThreads = g.id === 'needs_attention'
           ? g.threads.filter(t => t.status === 'analyzing' || ultron.revealedNewIds.includes(t.id))
           : g.threads;
-        // The Welcome thread rides this group's list: New until the operator
-        // continues the conversation, Working after. Operator-created pages
-        // list under New alongside it.
-        const welcomeHere =
-          (g.id === 'needs_attention' && !welcomeContinued) || (g.id === 'live' && welcomeContinued);
+        // The Welcome thread rides this group's list, one group at a time, and
+        // moves through them in step with the setup it holds: New until the
+        // operator continues the conversation, Working while it is being worked,
+        // Done once the setup finishes (the schedule's week card landed, or the
+        // schedule was skipped). Tested most-advanced-first, so the last stage
+        // reached wins. Operator-created pages list under New alongside it.
+        const welcomeHere = welcomeSetupComplete
+          ? g.id === 'resolved'
+          : welcomeContinued
+          ? g.id === 'live'
+          : g.id === 'needs_attention';
         const pagesHere = g.id === 'needs_attention' ? pageNavChildren : [];
         const groupEntry = {
           type: 'group' as const,
@@ -743,7 +836,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
             active={homeView === 'ultron' && onWelcome}
             answers={introAnswers}
             onContinued={() => setWelcomeContinued(true)}
-            onPhoneSubmitted={scheduleTestRunReveal}
+            onSetupComplete={scheduleTestRunReveal}
           />
         </WelcomeThreadKeepAlive>
       )}
@@ -772,7 +865,7 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
           selectedId={ultron.selectedId}
           onDecide={ultron.decide}
           onAction={ultron.commit}
-          onCompleteRun={ultron.completeRun}
+          onCompleteRun={handleCompleteRun}
           onRefinement={ultron.refine}
           onSaveWorkflow={ultron.saveWorkflow}
           pendingWorkflowIds={ultron.pendingWorkflowIds}
@@ -784,19 +877,34 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
           onClose={() => { setHomeView('ultron'); setOnWelcome(false); setOnLive(true); }}
           onDetectEvent={ultron.detectEvent}
           onRevealNew={ultron.revealNew}
+          onRunCompleted={handleRunCompleted}
+          phoneGateThreadId={eventPhoneGate === 'off' ? null : 'shift_drop_maria'}
+          phoneGateCaptured={eventPhoneGate === 'captured'}
+          onPhoneGateSubmit={captureEventPhone}
+          onPhoneGateClose={closeEventPhoneGate}
         />
       )}
     </AppShell>
 
+    {/* The access modal (grant / waitlist), opened by the M shortcut from any
+        Ultron screen, or by the terminal gate when a run finishes — one instance
+        either way, so the two can never stack. Rendered at the app root so it
+        outlives the page under it. */}
+    <AccessModal
+      open={accessGateOpen || accessModalOpen}
+      locked={accessGateOpen}
+      onClose={() => setAccessModalOpen(false)}
+    />
+
     {/* Locked-module explainer — why the rest of the rail is greyed out. */}
     <Dialog open={waitlistOpen} onClose={() => setWaitlistOpen(false)} size="sm" aria-labelledby="waitlist-title">
       <WaitlistHeader onClose={() => setWaitlistOpen(false)}>
-        <span id="waitlist-title">This app isn't unlocked yet</span>
+        <span id="waitlist-title">Account setup in progress</span>
       </WaitlistHeader>
       <WaitlistContent>
         <WaitlistBody>
-          Demand for Ultron is extreme, so apps unlock in stages. Finish onboarding,
-          and once you're approved past the waitlist, everything opens up.
+          Please finish your account setup and Ultron introduction to unlock the rest
+          of your dashboard
         </WaitlistBody>
       </WaitlistContent>
       <WaitlistFooter>

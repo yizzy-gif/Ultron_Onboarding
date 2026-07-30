@@ -14,9 +14,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentType, CSSProperties, FormEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
+import styled, { css, keyframes } from 'styled-components';
 import {
-  Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, Dialog, XCloseIcon,
+  Button, ComposerAttachment, ComposerSendButton, CheckCircleIcon, XCloseIcon,
   Users03Icon, ClockIcon, File04Icon, Tag,
   AlertTriangleIcon, ChevronDownIcon, UploadCloud01Icon, FileUploader,
 } from 'alloy-design-system';
@@ -25,9 +25,7 @@ import { mockUltronReply } from './Ultron/fixtures';
 import type { ActivityMilestone } from './Ultron/fixtures';
 import { ActivityTrailCards } from './Ultron/ActivityTrail';
 import { AgentMark } from './Ultron/AgentMark';
-import { PhoneCaptureCard } from './Ultron/UltronComposer';
 import { IntroBackdrop } from './Onboarding/IntroBackdrop';
-import { TeambridgeMark } from './Onboarding/TeambridgeMark';
 import { liquidGlass } from './Onboarding/glass';
 import { MouseGlow } from '../components/MouseGlow';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -88,7 +86,6 @@ type IntroPhase = 'delivering' | 'ready';
 /** Where the in-chat setup stands: Ultron is waiting on the roster, then the
  *  schedule, then the composer gives way to the phone-gated event launch. */
 type SetupStage = 'roster' | 'schedule' | 'done';
-type AccessModalMode = 'grant' | 'waitlist';
 
 const REPLY_DELAY_MS = 1100;
 
@@ -117,9 +114,6 @@ const SUMMARY_HOLD_MS = 720;
 const WORKING_MS = 2000;
 /** Gap between the parts of one multi-message Ultron turn (text → card → ask). */
 const TURN_GAP_MS = 950;
-
-/** How long the "you're set" confirmation shows before the modal closes itself. */
-const GRANT_CONFIRM_HOLD_MS = 1600;
 
 // ── Header morph ─────────────────────────────────────────────────────────────
 // The welcome identity lands as a hero lockup and settles to an app-bar as the
@@ -613,16 +607,18 @@ interface WelcomeThreadProps {
    *  static recap and became a working conversation (the app moves its nav
    *  entry from New to Working on this signal). */
   onContinued?: () => void;
-  /** Fired once the post-schedule phone capture is submitted. The app uses this
-   *  moment to reveal and spotlight the Maria Ellis shift-drop event. */
-  onPhoneSubmitted?: (phone: string) => void;
+  /** Fired once, when the in-chat setup reaches its completed gate — the test-run
+   *  invitation has landed. The app uses this moment to reveal and spotlight the
+   *  Maria Ellis shift-drop event; the phone ask now waits on that event's own
+   *  page rather than in this thread. */
+  onSetupComplete?: () => void;
 }
 
 export function WelcomeThread({
   active = true,
   answers = NO_ANSWERS,
   onContinued,
-  onPhoneSubmitted,
+  onSetupComplete,
 }: WelcomeThreadProps) {
   // Phones drop this page's two decorative layers entirely (see the render).
   const isMobile = useIsMobile();
@@ -635,10 +631,6 @@ export function WelcomeThread({
   const [replying, setReplying] = useState<string | null>(null);
   // Where the in-chat setup stands (roster ask → schedule ask → done).
   const [stage, setStage] = useState<SetupStage>('roster');
-  // Submission launches the live event while the capture card settles into a
-  // confirmation. Closing that confirmation restores the composer.
-  const [eventPhoneCaptured, setEventPhoneCaptured] = useState(false);
-  const [eventPhoneCaptureDismissed, setEventPhoneCaptureDismissed] = useState(false);
   // Which way the roster came in — drives the roster card's variant.
   const [rosterSample, setRosterSample] = useState(false);
   // Collapse the roster intake the moment either a file or sample crew is
@@ -655,14 +647,6 @@ export function WelcomeThread({
   // card can mark the current one. Null when the schedule arrived as a document
   // (no described shape) — then no pill is selected until one is tried.
   const [weekShape, setWeekShape] = useState<string | null>(null);
-  // Sales reach-out — the number the admin leaves for the grant unlock.
-  // DEMO ONLY: held in memory, never sent anywhere.
-  const [phone, setPhone] = useState('');
-  const [unlocked, setUnlocked] = useState(false);
-  const [waitlistJoined, setWaitlistJoined] = useState(false);
-  const [accessModalMode, setAccessModalMode] = useState<AccessModalMode>('grant');
-  // Legacy demo-only access dialog, still reachable through the M shortcut.
-  const [grantOpen, setGrantOpen] = useState(false);
   // The header's morph position, 0 (hero lockup) → 1 (app bar). Written straight
   // to the element as a CSS variable rather than held in state: it changes with
   // every scroll frame, and a re-render per frame is exactly the cost this design
@@ -733,7 +717,6 @@ export function WelcomeThread({
   const timers = useRef<number[]>([]);
   const turnTimer = useRef<number | null>(null);
   const turnAdvance = useRef<(() => void) | null>(null);
-  const grantTimer = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // How far the open mobile intake sheet reaches up the viewport. The thread
@@ -801,8 +784,20 @@ export function WelcomeThread({
   useEffect(() => () => {
     timers.current.forEach(id => window.clearTimeout(id));
     if (turnTimer.current) window.clearTimeout(turnTimer.current);
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
   }, []);
+
+  /* The completed-setup gate. Both routes into 'done' (a built week, or skipping
+     the schedule) land the test-run invitation, and that invitation is now the
+     whole handoff: the event surfaces in the nav immediately, and the number is
+     asked for on the event's own page. Announced from an effect rather than each
+     route's `then`, so there is one gate rather than two that have to agree.
+     Fires once — nothing moves the stage back off 'done'. */
+  const setupAnnounced = useRef(false);
+  useEffect(() => {
+    if (stage !== 'done' || setupAnnounced.current) return;
+    setupAnnounced.current = true;
+    onSetupComplete?.();
+  }, [stage, onSetupComplete]);
 
   // ── Header morph ───────────────────────────────────────────────────────────
   /** Drive the header's size straight off the scroll position: 0 at the top, 1
@@ -840,17 +835,36 @@ export function WelcomeThread({
   /* Keep at least a full morph span of scroll available, reserving the shortfall
      at the thread's foot. Unlike the header's old in-flow arrangement, nothing
      here can feed back: the header is an overlay, so the scroller's height is
-     fixed and the thread's own overflow is measured with the reserve discounted —
-     adding to the reserve grows scrollHeight by exactly as much and leaves that
-     measurement untouched. Re-runs as turns arrive and the thread outgrows it. */
+     fixed, and the shortfall is measured against the thread alone — the reserve
+     sits beside it and is never part of the measurement, so adding to the reserve
+     cannot change the next answer. Re-runs as turns arrive and the thread outgrows
+     it, and settles in a single pass whenever it does. */
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    /* The thread proper — everything the operator can actually scroll through. The
+       reserve is its sibling, so this is the one box that answers "how long is the
+       conversation", independent of whatever reserve is currently parked beside it. */
+    const content = el.firstElementChild;
     const settle = () => {
+      // No layout box, nothing to measure. The app keeps this thread mounted and
+      // hides it with display:none while another view is up (see App's keep-alive
+      // wrapper), and a hidden element measures 0 — which would read as a thread of
+      // no length owing a full span of reserve. Nothing to do but wait: the observer
+      // fires again when the box comes back.
+      if (!content || el.clientHeight === 0) return;
       const span = window.matchMedia('(max-width: 600px)').matches
         ? HEADER_MORPH_SPAN_SM_PX
         : HEADER_MORPH_SPAN_PX;
-      const own = el.scrollHeight - headerRunwayPx - el.clientHeight;
+      /* Measured off the thread itself rather than by subtracting the reserve back
+         out of scrollHeight. Two reasons, and the second is why this can't run away:
+         scrollHeight never reports less than the viewport, so while the conversation
+         is shorter than one screen it reads as exactly clientHeight and says nothing
+         about the thread's real length — a reserve subtracted from that lands short
+         and asks again next pass. And measuring the thread direct means the answer
+         doesn't depend on the value this writes, so a pass cannot feed the next one:
+         it converges in one, or not at all. */
+      const own = content.getBoundingClientRect().height - el.clientHeight;
       const needed = Math.max(0, span - own);
       // A pixel of slack, or fractional content heights trade sub-pixel updates
       // back and forth with the observer.
@@ -864,14 +878,13 @@ export function WelcomeThread({
     // sheet was when it last settled, so the scroll range came up short.
     const observer = new ResizeObserver(settle);
     observer.observe(el, { box: 'border-box' });
-    const content = el.firstElementChild;
     if (content) observer.observe(content, { box: 'border-box' });
     window.addEventListener('resize', settle);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', settle);
     };
-  }, [headerRunwayPx, mobileSheetInset]);
+  }, [mobileSheetInset]);
 
   /* Resizing the runway moves the end of the scroll. A thread parked there should
      stay parked — otherwise growing the runway silently leaves the operator short
@@ -991,35 +1004,6 @@ export function WelcomeThread({
     };
   }, [openingBeats, prefersReduced]);
 
-  // Demo shortcut: M opens whichever access-modal variant was selected last.
-  // Ignore editable controls so typing a phone number or message never triggers it.
-  useEffect(() => {
-    const openFromKeyboard = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const editing = target?.isContentEditable
-        || target?.tagName === 'INPUT'
-        || target?.tagName === 'TEXTAREA'
-        || target?.tagName === 'SELECT';
-      if (!active || editing || event.metaKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== 'm') return;
-      event.preventDefault();
-      setGrantOpen(true);
-    };
-    document.addEventListener('keydown', openFromKeyboard);
-    return () => document.removeEventListener('keydown', openFromKeyboard);
-  }, [active]);
-
-  const unlock = () => {
-    setUnlocked(true);
-    // Let the confirmation land, then hand the screen back to the thread.
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
-    grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
-  };
-
-  const joinWaitlist = () => {
-    setWaitlistJoined(true);
-    if (grantTimer.current) window.clearTimeout(grantTimer.current);
-    grantTimer.current = window.setTimeout(() => setGrantOpen(false), GRANT_CONFIRM_HOLD_MS);
-  };
   useEffect(() => {
     if (!active) return;
     // Only follow if the operator is already at the end. Otherwise this fought
@@ -1036,13 +1020,6 @@ export function WelcomeThread({
     // into).
     scrollThreadToEnd();
   }, [active, messages, replying, phase, revealed, activeIdx, typed, showDots, mobileSheetInset]);
-
-  // A normal navigation away from Welcome closes a manually opened dialog. The
-  // event-completion signal arrives later, while `active` is already false, and
-  // deliberately reopens the portal over the resolved event.
-  useEffect(() => {
-    if (!active) setGrantOpen(false);
-  }, [active]);
 
   const canSend = (draft.trim().length > 0 || attachments.length > 0) && replying === null;
 
@@ -1170,8 +1147,8 @@ export function WelcomeThread({
 
   // The schedule landed (a file / pasted table) or was described (a shape) →
   // build the week, show it, then invite the operator to watch Ultron handle a
-  // live event. Once that invitation lands, the composer becomes the phone
-  // capture; only submitting it reveals the event in the nav.
+  // live event. That invitation is the handoff: it surfaces the event in the nav,
+  // and the phone ask waits on the event's own page.
   // `cardFile` follows the same rule as the roster's (see runRosterImport): only
   // a file the schedule drop zone took itself drives that card's upload state.
   /** Rebuild the shown week to a different sample shape, in place. This is a
@@ -1219,7 +1196,7 @@ export function WelcomeThread({
 
   // The schedule is useful context, but it should not block the live-work
   // preview. Acknowledge the choice in the conversation, then advance through
-  // the same completed-setup gate that reveals the phone capture card.
+  // the same completed-setup gate that surfaces the live event.
   const skipSchedule = () => {
     retireMobileUploader('schedule');
     postOperator('Skip the schedule for now');
@@ -1228,7 +1205,7 @@ export function WelcomeThread({
         {
           role: 'ultron',
           text: 'No problem — we’ll skip the schedule for now. You can add it anytime. ' +
-            'Your setup is ready; add your mobile number below to launch a live Ultron event.',
+            `Your setup is ready. ${TEST_RUN_ASK}`,
         },
       ],
       {
@@ -1391,9 +1368,6 @@ export function WelcomeThread({
       : stage === 'schedule'
       ? 'Attach your schedule, or describe your week…'
       : 'Tell Ultron what to take on next…';
-  const isWaitlistModal = accessModalMode === 'waitlist';
-  const accessConfirmed = isWaitlistModal ? waitlistJoined : unlocked;
-  const phoneReady = phone.length >= 10;
 
   return (
     <Root>
@@ -1813,181 +1787,59 @@ export function WelcomeThread({
             </MarkFormLayer>
           </MarkMorphBox>
         </FootMarkRow>
-        {stage === 'done' && !eventPhoneCaptureDismissed ? (
-          <PhoneCaptureCard
-            captured={eventPhoneCaptured}
-            onSubmit={phoneNumber => {
-              setEventPhoneCaptured(true);
-              onPhoneSubmitted?.(phoneNumber);
-            }}
-            onDismiss={() => setEventPhoneCaptureDismissed(true)}
-          />
-        ) : (
-          <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
-            {attachments.length > 0 && (
-              <PendingFiles aria-label="Files to send">
-                {attachments.map(name => (
-                  <FileChip key={name}>
-                    <File04Icon size={14} />
-                    {name}
-                    <ChipRemove
-                      type="button"
-                      aria-label={`Remove ${name}`}
-                      onClick={() => removeFile(name)}
-                    >
-                      <XCloseIcon size={12} />
-                    </ChipRemove>
-                  </FileChip>
-                ))}
-              </PendingFiles>
-            )}
-            <InputRow>
-              <ActionSlot>
-                <ComposerAttachment state="idle" onSelect={addFiles} />
-              </ActionSlot>
-              <Field
-                rows={1}
-                value={draft}
-                placeholder={placeholder}
-                aria-label="Message Ultron"
-                inputMode="text"
-                autoComplete="off"
-                onChange={e => setDraft(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-                }}
-                onPaste={e => {
-                  // A file pasted straight into the composer stages as a chip,
-                  // same as picking it with the paperclip.
-                  const files = e.clipboardData?.files;
-                  if (files && files.length > 0) {
-                    e.preventDefault();
-                    addFiles(files);
-                  }
-                }}
-              />
-              <ActionSlot>
-                <ComposerSendButton state={canSend ? 'ready' : 'disabled-invalid'} onSend={send} />
-              </ActionSlot>
-            </InputRow>
-          </Composer>
-        )}
-      </ComposerWrap>
-      )}
-
-      {/* Sales reach-out — one number unlocks the usage grant. The thread's
-          single high-emphasis conversion moment, so it blocks the screen as a
-          centered modal (Alloy Dialog: portal, scrim, Escape/backdrop close)
-          over a blurred backdrop, on the inverse surface. */}
-      <GrantOverlayBlur />
-      <Dialog
-        open={grantOpen}
-        onClose={() => setGrantOpen(false)}
-        size="lg"
-        aria-label={`${isWaitlistModal ? 'Join waitlist' : 'Unlock grant'} — Ultron access`}
-      >
-        <GrantCard>
-          <GrantBrandWatermark aria-hidden="true">
-            <TeambridgeMark size={300} />
-          </GrantBrandWatermark>
-          <GrantClose type="button" aria-label="Close" onClick={() => setGrantOpen(false)}>
-            <XCloseIcon size={18} />
-          </GrantClose>
-
-          <GrantEyebrow>
-            <GrantSpark aria-hidden="true" />
-            {isWaitlistModal ? 'Ultron early access' : 'Your welcome grant'}
-          </GrantEyebrow>
-          {!isWaitlistModal && (
-            <GrantOffer aria-label="$1,000 of work on us">
-              <GrantAmount><GrantCurrency>$</GrantCurrency>1,000</GrantAmount>
-              <GrantOfferLabel>of work<br /><strong>on us</strong></GrantOfferLabel>
-            </GrantOffer>
+        {/* The composer stays a composer for the whole thread now, completed setup
+            included: the phone ask moved onto the surfaced event's page, where the
+            work it is asking to follow is actually visible. */}
+        <Composer onSubmit={(e: FormEvent) => { e.preventDefault(); send(); }}>
+          {attachments.length > 0 && (
+            <PendingFiles aria-label="Files to send">
+              {attachments.map(name => (
+                <FileChip key={name}>
+                  <File04Icon size={14} />
+                  {name}
+                  <ChipRemove
+                    type="button"
+                    aria-label={`Remove ${name}`}
+                    onClick={() => removeFile(name)}
+                  >
+                    <XCloseIcon size={12} />
+                  </ChipRemove>
+                </FileChip>
+              ))}
+            </PendingFiles>
           )}
-
-          <GrantTitle $prominent={isWaitlistModal}>
-            {isWaitlistModal ? 'Be first when access opens.' : 'Ready to see the real work?'}
-          </GrantTitle>
-          <GrantBody>
-            {isWaitlistModal
-              ? 'Ultron is opening access in waves. Leave your number and we’ll text the moment your workspace is unblocked.'
-              : 'Bring Ultron into your operation. Leave your mobile number and we’ll get the real workspace ready—your first 100,000 credits are covered.'}
-          </GrantBody>
-
-          <GrantPerks aria-label={isWaitlistModal ? 'Waitlist benefits' : 'Grant benefits'}>
-            {isWaitlistModal ? (
-              <>
-                <GrantPerk>Priority access</GrantPerk>
-                <GrantPerk>One text when ready</GrantPerk>
-                <GrantPerk>No commitment</GrantPerk>
-              </>
-            ) : (
-              <>
-                <GrantPerk>100,000 credits</GrantPerk>
-                <GrantPerk>Up to 3 months</GrantPerk>
-                <GrantPerk>You approve every action</GrantPerk>
-              </>
-            )}
-          </GrantPerks>
-
-          {accessConfirmed ? (
-            <GrantConfirmed role="status">
-              <CheckCircleIcon size={20} />
-              {isWaitlistModal
-                ? 'You’re on the list — we’ll text as soon as your access opens.'
-                : 'You’re set — we’ll text you when your real workspace is ready. Your $1,000 grant is live.'}
-            </GrantConfirmed>
-          ) : (
-            <GrantForm
-              onSubmit={(e: FormEvent) => {
-                e.preventDefault();
-                if (phoneReady) {
-                  if (isWaitlistModal) joinWaitlist();
-                  else unlock();
+          <InputRow>
+            <ActionSlot>
+              <ComposerAttachment state="idle" onSelect={addFiles} />
+            </ActionSlot>
+            <Field
+              rows={1}
+              value={draft}
+              placeholder={placeholder}
+              aria-label="Message Ultron"
+              inputMode="text"
+              autoComplete="off"
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+              }}
+              onPaste={e => {
+                // A file pasted straight into the composer stages as a chip,
+                // same as picking it with the paperclip.
+                const files = e.clipboardData?.files;
+                if (files && files.length > 0) {
+                  e.preventDefault();
+                  addFiles(files);
                 }
               }}
-            >
-                <GrantFormLabel htmlFor="welcome-grant-phone">
-                  {isWaitlistModal
-                    ? 'Where should we send your access text?'
-                    : 'Where should we text your invite?'}
-                </GrantFormLabel>
-                <GrantFormRow>
-                  <GrantField
-                    id="welcome-grant-phone"
-                    type="tel"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    minLength={10}
-                    maxLength={15}
-                    value={phone}
-                    placeholder="Your phone number"
-                    aria-label="Mobile number"
-                    autoComplete="tel"
-                    onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
-                  />
-                <GrantButton type="submit" variant="tertiary" size="lg" disabled={!phoneReady}>
-                  {isWaitlistModal ? 'Join waitlist' : 'Unlock $1,000'}
-                </GrantButton>
-              </GrantFormRow>
-            </GrantForm>
-          )}
-          <GrantFinePrint>
-            {isWaitlistModal
-              ? 'Access updates only — never spam. Msg & data rates may apply. Reply STOP to opt out.'
-              : 'Proposals only — never spam. Msg & data rates may apply. Reply STOP to opt out.'}
-          </GrantFinePrint>
-        </GrantCard>
-        <ModalDemoSwitch
-          type="button"
-          onClick={() => {
-            if (grantTimer.current) window.clearTimeout(grantTimer.current);
-            setAccessModalMode(mode => mode === 'grant' ? 'waitlist' : 'grant');
-          }}
-        >
-          Demo: show {isWaitlistModal ? 'welcome grant' : 'waitlist'}
-        </ModalDemoSwitch>
-      </Dialog>
+            />
+            <ActionSlot>
+              <ComposerSendButton state={canSend ? 'ready' : 'disabled-invalid'} onSend={send} />
+            </ActionSlot>
+          </InputRow>
+        </Composer>
+      </ComposerWrap>
+      )}
     </Root>
   );
 }
@@ -3762,470 +3614,6 @@ const ShiftWho = styled.span`
   @media (max-width: 700px) {
     font-size: 10px;
   }
-`;
-
-/* ── Grant modal (sales reach-out) ────────────────────────────────────────────
-   The one deliberately inverse surface on the page — the inverse token family
-   keeps it maximally contrasted against the scrim in either theme (dark card on
-   light, light card on dark), so the conversion moment reads as its own moment
-   rather than another bubble. Layout mirrors the wireframe — headline, body,
-   phone field beside the action, fine print — wrapped in Alloy's Dialog, which
-   supplies the portal, centering, radius clip, and close behaviors. */
-
-/* The gentle deceleration curve the intro flow uses (easeOutQuint) — glides to
-   rest instead of Alloy's snappier default, so the modal reads smooth. */
-const GRANT_SMOOTH = 'cubic-bezier(0.22, 1, 0.36, 1)';
-
-/* Entrance: the scrim's blur has to be animated explicitly — backdrop-filter
-   doesn't fade with the element's opacity, so without this the blur snaps on
-   at full strength one frame in. */
-const grantScrimIn = keyframes`
-  from {
-    opacity: 0;
-    -webkit-backdrop-filter: blur(0px);
-    backdrop-filter: blur(0px);
-  }
-  to {
-    opacity: 1;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-  }
-`;
-
-const grantScrimOut = keyframes`
-  from {
-    opacity: 1;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-  }
-  to {
-    opacity: 0;
-    -webkit-backdrop-filter: blur(0px);
-    backdrop-filter: blur(0px);
-  }
-`;
-
-const grantCardIn = keyframes`
-  0%   { opacity: 0; transform: scale(0.88) translateY(36px) rotate(-1deg); }
-  70%  { opacity: 1; transform: scale(1.018) translateY(-2px) rotate(0); }
-  100% { opacity: 1; transform: scale(1) translateY(0) rotate(0); }
-`;
-
-const grantCardOut = keyframes`
-  from { opacity: 1; transform: scale(1) translateY(0); }
-  to   { opacity: 0; transform: scale(0.97) translateY(10px); }
-`;
-
-/* Blurs this dialog's scrim and smooths its motion. Alloy's Dialog owns the
-   overlay (a CSS-module class portaled to <body>), so the one stable hook is
-   the overlay's own dialog semantics — scoped to this modal via its aria-label.
-   The extra [data-state] in each selector out-specifies Alloy's own animation
-   rules regardless of stylesheet injection order. Exit durations must stay
-   under the Dialog's 180ms unmount timer or the animation gets cut off. */
-const GrantOverlayBlur = createGlobalStyle`
-  [role='dialog'][aria-label$='Ultron access'][data-state] {
-    background: color-mix(in srgb, black 58%, transparent);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    animation: ${grantScrimIn} 440ms ${GRANT_SMOOTH} both;
-
-    & > div {
-      position: relative;
-      overflow: visible;
-      border: 0;
-      background: transparent;
-      box-shadow: 0 32px 90px rgba(3, 11, 25, 0.56);
-      animation: ${grantCardIn} 560ms ${GRANT_SMOOTH} both;
-    }
-  }
-
-  @media (max-width: 620px) {
-    [role='dialog'][aria-label$='Ultron access'][data-state] {
-      padding:
-        max(var(--space-4), env(safe-area-inset-top))
-        max(var(--space-4), env(safe-area-inset-right))
-        max(var(--space-4), env(safe-area-inset-bottom))
-        max(var(--space-4), env(safe-area-inset-left));
-
-      & > div {
-        width: 100%;
-        max-height: calc(
-          100dvh
-          - max(var(--space-4), env(safe-area-inset-top))
-          - max(var(--space-4), env(safe-area-inset-bottom))
-          - 40px
-        );
-        border-radius: var(--radius-xl);
-      }
-    }
-  }
-
-  [role='dialog'][aria-label$='Ultron access'][data-state='closed'] {
-    animation: ${grantScrimOut} 170ms var(--ease-default, ease) forwards;
-
-    & > div {
-      animation: ${grantCardOut} 170ms var(--ease-default, ease) forwards;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [role='dialog'][aria-label$='Ultron access'][data-state],
-    [role='dialog'][aria-label$='Ultron access'][data-state] > div {
-      animation: none;
-    }
-  }
-`;
-
-const GrantCard = styled.section`
-  position: relative;
-  width: 100%;
-  min-height: 0;
-  padding: var(--space-10);
-  overflow-x: hidden;
-  overflow-y: auto;
-  background:
-    radial-gradient(75% 90% at 100% 0%, color-mix(in srgb, var(--Alloy-blue-500) 38%, transparent), transparent 68%),
-    radial-gradient(70% 80% at 0% 100%, color-mix(in srgb, var(--Alloy-purple-500) 30%, transparent), transparent 72%),
-    linear-gradient(145deg, var(--Alloy-slate-950), var(--Alloy-purple-950));
-  border: none;
-  border-radius: var(--radius-xl);
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-
-  & > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  @media (max-width: 620px) {
-    padding:
-      var(--space-8)
-      var(--space-6)
-      max(var(--space-6), env(safe-area-inset-bottom));
-    gap: var(--space-4);
-  }
-`;
-
-/* Demo-only control beneath the access card. It is deliberately quiet so the
-   modal content remains the conversion surface while both variants stay easy
-   to review without restarting the flow. */
-const ModalDemoSwitch = styled.button`
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  left: 50%;
-  z-index: 2;
-  transform: translateX(-50%);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: var(--radius-full);
-  background: rgba(15, 23, 42, 0.72);
-  color: var(--Alloy-slate-200);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-relaxed);
-  cursor: pointer;
-  white-space: nowrap;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-
-  &:hover {
-    background: rgba(30, 41, 59, 0.9);
-    color: var(--color-bg-always-light);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 2px;
-  }
-`;
-
-const GrantBrandWatermark = styled.div`
-  && {
-    position: absolute;
-    right: -74px;
-    bottom: -44px;
-    z-index: 0;
-    color: var(--Alloy-blue-100);
-    opacity: 0.075;
-    transform: rotate(-8deg);
-    filter: drop-shadow(0 0 32px color-mix(in srgb, var(--Alloy-blue-300) 30%, transparent));
-    pointer-events: none;
-  }
-
-  @media (max-width: 620px) {
-    && {
-      right: -112px;
-      bottom: -34px;
-      opacity: 0.06;
-      transform: rotate(-8deg) scale(0.82);
-    }
-  }
-`;
-
-/* Ghost close, top-right — Alloy's DialogHeader close button re-cut for the
-   inverse surface (the header bar itself doesn't fit this card's layout). */
-const GrantClose = styled.button`
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-8);
-  height: var(--space-8);
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--Alloy-slate-200);
-  cursor: pointer;
-  transition:
-    background var(--duration-fast) var(--ease-default),
-    color var(--duration-fast) var(--ease-default);
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.14);
-    color: var(--color-bg-always-light);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: 1px;
-  }
-`;
-
-const GrantEyebrow = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: fit-content;
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--Alloy-blue-200);
-`;
-
-const GrantSpark = styled.span`
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--Alloy-matcha-400);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--Alloy-matcha-400) 14%, transparent),
-              0 0 20px var(--Alloy-matcha-400);
-`;
-
-const GrantOffer = styled.div`
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-4);
-  margin: var(--space-1) 0;
-
-  @media (max-width: 620px) {
-    gap: var(--space-2);
-  }
-`;
-
-const GrantAmount = styled.div`
-  font-family: 'Geist', var(--font-sans), sans-serif;
-  font-size: clamp(64px, 13vw, 96px);
-  font-weight: var(--font-weight-bold);
-  line-height: 0.82;
-  letter-spacing: -0.05em;
-  color: var(--color-bg-always-light);
-  text-shadow: 0 0 44px color-mix(in srgb, var(--Alloy-blue-300) 36%, transparent);
-  font-variant-numeric: tabular-nums;
-
-  @media (max-width: 620px) {
-    font-size: clamp(48px, 17vw, 64px);
-  }
-`;
-
-const GrantCurrency = styled.span`
-  display: inline-block;
-  margin-right: 0.03em;
-  font-size: 0.52em;
-  vertical-align: 0.42em;
-  color: var(--Alloy-matcha-400);
-`;
-
-const GrantOfferLabel = styled.span`
-  padding-bottom: var(--space-1);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-tight);
-  color: var(--Alloy-slate-300);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-
-  strong {
-    color: var(--Alloy-matcha-400);
-    font-weight: var(--font-weight-bold);
-  }
-
-  @media (max-width: 620px) {
-    font-size: var(--text-xs);
-  }
-`;
-
-const GrantTitle = styled.h2<{ $prominent?: boolean }>`
-  margin: 0;
-  /* Keep the headline clear of the close button. */
-  padding-right: var(--space-8);
-  font-family: var(--font-sans);
-  font-size: ${p => p.$prominent ? 'clamp(36px, 6vw, 48px)' : 'var(--text-3xl)'};
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-  letter-spacing: var(--tracking-tight);
-  color: var(--color-bg-always-light);
-
-  @media (max-width: 620px) {
-    font-size: ${p => p.$prominent ? 'clamp(32px, 10vw, 40px)' : 'var(--text-3xl)'};
-  }
-`;
-
-const GrantBody = styled.p`
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  line-height: var(--line-height-relaxed);
-  color: var(--Alloy-slate-200);
-  max-width: 520px;
-`;
-
-const GrantPerks = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-`;
-
-const GrantPerk = styled.span`
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--space-8);
-  padding: 0 var(--space-3);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.065);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--Alloy-slate-200);
-`;
-
-const GrantForm = styled.form`
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-top: var(--space-1);
-`;
-
-const GrantFormLabel = styled.label`
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  color: var(--Alloy-slate-300);
-`;
-
-const GrantFormRow = styled.div`
-  display: flex;
-  align-items: stretch;
-  gap: var(--space-3);
-
-  @media (max-width: 520px) {
-    flex-direction: column;
-  }
-`;
-
-/* Dark-surface text field, hand-rolled: Alloy's Input has no inverse-surface
-   variant yet — candidate for promotion into Alloy. The border is the inverse
-   tertiary content mixed down so it reads as a hairline on the dark fill. */
-const GrantField = styled.input`
-  flex: 1;
-  min-width: 200px;
-  height: var(--space-12);
-  padding: 0 var(--space-4);
-  background: rgba(255, 255, 255, 0.075);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: var(--radius-md);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  color: var(--color-bg-always-light);
-  outline: none;
-  transition:
-    border-color var(--duration-fast) var(--ease-default),
-    background var(--duration-fast) var(--ease-default);
-
-  &::placeholder { color: var(--Alloy-slate-400); }
-  &:focus-visible {
-    border-color: var(--Alloy-blue-300);
-    background: rgba(255, 255, 255, 0.11);
-  }
-
-  @media (max-width: 520px) {
-    width: 100%;
-    min-width: 0;
-  }
-`;
-
-const GrantButton = styled(Button)`
-  && {
-    min-width: 156px;
-    color: var(--Alloy-slate-950);
-    background: var(--Alloy-matcha-400);
-    border-color: transparent;
-    font-weight: var(--font-weight-bold);
-    box-shadow: 0 8px 28px color-mix(in srgb, var(--Alloy-matcha-400) 24%, transparent);
-  }
-
-  &&:hover:not(:disabled) {
-    background: var(--Alloy-matcha-300);
-    transform: translateY(-1px);
-  }
-
-  &&:disabled {
-    color: var(--Alloy-slate-600);
-    background: var(--Alloy-slate-300);
-    box-shadow: none;
-  }
-
-  @media (max-width: 520px) {
-    && {
-      width: 100%;
-    }
-  }
-`;
-
-/* Post-submit state — swaps in where the form row sat, holding its height so
-   the card doesn't jump. The check carries the neon matcha accent. */
-const GrantConfirmed = styled.div`
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--space-12);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-bg-always-light);
-
-  & svg {
-    flex-shrink: 0;
-    color: var(--Alloy-matcha-400);
-  }
-`;
-
-const GrantFinePrint = styled.p`
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  line-height: var(--line-height-relaxed);
-  color: var(--Alloy-slate-400);
 `;
 
 /* Ultron's working presence while a reply is in flight — the lines mark, the
