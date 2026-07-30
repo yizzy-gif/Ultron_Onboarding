@@ -714,9 +714,18 @@ export function WelcomeThread({
     : stage === 'schedule'
       ? dismissedMobileUploader.schedule
       : true;
+  /* On a phone the sheet is the intake's FIRST presentation, not a promotion it
+     earns once the turn settles: it stands as soon as the card it carries is
+     revealed, and the in-thread copy is what the operator gets AFTER dismissing
+     it — only then.
+     This used to also wait on `phase === 'ready'`, which flips a beat gap after
+     the roster CTA is revealed. That gap was long enough to watch: the drop zone
+     landed in the thread, then leapt out of it into the sheet.
+     No reveal test is needed here. Both surfaces render inside content that only
+     exists once revealed, so this answers "is an intake presented as a sheet on
+     this viewport", and each surface decides whether it has anything to present. */
   const mobileUploaderOpen =
     mobileManualAdvance
-    && phase === 'ready'
     && stage !== 'done'
     && !currentUploaderDismissed;
 
@@ -1510,7 +1519,13 @@ export function WelcomeThread({
                                     progress={rosterUpload?.progress ?? 0}
                                     file={rosterUpload?.file ?? null}
                                     disabled={replying !== null && !rosterUpload}
-                                    footerSlot={waiting && phase === 'ready' ? cardPills : undefined}
+                                    // The pills arrive with the card's own readiness:
+                                    // 'ready' on desktop, or the phone sheet standing,
+                                    // which now happens a beat gap earlier. Without
+                                    // that second case the sheet would open and then
+                                    // grow a row under the browse button just as its
+                                    // entrance finished.
+                                    footerSlot={waiting && (phase === 'ready' || mobileUploaderOpen) ? cardPills : undefined}
                                     onFileSelect={file => pickRosterFiles([file])}
                                     onClear={() => {}}
                                   />
@@ -2949,6 +2964,18 @@ const IntakeUploader = styled(FileUploader)`
   &&[data-state='empty'] > button {
     min-width: 112px;
     padding-inline: var(--space-4);
+    /* On the web view, a pill rather than Alloy's control radius: at this width
+       the action is a compact 112px chip sitting inside a card in the thread,
+       among the intake's own rounded surfaces and the message bubbles above it,
+       so the fully round form reads as part of the conversation.
+       Desktop-only, and stated as a min-width query rather than something the
+       phone branch below has to undo — on mobile the button stretches to a
+       full-width thumb target, where a pill of that length stops reading as a
+       chip and starts looking like a stadium bar. There it keeps Alloy's own
+       button radius, untouched: no value restated here, nothing to drift. */
+    @media (min-width: 768px) {
+      border-radius: var(--radius-full);
+    }
   }
 
   /* On phones the browse action closes the uploader's stack: alternatives stay
@@ -3000,6 +3027,22 @@ const IntakeUploader = styled(FileUploader)`
        the column's own 8px gap is the whole distance between them. */
     &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty']:has(> button + div) > button {
       margin-top: 0;
+    }
+
+    /* That same 8px is too tight above the group, though — one gap value is doing
+       two jobs here, and they want different answers: 8px between the two actions
+       reads as one button group, but 8px under the description reads as cramped.
+       So the extra space goes on whichever action LEADS the group, leaving the
+       distance between them alone: the alternatives row when it's there (order
+       lifts it above browse — see the 767px block), otherwise browse itself.
+       Lands the ask-to-action distance on the same 16px the wider layout already
+       gets from its own column gap. */
+    &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty'] > button + div {
+      margin-top: var(--space-2);
+    }
+
+    &&:is([data-roster-flow], [data-schedule-flow])[data-state='empty']:not(:has(> button + div)) > button {
+      margin-top: var(--space-2);
     }
 
     &&[data-roster-flow][data-state='empty'] {

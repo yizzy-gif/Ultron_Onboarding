@@ -449,11 +449,17 @@ function MicrosoftMark() {
 }
 function AppleMark() {
   // Monochrome — inherits the button's text color via currentColor.
+  // The body and the leaf are two subpaths of one filled path; the bite is a
+  // concavity in the right flank, not a hole, so a single fill draws the whole
+  // mark. An earlier trace of this glyph was subtly wrong in ways that only read
+  // at size: the bite's lower edge ended in a spur hooking out past the body
+  // instead of merging into its right shoulder, the leaf sat detached well left
+  // of the notch it grows from, and the silhouette leaned left of center.
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M16.365 1.43c0 1.14-.42 2.2-1.11 2.98-.75.87-1.98 1.54-3.13 1.45-.14-1.12.4-2.29 1.06-3.03.73-.83 2.02-1.44 3.18-1.4zM20.44 17.03c-.56 1.29-1.24 2.57-2.31 3.62-.9.88-1.99 1.98-3.4 1.99-1.36.01-1.71-.9-3.56-.89-1.85.01-2.24.91-3.6.9-1.41-.01-2.44-1-3.34-1.88-2.5-2.47-4.4-6.98-1.83-10.13.9-1.11 2.35-1.81 3.87-1.83 1.42-.02 2.76.96 3.56.96.8 0 2.44-1.18 4.11-1.01.7.03 2.66.28 3.92 2.13-3.4 2.09-2.86 6.72.58 8.04z"
+        d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.09-.026-3.23-1.234-3.26-4.883-.026-3.053 2.52-4.516 2.65-4.588-1.44-2.117-3.663-2.357-4.417-2.396-2.104-.152-3.87 1.166-4.596 1.166zm3-3.87c.65-.78 1.09-1.87.97-2.95-.94.04-2.07.63-2.75 1.4-.61.68-1.14 1.79-1 2.85 1.05.09 2.13-.53 2.78-1.3"
       />
     </svg>
   );
