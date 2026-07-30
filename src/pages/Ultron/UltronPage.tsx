@@ -483,13 +483,20 @@ const Page = styled.div<{ $closing?: boolean; $static?: boolean }>`
   position: relative;
   display: flex;
   flex-direction: column;
-  /* Cancel the shell's ContentMain bottom padding for Ultron only: this page
-     owns its full height and snaps the action dock / bottom fade to the very
-     foot. Reclaim the 32px the padding carves off the content box, then pull the
-     margin box back up by the same amount so it adds no scroll overflow. */
-  height: calc(100% + var(--space-8));
-  margin-bottom: calc(-1 * var(--space-8));
+  height: 100%;
   min-height: 0;
+
+  /* Cancel the desktop shell's ContentMain bottom padding for Ultron only: this
+     page owns its full height and snaps the action dock / bottom fade to the
+     very foot. Reclaim the 32px the padding carves off the content box, then
+     pull the margin box back up by the same amount so it adds no scroll
+     overflow. Desktop-only because only that shell carries the padding — on the
+     mobile shell the same 32px made the page taller than the viewport, letting
+     the whole app scroll under the sticky header. */
+  @media (min-width: 768px) {
+    height: calc(100% + var(--space-8));
+    margin-bottom: calc(-1 * var(--space-8));
+  }
   overflow: hidden;
   font-family: var(--font-sans);
   color: var(--color-content-primary);
@@ -606,9 +613,17 @@ const StickyEvent = styled.div`
 
   /* The pinned header reads as a neutral surface in every tone/state — the
      colored status fill belongs to the scrolling list cards, not the focused
-     event header, so flatten any tonal background to the page surface here. */
+     event header, so flatten any tonal background to the page surface here.
+     It doesn't lift under the pointer either: the hover rise + shadow is a list
+     row's "open me" affordance, and this card is already open and pinned (its
+     toggle is a no-op), so the movement promised something it can't do. */
   & > div[data-tone] {
     background-color: var(--color-bg-primary);
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+    }
   }
 
   /* Soft gradient just below the pinned card so content scrolling up dissolves

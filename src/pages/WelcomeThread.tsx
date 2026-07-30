@@ -12,7 +12,7 @@
    ───────────────────────────────────────────────────────────────────────────── */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { ComponentType, FormEvent, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, FormEvent, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styled, { createGlobalStyle, css, keyframes } from 'styled-components';
 import {
@@ -122,26 +122,31 @@ const TURN_GAP_MS = 950;
 const GRANT_CONFIRM_HOLD_MS = 1600;
 
 // ── Header morph ─────────────────────────────────────────────────────────────
-// The welcome identity lands as a hero lockup and settles to an app-bar once the
-// operator scrolls into the thread. These heights are shared with the header's
-// own CSS (see PageHeaderInner) so the scroll maths and the rendered height
-// cannot drift apart.
+// The welcome identity lands as a hero lockup and settles to an app-bar as the
+// operator scrolls into the thread — continuously, tied to the scroll position
+// rather than snapped at a threshold.
+//
+// The header is an overlay, not a row in the column: it takes no space in the
+// flow, and the thread reserves the hero's height as its own top padding. That
+// is what makes the morph smooth. While the header sat in flow, every change of
+// size reflowed the scroller — moving the content by however much the header
+// gave up, clamping the scroll position, and emitting scroll events that fed
+// straight back into the state driving the morph. Out of flow, the scroll range
+// never changes and the content only ever moves because the operator moved it.
+//
+// The two edges then track each other for free: the content's top sits at
+// (hero - scrollTop) and the header's bottom at (hero - progress × span), so
+// running the morph over exactly `span` px of scroll — the height the header has
+// to give — keeps the first line of prose pinned to the header's lower edge the
+// whole way down. Past that the header is a bar and the thread scrolls under it.
 const HEADER_HERO_PX = 249;
 const HEADER_BAR_PX = 68;
 const HEADER_HERO_SM_PX = 229;
 const HEADER_BAR_SM_PX = 47;
-/** Scrolled past this, a downward gesture settles the header to the bar. */
-const HEADER_CONDENSE_AT_PX = 56;
-/** Back within this of the top, an upward gesture restores the hero. */
-const HEADER_EXPAND_AT_PX = 8;
-/** Condensing hands the hero's ~180px back to the thread, which shortens the
- *  scroll by the same amount. If the thread has less overflow than that, the
- *  collapse would leave nothing to scroll — and with no scroll there is no way
- *  to scroll back up, so the header would stick small with the hero unreachable.
- *  Requiring more overflow than the hero's FULL height clears the reclaimed
- *  space with margin at both breakpoints, so there is always scroll left to
- *  carry the operator back to the top. */
-const HEADER_CONDENSE_MIN_OVERFLOW_PX = HEADER_HERO_PX;
+/** The scroll distance the morph runs over, per breakpoint: exactly the height
+ *  the header sheds, so the header's edge and the content's edge stay in step. */
+const HEADER_MORPH_SPAN_PX = HEADER_HERO_PX - HEADER_BAR_PX;
+const HEADER_MORPH_SPAN_SM_PX = HEADER_HERO_SM_PX - HEADER_BAR_SM_PX;
 /** Slack for "already at the end" — sub-pixel scroll positions and fractional
  *  layout heights mean the bottom rarely lands on an exact integer. */
 const SCROLL_END_EPSILON_PX = 8;
@@ -474,12 +479,6 @@ function looksLikePastedTable(text: string): boolean {
   return text.includes('\t') || text.trim().includes('\n');
 }
 
-/** Whether the thread has enough overflow that settling the header to the bar
- *  still leaves it scrollable — see HEADER_CONDENSE_MIN_OVERFLOW_PX. */
-function threadOutgrowsHero(el: HTMLElement): boolean {
-  return el.scrollHeight - el.clientHeight > HEADER_CONDENSE_MIN_OVERFLOW_PX;
-}
-
 // Two-letter initials for the teammate avatar tiles.
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -664,9 +663,18 @@ export function WelcomeThread({
   const [accessModalMode, setAccessModalMode] = useState<AccessModalMode>('grant');
   // Legacy demo-only access dialog, still reachable through the M shortcut.
   const [grantOpen, setGrantOpen] = useState(false);
-  // The welcome identity starts as a prominent hero lockup. It only settles
-  // into the compact app-header size after an intentional user scroll.
-  const [headerCondensed, setHeaderCondensed] = useState(false);
+  // The header's morph position, 0 (hero lockup) → 1 (app bar). Written straight
+  // to the element as a CSS variable rather than held in state: it changes with
+  // every scroll frame, and a re-render per frame is exactly the cost this design
+  // is trying to avoid. Every animated property reads it (see PageHeaderInner and
+  // the lockup pieces below).
+  const headerRef = useRef<HTMLElement>(null);
+  // Scroll the thread reserves at its foot so the morph can always finish. The
+  // collapse needs its full span of scroll to run; a thread with less than that
+  // of its own would strand the header part-collapsed, holding onto height it
+  // should have given back and leaving the operator scrolling into a stop. 0 for
+  // any thread whose own length already covers the span, which is most of them.
+  const [headerRunwayPx, setHeaderRunwayPx] = useState(0);
 
   // Landing choreography. Ultron's opening turn starts immediately and types
   // itself in one beat at a time; the composer and suggestions hold back until
@@ -728,6 +736,10 @@ export function WelcomeThread({
   // that padding (and the message) below the fold, still behind the sheet.
   const scrollThreadToEnd = () => {
     const el = scrollRef.current;
+    // Hold the intent for the duration of the animation: the smooth scroll's own
+    // events read as "not at the end" until it arrives, and without this a follow
+    // still in flight would disqualify the next one.
+    atEndRef.current = true;
     el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
   // Whether the thread is already parked at its end. The scroll cue has nothing
@@ -735,8 +747,13 @@ export function WelcomeThread({
   // — so it only appears once the operator has scrolled back up into history.
   // Starts true so it never flashes on open.
   const [threadAtEnd, setThreadAtEnd] = useState(true);
+  // The same answer as a ref, for the auto-follow to read without taking it as a
+  // dependency — the follow must not re-run merely because this flipped.
+  const atEndRef = useRef(true);
   const syncThreadAtEnd = (el: HTMLElement) => {
-    setThreadAtEnd(el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_END_EPSILON_PX);
+    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= SCROLL_END_EPSILON_PX;
+    atEndRef.current = atEnd;
+    setThreadAtEnd(atEnd);
   };
 
   // The signal the sample data derives from — what they typed for their
@@ -779,28 +796,89 @@ export function WelcomeThread({
   }, []);
 
   // ── Header morph ───────────────────────────────────────────────────────────
-  /** The header follows where the thread actually sits: hero at the top, app-bar
-   *  once the thread is scrolled into. Position alone drives it — the earlier
-   *  version only reacted to wheel/touch gestures, which meant the thread could
-   *  auto-scroll (every new message ends with a scrollIntoView) and run right
-   *  under a hero that never settled.
+  /** Drive the header's size straight off the scroll position: 0 at the top, 1
+   *  once the thread has scrolled the height the header sheds. Written to the
+   *  element as a CSS variable inside a rAF, so a burst of scroll events costs one
+   *  style write per frame and no React render at all — the morph rides the
+   *  scroll instead of chasing it with a transition.
    *
-   *  This is safe from the bounce that gesture gate was guarding against because
-   *  of the overflow rule below. Collapsing shortens the thread by the height it
-   *  reclaims, and the resize emits its own scroll event; if that landed back at
-   *  the top the header would expand, re-lengthen the thread and oscillate.
-   *  Condensing only when the thread outgrows the hero keeps the post-collapse
-   *  scroll well clear of the expand threshold, so the resize's scroll event
-   *  finds the header already settled and nothing flips back. */
+   *  Nothing here can feed back into the scroll: the header is out of flow, so
+   *  changing its size neither reflows the scroller nor moves the position. */
+  const morphFrame = useRef<number | null>(null);
   const resolveHeaderForScroll = (el: HTMLElement) => {
-    const scrollTop = el.scrollTop;
-    setHeaderCondensed(condensed => (condensed
-      // Hold the bar until the operator is genuinely back at the top.
-      ? scrollTop > HEADER_EXPAND_AT_PX
-      // Settle to the bar once scrolled in — but only when the thread has the
-      // length to spare, so there is always scroll left to carry them back up.
-      : scrollTop > HEADER_CONDENSE_AT_PX && threadOutgrowsHero(el)));
+    if (morphFrame.current !== null) return;
+    morphFrame.current = window.requestAnimationFrame(() => {
+      morphFrame.current = null;
+      const header = headerRef.current;
+      if (!header) return;
+      const span = window.matchMedia('(max-width: 600px)').matches
+        ? HEADER_MORPH_SPAN_SM_PX
+        : HEADER_MORPH_SPAN_PX;
+      // Never measure against more scroll than there is. The runway keeps the
+      // range at the span, but content heights are fractional and it settles to
+      // within a pixel — against the nominal span that pixel would leave the bar
+      // permanently a few px tall of its final size. Against the real range, the
+      // bottom of the scroll always means fully collapsed.
+      const reach = Math.min(span, el.scrollHeight - el.clientHeight) || span;
+      const progress = Math.min(1, Math.max(0, el.scrollTop / reach));
+      header.style.setProperty('--morph', progress.toFixed(4));
+    });
   };
+  useEffect(() => () => {
+    if (morphFrame.current !== null) window.cancelAnimationFrame(morphFrame.current);
+  }, []);
+
+  /* Keep at least a full morph span of scroll available, reserving the shortfall
+     at the thread's foot. Unlike the header's old in-flow arrangement, nothing
+     here can feed back: the header is an overlay, so the scroller's height is
+     fixed and the thread's own overflow is measured with the reserve discounted —
+     adding to the reserve grows scrollHeight by exactly as much and leaves that
+     measurement untouched. Re-runs as turns arrive and the thread outgrows it. */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const settle = () => {
+      const span = window.matchMedia('(max-width: 600px)').matches
+        ? HEADER_MORPH_SPAN_SM_PX
+        : HEADER_MORPH_SPAN_PX;
+      const own = el.scrollHeight - headerRunwayPx - el.clientHeight;
+      const needed = Math.max(0, span - own);
+      // A pixel of slack, or fractional content heights trade sub-pixel updates
+      // back and forth with the observer.
+      setHeaderRunwayPx(prev => (Math.abs(prev - needed) > 1 ? needed : prev));
+    };
+    settle();
+    // border-box, not the default content-box: most of what changes the thread's
+    // measured height here is padding — the hero reservation at its head and the
+    // sheet's clearance at its foot — and a content-box observation is blind to
+    // that. Watching the content box alone left the runway sized for whatever the
+    // sheet was when it last settled, so the scroll range came up short.
+    const observer = new ResizeObserver(settle);
+    observer.observe(el, { box: 'border-box' });
+    const content = el.firstElementChild;
+    if (content) observer.observe(content, { box: 'border-box' });
+    window.addEventListener('resize', settle);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', settle);
+    };
+  }, [headerRunwayPx, mobileSheetInset]);
+
+  /* Resizing the runway moves the end of the scroll. A thread parked there should
+     stay parked — otherwise growing the runway silently leaves the operator short
+     of it, and the header rests part-collapsed on height it has already conceded.
+     atEndRef still holds the answer from before the resize, since resizing emits
+     no scroll event of its own.
+     Instant, not the smooth follow: the runway can change again while an animation
+     is in flight, and a smooth scroll finishes at the offset it was handed rather
+     than at the end as it then stands — landing short, which is the very thing
+     this is here to prevent. */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !atEndRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [headerRunwayPx]);
+
   useEffect(() => {
     const query = window.matchMedia?.('(max-width: 600px)');
     if (!query) return;
@@ -935,13 +1013,19 @@ export function WelcomeThread({
   };
   useEffect(() => {
     if (!active) return;
-    // With a sheet standing, follow the scroll to the true end rather than to
-    // the last message: the thread is padded by the sheet's height, and
-    // scrollIntoView would stop at the message and leave that padding below the
-    // fold — parking each new turn behind the card as it arrives, and undoing
-    // the scroll cue on the very next keystroke of the typewriter.
-    if (mobileSheetInset > 0) scrollThreadToEnd();
-    else endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    // Only follow if the operator is already at the end. Otherwise this fought
+    // them for the scroll: reading back through the thread raises the sheet's
+    // scroll cue, which changes the sheet's height, which reports a new inset —
+    // a dependency here — and the follow dragged them straight back to the
+    // bottom. They could not scroll away at all.
+    if (!atEndRef.current) return;
+    // Follow to the true end, not to the last message. Everything below it is
+    // reserved space that has to be scrolled through to do its job: the sheet's
+    // padding (scrollIntoView would stop at the message and leave it below the
+    // fold, parking each new turn behind the card as it arrives), and the collapse
+    // runway (stopping short strands the header above the bar it should settle
+    // into).
+    scrollThreadToEnd();
   }, [active, messages, replying, phase, revealed, activeIdx, typed, showDots, mobileSheetInset]);
 
   // A normal navigation away from Welcome closes a manually opened dialog. The
@@ -1324,28 +1408,29 @@ export function WelcomeThread({
       {/* Page header — the event page's header lockup (title over a muted
           one-line subtitle), with the case avatar swapped for the page's
           document icon and no trailing open-record control. */}
-      <PageHeader $condensed={headerCondensed}>
-        <PageHeaderInner $condensed={headerCondensed}>
+      <PageHeader ref={headerRef} style={{ '--morph': 0 } as CSSProperties}>
+        <PageHeaderInner>
           {/* The leading artwork is Ultron's magnetic globe — the same identity
               the onboarding flow built cell by cell, now held compactly in the
               header while the welcome messages begin immediately. */}
-          <PageHeaderIcon $condensed={headerCondensed} role="img" aria-label="Ultron">
+          <PageHeaderIcon role="img" aria-label="Ultron">
             {/* Keep both canvases at a native render size and cross-fade them.
                 Scaling the detailed 140px canvas through fractional sizes made
                 its particles shimmer while the header was moving. The hero holds
-                the full 3D sphere; the condensed bar takes the 2D (flat-on) form
-                of the same mark, which is what reads at 36px — the same call the
-                secondary nav's rows make. */}
-            <PageHeaderMarkLayer $show={!headerCondensed} aria-hidden="true">
+                the full 3D sphere; the bar takes the 2D (flat-on) form of the same
+                mark, which is what reads at 36px — the same call the secondary
+                nav's rows make. The crossfade rides --morph, so it happens across
+                the middle of the collapse rather than at one instant. */}
+            <PageHeaderMarkLayer aria-hidden="true">
               <AgentMark mark="magnetic" size={140} tone="auto" state="active" />
             </PageHeaderMarkLayer>
-            <PageHeaderMarkLayer $show={headerCondensed} $compact aria-hidden="true">
+            <PageHeaderMarkLayer $compact aria-hidden="true">
               <AgentMark mark="magnetic2d" size={36} tone="auto" state="active" />
             </PageHeaderMarkLayer>
           </PageHeaderIcon>
-          <PageHeaderText $condensed={headerCondensed}>
-            <PageHeaderTitle $condensed={headerCondensed}>Welcome</PageHeaderTitle>
-            <PageHeaderSubtitle $condensed={headerCondensed}>
+          <PageHeaderText>
+            <PageHeaderTitle>Welcome</PageHeaderTitle>
+            <PageHeaderSubtitle>
               Finish your setup, right in the chat
             </PageHeaderSubtitle>
           </PageHeaderText>
@@ -1691,6 +1776,10 @@ export function WelcomeThread({
             )}
             <div ref={endRef} />
         </Thread>
+        {/* Headroom for the collapse, not content — see headerRunwayPx. It sits
+            past the thread's own foot padding, in the band the composer or the
+            open intake sheet covers anyway. */}
+        <HeaderRunway style={{ height: headerRunwayPx }} aria-hidden="true" />
       </Scroll>
 
       {/* Composer + one-tap pills hold back until the opening turn has fully
@@ -2148,84 +2237,95 @@ const glassBarFade = (fade: 'down' | 'up') => css`
   pointer-events: none;
 `;
 
-const PageHeader = styled.header<{ $condensed: boolean }>`
-  flex-shrink: 0;
-  position: relative;
+const PageHeader = styled.header`
+  /* An overlay, not a row in the column: the thread scrolls the full height of
+     the page behind it and reserves the hero's height as its own top padding
+     (see Thread). Taking the header out of flow is what makes the morph smooth —
+     in flow, every size change reflowed the scroller, shunted the content and
+     clamped the scroll position. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   isolation: isolate;
   /* Sit above the scroll area so the fade below paints over its content. */
   z-index: 2;
   background: transparent;
+  pointer-events: none;
+  /* The hero end of the morph, and the declared floor for it: the scroll handler
+     writes this variable on the element, and every rule below is a calc() that
+     reads it — one invalid term drops the whole property, so it must never be
+     unset, including on the first paint before any scroll has happened. */
+  --morph: 0;
 
-  /* The glass bar only exists in the condensed state: the large welcome lockup
-     floats directly on the scene with no frost or fade, and the bar eases in
-     as the header condenses over scrolling content. */
+  /* The glass bar arrives with the collapse, on the same scroll-driven value: at
+     the very top the content's first line sits exactly at the hero's lower edge,
+     so there is nothing behind the header and it floats on the bare scene; from
+     the first scrolled pixel there is, and the frost fades in as the prose slides
+     under it. No transition — --morph is already continuous, and easing it here
+     would only lag the scroll. Squared so the tint stays out of the way through
+     the early part of the collapse, where the content is still below the edge. */
   &::before {
     ${glassBarFrost}
-    opacity: ${p => (p.$condensed ? 1 : 0)};
-    transition: opacity 220ms var(--ease-out);
+    opacity: calc(var(--morph) * var(--morph));
   }
   &::after {
     ${glassBarFade('down')}
-    opacity: ${p => (p.$condensed ? 1 : 0)};
-    transition: opacity 220ms var(--ease-out);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    &::before,
-    &::after {
-      transition: none;
-    }
+    opacity: calc(var(--morph) * var(--morph));
   }
 `;
 
-const HEADER_MORPH_MS = '320ms';
-const HEADER_MORPH_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+/* Interpolate a property between its hero and bar values on --morph. Every
+   animated part of the lockup is a length, a position or an opacity, so the whole
+   morph is expressible this way — no transitions anywhere, because --morph is
+   itself driven by the scroll and easing it would only make the header lag behind
+   the finger. `hero` and `bar` may be any calc-compatible values, including
+   percentages, custom properties and clamp(). */
+const morph = (hero: string, bar: string) =>
+  `calc(${hero} * (1 - var(--morph)) + ${bar} * var(--morph))`;
+/** The same, for the plain px values the two states are authored in. */
+const morphPx = (hero: number, bar: number) => morph(`${hero}px`, `${bar}px`);
 
-const PageHeaderInner = styled.div<{ $condensed: boolean }>`
+const PageHeaderInner = styled.div`
   position: relative;
   z-index: 1;
   width: 100%;
-  height: ${p => (p.$condensed ? HEADER_BAR_PX : HEADER_HERO_PX)}px;
+  height: ${morphPx(HEADER_HERO_PX, HEADER_BAR_PX)};
   /* Match the thread column exactly: 720px of content plus the same side
      padding, so the header lockup left-aligns with the bubbles and composer. */
   max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
-  transition: height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    height: ${p => (p.$condensed ? HEADER_BAR_SM_PX : HEADER_HERO_SM_PX)}px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
+    height: ${morphPx(HEADER_HERO_SM_PX, HEADER_BAR_SM_PX)};
   }
 `;
 
 /* The leading artwork — Ultron's magnetic globe in the event header. A compact
    bloom keeps the mark legible without recreating the removed center splash. */
-const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
+const PageHeaderIcon = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   position: absolute;
-  /* Condensed: centred on the text lockup rather than on the bar, since the
-     lockup itself sits slightly below the bar's middle. The block runs from the
-     title's top (15) through the subtitle's bottom (15 + 14×1.5 + 14×1.5 = 57),
-     so its centre is 36 and a 36px mark starts at 18. */
-  top: ${p => p.$condensed ? '18px' : '24px'};
-  left: ${p => p.$condensed ? 'var(--space-6)' : '50%'};
-  width: ${p => p.$condensed ? '36px' : '140px'};
-  height: ${p => p.$condensed ? '36px' : '140px'};
-  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
+  /* Bar end: centred on the text lockup rather than on the bar, since the lockup
+     itself sits slightly below the bar's middle. The block runs from the title's
+     top (15) through the subtitle's bottom (15 + 14×1.5 + 14×1.5 = 57), so its
+     centre is 36 and a 36px mark starts at 18. */
+  /* Carried as a bare number so the mark layers can divide by it for their own
+     scale (a length over a number is a length, which transform: scale won't
+     take). The px form is derived right below. */
+  --icon-n: ${morph('140', '36')};
+  top: ${morphPx(24, 18)};
+  left: ${morph('50%', 'var(--space-6)')};
+  width: calc(var(--icon-n) * 1px);
+  height: calc(var(--icon-n) * 1px);
+  /* The hero's -50% has to unwind alongside the left value, or the mark would
+     drift half its own width as it crosses to the leading edge. */
+  transform: translateX(calc(-50% * (1 - var(--morph))));
   opacity: 1;
   visibility: visible;
-  transition:
-    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    width ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   &::before {
     content: '';
@@ -2243,92 +2343,86 @@ const PageHeaderIcon = styled.span<{ $condensed: boolean }>`
   @media (max-width: 600px) {
     /* Same centring at the small scale: a 7 → 41 block (14×1.5 title over a
        12×1.2 subtitle) against a 32px mark. */
-    top: ${p => p.$condensed ? '8px' : '16px'};
-    left: ${p => p.$condensed ? 'var(--space-4)' : '50%'};
-    width: ${p => p.$condensed ? '32px' : '140px'};
-    height: ${p => p.$condensed ? '32px' : '140px'};
+    --icon-n: ${morph('140', '32')};
+    top: ${morphPx(16, 8)};
+    left: ${morph('50%', 'var(--space-4)')};
   }
 
-  /* Short viewports drop the condensed subtitle (see PageHeaderSubtitle), which
-     leaves the title alone as the lockup — a 7 → 28 block, centre 17.5. */
+  /* Short viewports fade the subtitle out as the bar arrives (see
+     PageHeaderSubtitle), which leaves the title alone as the lockup — a 7 → 28
+     block, centre 17.5. */
   @media (max-width: 600px) and (max-height: 700px) {
-    top: ${p => p.$condensed ? '1.5px' : '16px'};
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
+    top: ${morphPx(16, 1.5)};
   }
 `;
 
-const PageHeaderMarkLayer = styled.span<{ $show: boolean; $compact?: boolean }>`
+/* Both marks are drawn at their native canvas size and scaled to whatever the
+   icon box currently measures, so the artwork tracks the box through the whole
+   morph instead of sitting at a fixed size inside a shrinking frame. Each is a
+   CSS raster scale of an already-rendered canvas — cheap, and free of the shimmer
+   that re-rendering the detailed mark at fractional sizes caused.
+   The swap happens late and with the two windows overlapping, so the detailed
+   hero form carries most of the collapse (downscaling stays crisp, upscaling the
+   36px form would not) and the handover lands where the box is near its final
+   size. Overlapping matters: ranges that merely met left both marks at zero for
+   an instant, and the mark blinked out mid-scroll. */
+const PageHeaderMarkLayer = styled.span<{ $compact?: boolean }>`
   position: absolute;
   left: 50%;
   top: 50%;
   z-index: 1;
   display: block;
-  opacity: ${p => p.$show ? 1 : 0};
-  transform: translate(-50%, -50%);
+  opacity: ${p => p.$compact
+    ? 'clamp(0, calc((var(--morph) - 0.76) / 0.12), 1)'
+    : 'clamp(0, calc((0.9 - var(--morph)) / 0.12), 1)'};
+  transform: translate(-50%, -50%)
+    scale(calc(var(--icon-n) / ${p => (p.$compact ? 36 : 140)}));
   transform-origin: center;
   pointer-events: none;
-  transition: opacity ${p => p.$show ? '190ms 55ms' : '130ms'} var(--ease-out);
-  will-change: opacity;
-
-  @media (max-width: 600px) {
-    transform: translate(-50%, -50%) scale(${p => p.$compact ? 0.8889 : 1});
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    transition: none;
-  }
 `;
 
-const PageHeaderText = styled.div<{ $condensed: boolean }>`
+const PageHeaderText = styled.div`
   display: contents;
 `;
 
 /* The page identity uses the original responsive title scale, in solid black. */
-const PageHeaderTitle = styled.span<{ $condensed: boolean }>`
+const PageHeaderTitle = styled.span`
   position: absolute;
-  top: ${p => p.$condensed ? '15px' : '180px'};
-  left: ${p => p.$condensed ? '72px' : '50%'};
-  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
-  max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
+  top: ${morphPx(180, 15)};
+  left: ${morph('50%', '72px')};
+  transform: translateX(calc(-50% * (1 - var(--morph))));
+  max-width: ${morph('calc(100% - 48px)', 'calc(100% - 96px)')};
   font-family: var(--font-sans);
-  font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'clamp(24px, 3vw, 30px)'};
-  line-height: ${p => p.$condensed ? 'var(--line-height-relaxed)' : 'var(--line-height-tight)'};
+  font-size: ${morph('clamp(24px, 3vw, 30px)', 'var(--text-sm)')};
+  line-height: ${morph('var(--line-height-tight)', 'var(--line-height-relaxed)')};
   font-weight: var(--font-weight-semibold);
-  letter-spacing: ${p => p.$condensed ? 'var(--tracking-wide)' : 'var(--tracking-tight)'};
+  letter-spacing: ${morph('var(--tracking-tight)', 'var(--tracking-wide)')};
   color: var(--color-content-primary);
   white-space: nowrap;
-  transition:
-    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    letter-spacing ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    top: ${p => p.$condensed ? '7px' : '168px'};
-    left: ${p => p.$condensed ? '56px' : '50%'};
-    max-width: ${p => p.$condensed ? 'calc(100% - 72px)' : 'calc(100% - 32px)'};
-    font-size: ${p => p.$condensed ? 'var(--text-sm)' : '24px'};
+    top: ${morphPx(168, 7)};
+    left: ${morph('50%', '56px')};
+    max-width: ${morph('calc(100% - 32px)', 'calc(100% - 72px)')};
+    font-size: ${morph('24px', 'var(--text-sm)')};
   }
-
-  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 /* One-line muted subtitle — the event header's CardSubtitle, with the muted
    tone drawn from the neutral family (this header sits on the primary surface,
    not the card's tonal fill). */
-const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
+const PageHeaderSubtitle = styled.span`
   position: absolute;
-  top: ${p => p.$condensed ? '36px' : '213px'};
-  left: ${p => p.$condensed ? '72px' : '50%'};
-  transform: ${p => p.$condensed ? 'translateX(0)' : 'translateX(-50%)'};
-  max-width: ${p => p.$condensed ? 'calc(100% - 96px)' : 'calc(100% - 48px)'};
+  top: ${morphPx(213, 36)};
+  left: ${morph('50%', '72px')};
+  transform: translateX(calc(-50% * (1 - var(--morph))));
+  max-width: ${morph('calc(100% - 48px)', 'calc(100% - 96px)')};
   font-family: var(--font-sans);
-  font-size: ${p => p.$condensed ? 'var(--text-sm)' : 'var(--text-md)'};
+  /* 16px, not --text-md: that token isn't defined, so this declaration was being
+     dropped and the size fell through to the inherited 16px. Stating it keeps the
+     rendered size exactly as it was while giving the interpolation two real ends
+     to work between — a calc() with one invalid term drops the whole property. */
+  font-size: ${morph('16px', 'var(--text-sm)')};
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-relaxed);
   letter-spacing: var(--tracking-normal);
@@ -2336,26 +2430,21 @@ const PageHeaderSubtitle = styled.span<{ $condensed: boolean }>`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition:
-    top ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    left ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    transform ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    font-size ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE},
-    line-height ${HEADER_MORPH_MS} ${HEADER_MORPH_EASE};
 
   @media (max-width: 600px) {
-    top: ${p => p.$condensed ? '27px' : '197px'};
-    left: ${p => p.$condensed ? '56px' : '50%'};
-    max-width: ${p => p.$condensed ? 'calc(100% - 72px)' : 'calc(100% - 32px)'};
-    font-size: ${p => p.$condensed ? 'var(--text-xs)' : 'var(--text-sm)'};
-    line-height: ${p => p.$condensed ? 'var(--line-height-snug)' : 'var(--line-height-relaxed)'};
+    top: ${morphPx(197, 27)};
+    left: ${morph('50%', '56px')};
+    max-width: ${morph('calc(100% - 32px)', 'calc(100% - 72px)')};
+    font-size: ${morph('var(--text-sm)', 'var(--text-xs)')};
+    line-height: ${morph('var(--line-height-relaxed)', 'var(--line-height-snug)')};
   }
 
+  /* Short viewports have no room for the subtitle once the bar arrives. Fading it
+     over the first half of the collapse (rather than switching display) keeps the
+     morph continuous — display has no in-between to interpolate through. */
   @media (max-width: 600px) and (max-height: 700px) {
-    display: ${p => p.$condensed ? 'none' : 'block'};
+    opacity: clamp(0, calc(1 - var(--morph) * 2), 1);
   }
-
-  @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
 
 const Scroll = styled.div`
@@ -2367,6 +2456,13 @@ const Scroll = styled.div`
   display: flex;
   flex-direction: column;
 `;
+
+/* Reserved scroll for the header's collapse (height set inline — it's measured).
+   flex-shrink: 0 so the column can't squeeze the reserve back out. */
+const HeaderRunway = styled.div`
+  flex-shrink: 0;
+`;
+
 
 /* The opening turn (and any dynamic replies) fade + rise in as they mount, so
    the handoff reads as Ultron arriving rather than a static dump. */
@@ -2988,11 +3084,17 @@ const Thread = styled.div<{ $bottomInset?: number }>`
   width: 100%;
   max-width: calc(720px + var(--space-6) * 2);
   margin: 0 auto;
-  padding: var(--space-8) var(--space-6);
+  /* The header is an overlay (see PageHeader), so the thread carries the hero's
+     height as padding — the space the header used to hold in the flow. Fixed at
+     the hero size and never animated: this is the padding whose changing would
+     move the content, which is the whole reason the morph used to jump. As the
+     header sheds height the content rises past it at the same rate, so the first
+     line stays on its lower edge. */
+  padding: calc(${HEADER_HERO_PX}px + var(--space-8)) var(--space-6) var(--space-8);
 
   @media (max-width: 600px) {
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-4) var(--space-4);
+    padding: calc(${HEADER_HERO_SM_PX}px + var(--space-3)) var(--space-4) var(--space-4);
 
     /* Scrollable room the height of the open intake sheet, so the conversation
        can be pulled out from under it (the sheet's own scroll cue does exactly
