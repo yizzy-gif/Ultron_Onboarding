@@ -21,7 +21,7 @@ import {
   UltronIdentityCard, TypingText, caseLabel, mockUltronReply,
   type UltronSection, type ThreadStatus, type NewPageMessage,
 } from './pages/Ultron';
-import { WelcomeThread, companyName, type WelcomeAnswers } from './pages/WelcomeThread';
+import { WelcomeThread, companyHost, type WelcomeAnswers } from './pages/WelcomeThread';
 import { AccessModal } from './pages/AccessModal';
 import { useHashSync } from './nav/hashSync';
 import type { MobileModuleGroup } from './components/AppShell/MobileShell';
@@ -159,6 +159,56 @@ const SavedWorkflowMark = styled.span`
     &::after { animation: none; }
   }
 `;
+
+/* Slot for the workspace row's leading artwork, sized to the identity marks it
+   sits among (32px) and clipping its contents square-rounded, so a logo of any
+   aspect lands on the row at exactly the weight of the marks beside it. */
+const NavMarkSlot = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+`;
+
+/* The company's own favicon, held back until it loads at a real size. Google's
+   favicon service answers for icon-less domains with its own 16px globe rather
+   than a failure, so smallness is the only tell — anything under 32 is a miss
+   dressed as a hit, and the slot should keep Ultron's mark instead. `contain`
+   rather than `cover`: a wordmark that isn't square should be shown whole, not
+   cropped to fill. */
+const NavFavicon = styled.img<{ $visible?: boolean }>`
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: ${p => (p.$visible ? 'block' : 'none')};
+`;
+
+/** The workspace row's mark. Onboarding's pasted link gives the workspace a face
+ *  of its own, so the row wears that company's favicon once it's in hand. Until
+ *  then — and on a refresh, which doesn't keep the answers — it stays Ultron's
+ *  own mark: the row is the setup conversation with Ultron, which is the honest
+ *  reading of it when no logo has actually been retrieved. */
+function WorkspaceNavMark({ host }: { host: string | null }) {
+  const [faviconReady, setFaviconReady] = useState(false);
+  const ultronMark = <AgentMark mark="magnetic2d" size={32} tone="auto" state="idle" aria-label="Ultron" />;
+  if (!host) return ultronMark;
+  return (
+    <NavMarkSlot>
+      {!faviconReady && ultronMark}
+      <NavFavicon
+        src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`}
+        alt=""
+        $visible={faviconReady}
+        onLoad={e => setFaviconReady(e.currentTarget.naturalWidth >= 32)}
+        onError={() => setFaviconReady(false)}
+      />
+    </NavMarkSlot>
+  );
+}
 
 /* Body copy for the locked-module (waitlist) dialog — the Dialog portals to
    document.body, outside the app root's font cascade, so set the type here. */
@@ -612,20 +662,20 @@ export default function App({ introAnswers, onRestartOnboarding }: AppProps = {}
   // reachable. It lives with the cases and follows their lifecycle: listed
   // under New until the operator continues the conversation, under Working
   // after (see welcomeContinued), and under Done once the setup itself is
-  // finished (see welcomeSetupComplete). Named after what onboarding learned — the
-  // company (from the pasted website) or the workforce they described —
-  // falling back to a plain "Account setup" when neither is known (refresh).
-  const welcomeCompany =
-    companyName(introAnswers?.companyWebsite) ?? introAnswers?.workforceType ?? null;
+  // finished (see welcomeSetupComplete).
+  //
+  // The label is fixed. It used to be named after what onboarding learned — the
+  // company, or the workforce they described — which made one row read three
+  // different ways depending on how the operator came in, and pushed the part
+  // that says what the row IS to the end of a long label the nav then truncated
+  // ("Meridiancare account s…"). The company belongs in the artwork instead: the
+  // row says what it is, the mark says whose it is.
   const welcomeNavChild = {
     id: 'welcome',
-    label: welcomeCompany ? `${welcomeCompany} account setup` : 'Account setup',
-    // Ultron's own mark rather than a document glyph: this row is the setup
-    // conversation with Ultron, not a file the operator made. The magnetic form
-    // is its resting one — the same presence the composer rests on — so the row
-    // reads as Ultron sitting in the list beside the cases it detected. The 2D
-    // (flat-on) variant reads cleaner than the 3D sphere at nav scale.
-    icon: <AgentMark mark="magnetic2d" size={32} tone="auto" state="idle" aria-label="Ultron" />,
+    label: 'Account Setup',
+    // The workspace's own logo when the pasted link yields one, else Ultron's
+    // mark — see WorkspaceNavMark for which and why.
+    icon: <WorkspaceNavMark host={companyHost(introAnswers?.companyWebsite)} />,
     isActive: onWelcome,
     onClick: openWelcome,
   };

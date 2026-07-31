@@ -449,16 +449,26 @@ function chatReplyActivity(): ActivityMilestone[] {
 }
 
 /** One line of the setup recap — something Ultron actually turned on. */
-/** Title-cased company name derived from the pasted website (mirrors the
- *  onboarding helper), or null when no site was given. Exported for the app
- *  shell, which names the welcome nav entry after the company. */
-export function companyName(website?: string): string | null {
+/** Bare host of the pasted website — protocol and `www.` stripped — or null when
+ *  no site was given. Whitespace goes first: a stray space would otherwise
+ *  survive as %20 in the parsed hostname. Exported for the app shell, which keys
+ *  the workspace's favicon lookup off it. */
+export function companyHost(website?: string): string | null {
   if (!website) return null;
   const clean = website.trim().replace(/\s+/g, '');
+  if (!clean) return null;
   const withProto = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
   let host = clean;
   try { host = new URL(withProto).hostname; } catch { /* keep clean */ }
-  host = host.replace(/^www\./, '');
+  return host.replace(/^www\./, '') || null;
+}
+
+/** Title-cased company name derived from the pasted website (mirrors the
+ *  onboarding helper), or null when no site was given. Used in the thread's own
+ *  copy — Ultron greets the workspace by name. */
+export function companyName(website?: string): string | null {
+  const host = companyHost(website);
+  if (!host) return null;
   const root = host.split('.')[0] || host;
   const name = root
     .split(/[-_]/)

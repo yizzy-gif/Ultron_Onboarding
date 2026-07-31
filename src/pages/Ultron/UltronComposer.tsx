@@ -108,7 +108,12 @@ export function PhoneCaptureCard({
       </PhoneCloseButton>
       <CalloutCopy>
         <CalloutEyebrow><LivePulse aria-hidden="true" /> YOUR FIRST LIVE EVENT</CalloutEyebrow>
-        <CalloutTitle>Ready to see the real work?</CalloutTitle>
+        {/* The ask becomes a status the moment the number lands: the question has
+            been answered, so the heading reports what that answer set in motion
+            rather than going on asking it. */}
+        <CalloutTitle>
+          {captured ? 'Activating demo event now' : 'Ready to see the real work?'}
+        </CalloutTitle>
         <CalloutBody>
           Ultron just caught a last-minute callout. Add your mobile number to follow
           it from detection through resolution — and to get the next one wherever
@@ -119,7 +124,7 @@ export function PhoneCaptureCard({
       {captured ? (
         <PhoneConfirmed role="status">
           <CheckCircleIcon size={22} />
-          <span>Activating demo event now</span>
+          <span><strong>You’re in.</strong> Here’s the event as Ultron works it.</span>
         </PhoneConfirmed>
       ) : (
         <>

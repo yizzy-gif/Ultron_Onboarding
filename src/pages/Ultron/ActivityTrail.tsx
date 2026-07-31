@@ -504,62 +504,67 @@ function MilestoneContent({ milestone, label, last, typing, icon, collapsible = 
 
   return (
     <Content $last={last}>
-      <Header
+      {/* Title row and status line pressed as one — see HeaderBlock. The element
+          TYPE is still decided by the same stable `canToggle` test that used to sit
+          on the title row, for the same reason: it must not flip as the step
+          settles, or the leading icon would re-mount mid loader→check morph. */}
+      <HeaderBlock
         as={sessionUnit || canToggle ? 'button' : 'div'}
         type={sessionUnit || canToggle ? 'button' : undefined}
         $interactive={sessionUnit || interactive}
         aria-expanded={sessionUnit ? true : (interactive ? open : undefined)}
         onClick={sessionUnit ? onCollapse : (interactive ? toggleOpen : undefined)}
       >
-        {/* The leading marker (loader while working / check once done / the group's
-            expand mark for a reasoning line). The actioning step keeps its spinner
-            here — its expand affordance lives on the sub-line below instead. */}
-        {icon}
-        {/* The title reflects the step's lifecycle (plan → working → done); only the
-            sub-context (progress line / typewriter) animates while it runs. */}
-        <Headline $focused={!!focused}>{headline}</Headline>
-        {/* A per-step chevron only for a normal collapsible step (not the focused
-            step, whose toggle is on the sub-line, and not a session-unit row, which
-            toggles the whole group). */}
-        {interactive && !focused && (
-          <Chevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></Chevron>
-        )}
-      </Header>
+        <Header>
+          {/* The leading marker (loader while working / check once done / the group's
+              expand mark for a reasoning line). The actioning step keeps its spinner
+              here — its expand affordance lives on the sub-line below instead. */}
+          {icon}
+          {/* The title reflects the step's lifecycle (plan → working → done); only the
+              sub-context (progress line / typewriter) animates while it runs. */}
+          <Headline $focused={!!focused}>{headline}</Headline>
+          {/* A per-step chevron only for a normal collapsible step (not the focused
+              step, whose toggle is on the sub-line, and not a session-unit row, which
+              toggles the whole group). */}
+          {interactive && !focused && (
+            <Chevron data-open={open || undefined} aria-hidden="true"><ChevronRightIcon size={14} /></Chevron>
+          )}
+        </Header>
 
-      {/* Running progress sub-row — a live status line that keeps cycling through the
-          step's progress beats, then settles to the final result. For the actioning
-          step the +/− accordion toggle sits at the head of this line, so its live
-          thinking/actions open right where the status reads. */}
-      {milestone.progress?.length ? (
-        <ProgressWrap $indent={!!icon}>
-          <SublineRow>
-            {sublineToggle && (
-              <SublineToggle
-                type="button"
-                aria-expanded={open}
-                aria-label={open ? 'Hide details' : 'Show details'}
-                onClick={toggleOpen}
-              >
-                {open ? <MinusIcon size={16} /> : <PlusIcon size={16} />}
-              </SublineToggle>
-            )}
-            <MilestoneProgress
-              steps={milestone.progress}
-              avatars={milestone.avatars}
-              avatarsOnSettle={milestone.avatarsOnSettle}
-              reached={milestone.reached}
-              live={!!(typing || focused)}
-              beat={progressBeat}
-              superseded={superseded}
-              /* The trailing matched-user avatars show while the step is running (as the
-                 people are reached) and whenever it's expanded. Once it settles and
-                 collapses they tuck away, leaving just the status line — reopening the
-                 step brings them back. */
-              showAvatars={open || typing || focused}
-            />
-          </SublineRow>
-        </ProgressWrap>
-      ) : null}
+        {/* Running progress sub-row — a live status line that keeps cycling through the
+            step's progress beats, then settles to the final result. For the actioning
+            step the +/− accordion mark sits at the head of this line, so its live
+            thinking/actions open right where the status reads. */}
+        {milestone.progress?.length ? (
+          <ProgressWrap $indent={!!icon}>
+            <SublineRow>
+              {/* Drawn, not pressed: the press is the whole block now, and a real
+                  button here would nest inside that one. It stays as the affordance
+                  that says this line opens — the state it reports is carried for
+                  assistive tech by the block's own aria-expanded. */}
+              {sublineToggle && (
+                <SublineToggle as="span" aria-hidden="true">
+                  {open ? <MinusIcon size={16} /> : <PlusIcon size={16} />}
+                </SublineToggle>
+              )}
+              <MilestoneProgress
+                steps={milestone.progress}
+                avatars={milestone.avatars}
+                avatarsOnSettle={milestone.avatarsOnSettle}
+                reached={milestone.reached}
+                live={!!(typing || focused)}
+                beat={progressBeat}
+                superseded={superseded}
+                /* The trailing matched-user avatars show while the step is running (as the
+                   people are reached) and whenever it's expanded. Once it settles and
+                   collapses they tuck away, leaving just the status line — reopening the
+                   step brings them back. */
+                showAvatars={open || typing || focused}
+              />
+            </SublineRow>
+          </ProgressWrap>
+        ) : null}
+      </HeaderBlock>
 
       {showBlocks && (
         <Blocks $indent={!!icon}>
@@ -1180,13 +1185,26 @@ const Content = styled.div<{ $last?: boolean; $dim?: boolean }>`
   transition: opacity var(--duration-base) var(--ease-out);
 `;
 
-const Header = styled.div<{ $interactive?: boolean }>`
+const Header = styled.div`
   all: unset;
   display: flex;
   align-items: center;
   /* Tight 8px lead — the title hugs its loader/checkmark. The sub-content
      indents (ProgressWrap / Blocks / ExtraSlot) mirror this value. */
   gap: var(--space-2);
+  width: 100%;
+  box-sizing: border-box;
+`;
+
+/* The step's press target: the title row and the status line beneath it, taken as
+   one. The two are a single thought — the line is the title's result — so the
+   status text is the obvious thing to aim at, and leaving the button on the title
+   alone made the larger, more inviting half of the row inert. Only these two are
+   wrapped: the content the press reveals sits outside it, where its own controls
+   stay independently reachable and can't nest inside this one. */
+const HeaderBlock = styled.div<{ $interactive?: boolean }>`
+  all: unset;
+  display: block;
   width: 100%;
   box-sizing: border-box;
   cursor: ${p => (p.$interactive ? 'pointer' : 'default')};
@@ -1214,7 +1232,9 @@ const Headline = styled.span<{ $focused?: boolean }>`
   line-height: var(--line-height-snug);
   transition: color var(--duration-base) var(--ease-out);
 
-  ${Header}:hover & { color: var(--color-content-primary); }
+  /* Keyed to the whole press target, not the title row: hovering the status line
+     is hovering the same control, so the title has to warm with it. */
+  ${HeaderBlock}:hover & { color: var(--color-content-primary); }
 
   @media (prefers-reduced-motion: reduce) { transition: none; }
 `;
@@ -1229,8 +1249,8 @@ const Chevron = styled.span`
   transition:
     opacity var(--duration-base) var(--ease-out),
     transform var(--duration-base) var(--ease-default);
-  ${Header}:hover &,
-  ${Header}:focus-visible &,
+  ${HeaderBlock}:hover &,
+  ${HeaderBlock}:focus-visible &,
   &[data-open] { opacity: 1; }
   &[data-open] { transform: rotate(90deg); }
 
